@@ -36,6 +36,7 @@ $documentId = (int)($_POST['document_id'] ?? 0);
 $trackingId = strtoupper(trim((string)($_POST['tracking_id'] ?? '')));
 $destinationOfficeId = (int)($_POST['destination_office_id'] ?? 0);
 $destinationUserId = (int)($_POST['destination_user_id'] ?? 0);
+$bypassReason = trim((string)($_POST['bypass_reason'] ?? ''));
 $remarks = trim((string)($_POST['remarks'] ?? ''));
 $receiveMethod = strtoupper(trim((string)($_POST['receive_method'] ?? 'MANUAL')));
 $subject = trim((string)($_POST['subject'] ?? ''));
@@ -262,6 +263,7 @@ function document_action_idempotency_request_hash(array $payload, array $uploade
         'tracking_id' => strtoupper(trim((string)($payload['tracking_id'] ?? ''))),
         'destination_office_id' => (int)($payload['destination_office_id'] ?? 0),
         'destination_user_id' => (int)($payload['destination_user_id'] ?? 0),
+        'bypass_reason' => trim((string)($payload['bypass_reason'] ?? '')),
         'remarks' => trim((string)($payload['remarks'] ?? '')),
         'receive_method' => strtoupper(trim((string)($payload['receive_method'] ?? 'MANUAL'))),
         'subject' => trim((string)($payload['subject'] ?? '')),
@@ -590,6 +592,43 @@ function workflow_build_prepared_response_route_context(
         'target_label' => $isDivisionChiefPreparedResponse
             ? ($isArdDestination ? 'ARD' : 'ORED')
             : ($isSectionStaffPreparedResponse ? 'Division Chief' : ''),
+    ];
+}
+
+function workflow_build_endorsement_route_context(
+    string $actorRoleKey,
+    string $action,
+    array $destinationOffice
+): array {
+    $normalizedAction = strtoupper(trim($action));
+    if ($normalizedAction !== 'FORWARD') {
+        return [
+            'allowed' => false,
+            'required' => false,
+            'target_label' => '',
+        ];
+    }
+
+    $destinationOfficeName = strtoupper(trim((string)($destinationOffice['name'] ?? '')));
+    $destinationOfficeLevel = strtoupper(trim((string)($destinationOffice['level'] ?? '')));
+
+    $isRecordsUnitDestination = workflow_name_matches_records_unit($destinationOfficeName);
+
+    $isCenroPasuToRecordsUnit = in_array($actorRoleKey, ['CENRO', 'PASU'], true) && $isRecordsUnitDestination;
+    $isPenroToRecordsUnit = $actorRoleKey === 'PENRO' && $isRecordsUnitDestination;
+
+    if (!$isCenroPasuToRecordsUnit && !$isPenroToRecordsUnit) {
+        return [
+            'allowed' => false,
+            'required' => false,
+            'target_label' => '',
+        ];
+    }
+
+    return [
+        'allowed' => true,
+        'required' => $isPenroToRecordsUnit,
+        'target_label' => 'PACDO/RECORDS-UNIT',
     ];
 }
 
@@ -1640,6 +1679,11 @@ try {
         'is_section_staff_route' => false,
         'target_label' => '',
     ];
+    $endorsementRouteContext = [
+        'allowed' => false,
+        'required' => false,
+        'target_label' => '',
+    ];
     $rawUploadedFiles = intake_normalize_uploaded_files($_FILES['attachment_files'] ?? null);
 
     if ($action !== 'EDIT') {
@@ -1705,6 +1749,11 @@ try {
                 $action,
                 $destinationOffice
             );
+            $endorsementRouteContext = workflow_build_endorsement_route_context(
+                $actorRoleKey,
+                $action,
+                $destinationOffice
+            );
             if (($preparedResponseRouteContext['allowed'] ?? false) && empty($remarksAttachmentFiles)) {
                 $hasExistingPreparedResponse = workflow_document_has_prepared_response_attachment($pdo, $documentId);
                 if (!$hasExistingPreparedResponse) {
@@ -1719,13 +1768,26 @@ try {
                     );
                 }
             }
+            if (($endorsementRouteContext['required'] ?? false) && empty($remarksAttachmentFiles)) {
+                $endorsementTargetLabel = trim((string)($endorsementRouteContext['target_label'] ?? 'destination office'));
+                if ($endorsementTargetLabel === '') {
+                    $endorsementTargetLabel = 'destination office';
+                }
+                throw new InvalidArgumentException(
+                    'Endorsement letter attachment is required before forwarding to '
+                    . $endorsementTargetLabel
+                    . '.'
+                );
+            }
             workflow_forward_document(
                 $pdo,
                 $documentId,
                 $actorUserId,
                 $destinationOfficeId,
                 $destinationUserId > 0 ? $destinationUserId : null,
-                $remarks
+                $remarks,
+                $bypassReason,
+                !empty($remarksAttachmentFiles)
             );
             break;
 
@@ -2182,25 +2244,43 @@ try {
     }
 
     if (!empty($remarksAttachmentFiles)) {
-        if (!(bool)($preparedResponseRouteContext['allowed'] ?? false)) {
-            throw new InvalidArgumentException('Prepared of response attachments are only allowed when Division Chief sends back to ARD/ORED or Section Staff sends back to Division Chief.');
+        $preparedResponseAllowed = (bool)($preparedResponseRouteContext['allowed'] ?? false);
+        $endorsementAllowed = (bool)($endorsementRouteContext['allowed'] ?? false);
+        if (!$preparedResponseAllowed && !$endorsementAllowed) {
+            throw new InvalidArgumentException('Route attachments are allowed only for prepared response or endorsement forwarding routes.');
         }
 
         $remarksAttachmentCount = intake_store_document_attachments($pdo, $documentId, $actorUserId, $remarksAttachmentFiles);
         if ($remarksAttachmentCount > 0) {
-            $preparedResponseTarget = trim((string)($preparedResponseRouteContext['target_label'] ?? ''));
-            if ($preparedResponseTarget === '') {
-                $preparedResponseTarget = 'destination office';
+            if ($preparedResponseAllowed) {
+                $preparedResponseTarget = trim((string)($preparedResponseRouteContext['target_label'] ?? ''));
+                if ($preparedResponseTarget === '') {
+                    $preparedResponseTarget = 'destination office';
+                }
+                workflow_log_action($pdo, [
+                    'document_id' => $documentId,
+                    'user_id' => $actorUserId,
+                    'action_type' => 'Edited',
+                    'action_scope' => 'ACTION',
+                    'remarks' => 'Prepared of response attached (' . $remarksAttachmentCount . ' file(s)) for ' . $preparedResponseTarget . '.',
+                    'is_visible_on_slip' => 0,
+                ]);
+                $successMessage .= ' Prepared of response uploaded (' . $remarksAttachmentCount . ' file(s)).';
+            } elseif ($endorsementAllowed) {
+                $endorsementTarget = trim((string)($endorsementRouteContext['target_label'] ?? 'destination office'));
+                if ($endorsementTarget === '') {
+                    $endorsementTarget = 'destination office';
+                }
+                workflow_log_action($pdo, [
+                    'document_id' => $documentId,
+                    'user_id' => $actorUserId,
+                    'action_type' => 'Edited',
+                    'action_scope' => 'ACTION',
+                    'remarks' => 'Endorsement letter attached (' . $remarksAttachmentCount . ' file(s)) for forwarding to ' . $endorsementTarget . '.',
+                    'is_visible_on_slip' => 0,
+                ]);
+                $successMessage .= ' Endorsement letter uploaded (' . $remarksAttachmentCount . ' file(s)).';
             }
-            workflow_log_action($pdo, [
-                'document_id' => $documentId,
-                'user_id' => $actorUserId,
-                'action_type' => 'Edited',
-                'action_scope' => 'ACTION',
-                'remarks' => 'Prepared of response attached (' . $remarksAttachmentCount . ' file(s)) for ' . $preparedResponseTarget . '.',
-                'is_visible_on_slip' => 0,
-            ]);
-            $successMessage .= ' Prepared of response uploaded (' . $remarksAttachmentCount . ' file(s)).';
         }
     }
 

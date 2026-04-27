@@ -213,12 +213,38 @@ if (!in_array($theme, ['light', 'dark'], true)) {
             box-shadow: 0 8px 22px rgba(26, 48, 71, 0.14);
         }
 
+        .stamp-canvas-image {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: none;
+            z-index: 0;
+            background: #fff;
+        }
+
+        .stamp-canvas-empty {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 20px;
+            color: #4b6178;
+            font-size: 13px;
+            z-index: 0;
+            background: #fff;
+        }
+
         .grid-layer {
             position: absolute;
             inset: 0;
             pointer-events: none;
             opacity: 0;
             transition: opacity 0.15s ease;
+            z-index: 1;
             background-image:
                 linear-gradient(to right, rgba(32, 78, 129, 0.15) 1px, transparent 1px),
                 linear-gradient(to bottom, rgba(32, 78, 129, 0.15) 1px, transparent 1px);
@@ -231,6 +257,7 @@ if (!in_array($theme, ['light', 'dark'], true)) {
 
         .stamp-block {
             position: absolute;
+            z-index: 2;
             width: 360px;
             height: 260px;
             min-height: 120px;
@@ -503,6 +530,13 @@ if (!in_array($theme, ['light', 'dark'], true)) {
                         <span class="hint">Grid (px)</span>
                         <input type="number" id="gridSizeInput" class="input" min="8" max="80" step="1" value="24" style="width:76px;">
                     </label>
+                    <label style="display:inline-flex; align-items:center; gap:6px;">
+                        <span class="hint">Canvas Image</span>
+                        <select class="select" id="canvasImageSelect" style="min-width:250px;">
+                            <option value="__BLANK__">Blank canvas</option>
+                            <option value="">Auto-select latest image</option>
+                        </select>
+                    </label>
                 </div>
                 <div class="right">
                     <button type="button" id="printSoftCopyBtn" class="btn">Print Stamp</button>
@@ -525,11 +559,14 @@ if (!in_array($theme, ['light', 'dark'], true)) {
             </div>
 
             <p class="hint" style="margin-top:6px;">
-                Dynamic stamp: realtime date, editable signature, drag freely, resize directly on canvas, and print.
+                Dynamic stamp: realtime date, editable signature, drag freely, resize directly on image canvas, and print.
+                Incoming PENRO to PACDO defaults to blank canvas; returned ORED-signed workflows auto-select the original image.
             </p>
 
             <div class="stage-wrap">
                 <div id="stampStage" class="stamp-stage">
+                    <img id="stampCanvasImage" class="stamp-canvas-image" alt="Workflow image canvas preview">
+                    <div id="stampCanvasEmpty" class="stamp-canvas-empty">Loading workflow image canvas...</div>
                     <div id="gridLayer" class="grid-layer"></div>
                     <div id="stampBlock" class="stamp-block" aria-label="Drag stamp">
                         <div class="stamp-header">
@@ -586,6 +623,7 @@ if (!in_array($theme, ['light', 'dark'], true)) {
             const modeFreeBtn = document.getElementById('modeFreeBtn');
             const modeGridBtn = document.getElementById('modeGridBtn');
             const gridSizeInput = document.getElementById('gridSizeInput');
+            const canvasImageSelect = document.getElementById('canvasImageSelect');
             const printSoftCopyBtn = document.getElementById('printSoftCopyBtn');
             const resetStampPositionBtn = document.getElementById('resetStampPositionBtn');
             const stampSignInput = document.getElementById('stampSignInput');
@@ -595,6 +633,8 @@ if (!in_array($theme, ['light', 'dark'], true)) {
             const stampReceivedByValue = document.getElementById('stampReceivedByValue');
             const stampSignText = document.getElementById('stampSignText');
             const stampSignaturePreview = document.getElementById('stampSignaturePreview');
+            const stampCanvasImage = document.getElementById('stampCanvasImage');
+            const stampCanvasEmpty = document.getElementById('stampCanvasEmpty');
             const paperLabel = document.getElementById('paperLabel');
             const currentModeLabel = document.getElementById('currentModeLabel');
             const currentSizeLabel = document.getElementById('currentSizeLabel');
@@ -602,6 +642,9 @@ if (!in_array($theme, ['light', 'dark'], true)) {
             const currentYLabel = document.getElementById('currentYLabel');
             const flashMessage = document.getElementById('flashMessage');
             const resizeHandles = Array.from(document.querySelectorAll('.resize-handle'));
+            const stampTrackingId = <?php echo json_encode($trackingId, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+            const documentDetailsPath = <?php echo json_encode(app_url('actions/document-details.php'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+            const CANVAS_BLANK_VALUE = '__BLANK__';
 
             if (!stage || !block || !gridLayer) {
                 return;
@@ -636,6 +679,9 @@ if (!in_array($theme, ['light', 'dark'], true)) {
                 resizeStartTop: 0,
                 currentDateIso: '',
                 receivedBy: <?php echo json_encode($receivedByDefault, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>,
+                canvasImageOptions: [],
+                canvasSelectionValue: CANVAS_BLANK_VALUE,
+                autoPreferOriginalImage: false,
             };
 
             function clamp(value, min, max) {
@@ -652,6 +698,259 @@ if (!in_array($theme, ['light', 'dark'], true)) {
                         flashMessage.textContent = '';
                     }
                 }, 1200);
+            }
+
+            function applyCanvasImage(url, emptyMessage) {
+                const safeUrl = String(url || '').trim();
+                if (stampCanvasImage) {
+                    if (safeUrl !== '') {
+                        stampCanvasImage.src = safeUrl;
+                        stampCanvasImage.style.display = 'block';
+                    } else {
+                        stampCanvasImage.removeAttribute('src');
+                        stampCanvasImage.style.display = 'none';
+                    }
+                }
+                if (stampCanvasEmpty) {
+                    const hasImage = safeUrl !== '';
+                    stampCanvasEmpty.style.display = hasImage ? 'none' : 'flex';
+                    if (!hasImage && String(emptyMessage || '').trim() !== '') {
+                        stampCanvasEmpty.textContent = String(emptyMessage || '');
+                    }
+                }
+            }
+
+            function normalizeRoleKey(value) {
+                return String(value || '')
+                    .trim()
+                    .toUpperCase()
+                    .replace(/[^A-Z0-9]+/g, '_')
+                    .replace(/^_+|_+$/g, '');
+            }
+
+            function isDigitallySignedAttachment(attachment) {
+                if (!attachment || typeof attachment !== 'object') {
+                    return false;
+                }
+                const fileName = String(attachment.file_name || '').toLowerCase();
+                const filePath = String(attachment.file_path || '').toLowerCase();
+                if (fileName.indexOf('[digitally signed]') === 0) {
+                    return true;
+                }
+                if (filePath.indexOf('_signed_') !== -1) {
+                    return true;
+                }
+                return false;
+            }
+
+            function extractCanvasImageOptions(attachments) {
+                const list = Array.isArray(attachments) ? attachments : [];
+                const imageOptions = [];
+                for (let index = 0; index < list.length; index += 1) {
+                    const attachment = list[index];
+                    if (!attachment || typeof attachment !== 'object') {
+                        continue;
+                    }
+                    const previewType = String(attachment.preview_type || '').toLowerCase();
+                    const fileUrl = String(attachment.file_url || '').trim();
+                    if (previewType !== 'image' || fileUrl === '') {
+                        continue;
+                    }
+                    const optionId = String(attachment.id || '').trim();
+                    const optionFileName = String(attachment.file_name || 'Attachment').trim() || 'Attachment';
+                    const optionUploadedAt = String(attachment.uploaded_at || '').trim();
+                    const roleKey = normalizeRoleKey(attachment.uploaded_by_role_key || attachment.uploaded_by_role || '');
+                    const isSigned = isDigitallySignedAttachment(attachment);
+                    imageOptions.push({
+                        id: optionId,
+                        file_name: optionFileName,
+                        file_url: fileUrl,
+                        uploaded_at: optionUploadedAt,
+                        uploaded_by_role_key: roleKey,
+                        is_digitally_signed: isSigned,
+                    });
+                }
+                return imageOptions;
+            }
+
+            function detectReturnedFromOred(imageOptions) {
+                const options = Array.isArray(imageOptions) ? imageOptions : [];
+                return options.some(function (option) {
+                    if (!option || typeof option !== 'object') {
+                        return false;
+                    }
+                    if (option.is_digitally_signed) {
+                        return true;
+                    }
+                    return normalizeRoleKey(option.uploaded_by_role_key || '') === 'ORED'
+                        && String(option.file_name || '').toLowerCase().indexOf('[digitally signed]') === 0;
+                });
+            }
+
+            function selectAutoCanvasImageOption(imageOptions, preferOriginal) {
+                const options = Array.isArray(imageOptions) ? imageOptions : [];
+                if (options.length === 0) {
+                    return null;
+                }
+                if (preferOriginal) {
+                    const originalOption = options.find(function (option) {
+                        return !option.is_digitally_signed;
+                    });
+                    if (originalOption) {
+                        return originalOption;
+                    }
+                }
+                return options[0];
+            }
+
+            function buildCanvasImageOptionLabel(option) {
+                if (!option || typeof option !== 'object') {
+                    return 'Attachment';
+                }
+                const signedSuffix = option.is_digitally_signed ? ' [Digitally Signed]' : '';
+                const uploadedAt = String(option.uploaded_at || '').trim();
+                if (uploadedAt !== '') {
+                    return String(option.file_name || 'Attachment') + signedSuffix + ' (' + uploadedAt + ')';
+                }
+                return String(option.file_name || 'Attachment') + signedSuffix;
+            }
+
+            function normalizeCanvasSelectionValue(value) {
+                if (value === CANVAS_BLANK_VALUE) {
+                    return CANVAS_BLANK_VALUE;
+                }
+                if (value === '') {
+                    return '';
+                }
+                const normalized = String(value || '').trim();
+                if (normalized === '') {
+                    return CANVAS_BLANK_VALUE;
+                }
+                return normalized === CANVAS_BLANK_VALUE ? CANVAS_BLANK_VALUE : normalized;
+            }
+
+            function populateCanvasImageSelect(imageOptions, selectedValue) {
+                if (!canvasImageSelect) {
+                    return;
+                }
+                canvasImageSelect.innerHTML = '';
+
+                const blankOption = document.createElement('option');
+                blankOption.value = CANVAS_BLANK_VALUE;
+                blankOption.textContent = 'Blank canvas';
+                canvasImageSelect.appendChild(blankOption);
+
+                const autoOption = document.createElement('option');
+                autoOption.value = '';
+                autoOption.textContent = 'Auto-select latest image';
+                canvasImageSelect.appendChild(autoOption);
+
+                const options = Array.isArray(imageOptions) ? imageOptions : [];
+                options.forEach(function (option) {
+                    const element = document.createElement('option');
+                    element.value = String(option.id || '');
+                    element.textContent = buildCanvasImageOptionLabel(option);
+                    canvasImageSelect.appendChild(element);
+                });
+
+                canvasImageSelect.value = normalizeCanvasSelectionValue(selectedValue);
+            }
+
+            function applySelectedCanvasValue(selectionValue, shouldFlashSelection) {
+                const selectedValue = normalizeCanvasSelectionValue(selectionValue);
+                const options = Array.isArray(state.canvasImageOptions) ? state.canvasImageOptions : [];
+                const preferOriginal = !!state.autoPreferOriginalImage;
+
+                if (selectedValue === CANVAS_BLANK_VALUE) {
+                    applyCanvasImage('', 'Blank paper canvas selected.');
+                    if (shouldFlashSelection) {
+                        flash('Blank canvas selected.');
+                    }
+                    return;
+                }
+
+                if (selectedValue === '') {
+                    const autoOption = selectAutoCanvasImageOption(options, preferOriginal);
+                    if (autoOption) {
+                        applyCanvasImage(autoOption.file_url, '');
+                        if (shouldFlashSelection) {
+                            flash(preferOriginal
+                                ? 'Auto-selected original image from ORED returned workflow.'
+                                : 'Auto-selected latest image canvas.'
+                            );
+                        }
+                        return;
+                    }
+                    applyCanvasImage('', 'No image attachment found for this workflow yet.');
+                    if (shouldFlashSelection) {
+                        flash('No image canvas found. Using blank paper.');
+                    }
+                    return;
+                }
+
+                const selectedOption = options.find(function (option) {
+                    return String(option.id || '') === selectedValue;
+                });
+                if (!selectedOption) {
+                    applyCanvasImage('', 'Selected image is unavailable. Showing blank paper.');
+                    if (shouldFlashSelection) {
+                        flash('Selected canvas image is unavailable.');
+                    }
+                    return;
+                }
+                applyCanvasImage(String(selectedOption.file_url || ''), '');
+                if (shouldFlashSelection) {
+                    flash('Selected canvas image applied.');
+                }
+            }
+
+            async function loadWorkflowImageCanvas() {
+                if (!stampCanvasImage && !stampCanvasEmpty) {
+                    return;
+                }
+                if (String(stampTrackingId || '').trim() === '') {
+                    state.canvasImageOptions = [];
+                    state.autoPreferOriginalImage = false;
+                    state.canvasSelectionValue = CANVAS_BLANK_VALUE;
+                    populateCanvasImageSelect([], state.canvasSelectionValue);
+                    applyCanvasImage('', 'No tracking ID provided.');
+                    return;
+                }
+
+                try {
+                    const requestUrl = new URL(String(documentDetailsPath || ''), window.location.origin);
+                    requestUrl.searchParams.set('tracking_id', String(stampTrackingId || '').trim());
+                    requestUrl.searchParams.set('t', String(Date.now()));
+                    const response = await fetch(requestUrl.toString(), {
+                        method: 'GET',
+                        credentials: 'same-origin',
+                        cache: 'no-store',
+                        headers: { Accept: 'application/json' },
+                    });
+                    const payload = await response.json().catch(function () {
+                        return { ok: false, message: 'Unexpected server response.' };
+                    });
+                    if (!response.ok || !payload || payload.ok !== true) {
+                        throw new Error(payload && payload.message ? payload.message : 'Unable to load workflow image canvas.');
+                    }
+                    const imageOptions = extractCanvasImageOptions(payload.attachments || []);
+                    state.canvasImageOptions = imageOptions;
+                    state.autoPreferOriginalImage = detectReturnedFromOred(imageOptions);
+                    state.canvasSelectionValue = state.autoPreferOriginalImage ? '' : CANVAS_BLANK_VALUE;
+                    populateCanvasImageSelect(imageOptions, state.canvasSelectionValue);
+                    applySelectedCanvasValue(state.canvasSelectionValue, false);
+                    if (state.autoPreferOriginalImage) {
+                        flash('Returned ORED-signed workflow detected. Original image canvas auto-selected.');
+                    } else {
+                        flash('Incoming workflow detected. Canvas defaults to blank.');
+                    }
+                } catch (error) {
+                    applyCanvasImage('', 'Unable to load workflow image canvas right now.');
+                    state.canvasImageOptions = [];
+                    state.autoPreferOriginalImage = false;
+                    state.canvasSelectionValue = CANVAS_BLANK_VALUE;
+                    populateCanvasImageSelect([], state.canvasSelectionValue);
+                }
             }
 
             function pad2(value) {
@@ -942,6 +1241,13 @@ if (!in_array($theme, ['light', 'dark'], true)) {
                 applyPaperSize(String(paperSizeSelect.value || 'A4'));
             });
 
+            if (canvasImageSelect) {
+                canvasImageSelect.addEventListener('change', function () {
+                    state.canvasSelectionValue = normalizeCanvasSelectionValue(canvasImageSelect.value);
+                    applySelectedCanvasValue(state.canvasSelectionValue, true);
+                });
+            }
+
             printSoftCopyBtn.addEventListener('click', function () {
                 window.print();
             });
@@ -1027,6 +1333,7 @@ if (!in_array($theme, ['light', 'dark'], true)) {
             updateBlockSize();
             syncStampText();
             applyPaperSize('A4');
+            loadWorkflowImageCanvas();
             window.setInterval(syncRealtimeDateTime, 1000);
 
             <?php if ($isAutoPrint): ?>

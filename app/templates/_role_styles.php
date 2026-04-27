@@ -875,8 +875,8 @@
                     opacity: 0.6;
                     cursor: not-allowed;
                 }
-                .details-modal-dialog {
-                    width: min(980px, 100%);
+                .action-modal-dialog.details-modal-dialog {
+                    width: min(1000px, 96vw);
                     max-height: calc(100vh - 44px);
                     display: flex;
                     flex-direction: column;
@@ -982,6 +982,42 @@
                     font-size: 13px;
                     color: var(--text);
                     background: var(--surface);
+                }
+                .details-attachment-filter {
+                    display: grid;
+                    gap: 8px;
+                    margin-bottom: 2px;
+                }
+                .details-attachment-filter[hidden] {
+                    display: none !important;
+                }
+                .details-attachment-filter-actions {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 8px;
+                }
+                .details-attachment-filter-btn {
+                    border: 1px solid var(--queue-soft-border-strong);
+                    border-radius: 999px;
+                    background: var(--queue-soft-surface);
+                    color: var(--text);
+                    font-size: 12px;
+                    font-weight: 700;
+                    padding: 6px 12px;
+                    cursor: pointer;
+                }
+                .details-attachment-filter-btn:hover {
+                    background: var(--queue-link-surface);
+                    border-color: var(--queue-link-border);
+                }
+                .details-attachment-filter-btn.is-active {
+                    background: var(--theme-link);
+                    border-color: var(--theme-link);
+                    color: #ffffff;
+                }
+                .details-attachment-filter-btn:disabled {
+                    opacity: .6;
+                    cursor: not-allowed;
                 }
                 .details-open-file {
                     border: 1px solid var(--queue-link-border);

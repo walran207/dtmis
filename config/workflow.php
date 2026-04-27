@@ -500,7 +500,7 @@ function workflow_required_initial_destination_office(PDO $pdo, array $actor, in
         return [
             'office_id' => (int)$penroOffice['id'],
             'office_name' => (string)$penroOffice['name'],
-            'policy_label' => 'CENRO/PASU documents must route to PENRO first.',
+            'policy_label' => 'CENRO/PASU documents should route to PENRO first. Direct to RECORDS-UNIT is allowed only as bypass.',
         ];
     }
 
@@ -617,7 +617,10 @@ function workflow_assert_section_assignment_scope(
     $destinationParentOfficeId = (int)($destinationOffice['parent_office_id'] ?? 0);
 
     if ($actorRoleKey === 'ORED') {
-        throw new RuntimeException('ORED can assign only up to ARD/Division level. Division Chief must assign to Section/Section Staff.');
+        if (in_array($actionType, ['FORWARD', 'REROUTE'], true)) {
+            return;
+        }
+        throw new RuntimeException('ORED can assign to Section only through Forward or Reroute action.');
     }
 
     if ($actorRoleKey !== 'DIVISION_CHIEF') {
@@ -736,6 +739,15 @@ function workflow_transition_policy_fallback_allowed(PDO $pdo, string $actionTyp
             return true;
         }
 
+        if (
+            $oredRoleId !== null
+            && $sectionRoleId !== null
+            && (int)$fromRoleId === (int)$oredRoleId
+            && (int)$toRoleId === (int)$sectionRoleId
+        ) {
+            return true;
+        }
+
         $ardToDivision = $divisionChiefRoleId !== null
             && (
                 ($ardTsRoleId !== null && (int)$fromRoleId === (int)$ardTsRoleId && (int)$toRoleId === (int)$divisionChiefRoleId)
@@ -841,6 +853,15 @@ function workflow_transition_policy_fallback_allowed(PDO $pdo, string $actionTyp
         }
 
         if (
+            $oredRoleId !== null
+            && $sectionRoleId !== null
+            && (int)$fromRoleId === (int)$oredRoleId
+            && (int)$toRoleId === (int)$sectionRoleId
+        ) {
+            return true;
+        }
+
+        if (
             $divisionChiefRoleId !== null
             && $sectionRoleId !== null
             && (int)$fromRoleId === (int)$divisionChiefRoleId
@@ -916,17 +937,21 @@ function workflow_assert_ored_reroute_policy(
             ($ardTsRoleId !== null && (int)$destinationRoleId === (int)$ardTsRoleId)
             || ($ardMsRoleId !== null && (int)$destinationRoleId === (int)$ardMsRoleId)
         );
-    if ($isArdDestination) {
+    $destinationOffice = workflow_get_office_context($pdo, $destinationOfficeId);
+    $destinationLevel = strtoupper(trim((string)($destinationOffice['level'] ?? '')));
+    $destinationName = strtoupper(trim((string)($destinationOffice['name'] ?? '')));
+    $isDivisionDestination = $destinationLevel === 'DIVISION' || str_contains($destinationName, 'DIVISION');
+    $isSectionDestination = $destinationLevel === 'SECTION' || str_contains($destinationName, 'SECTION');
+    if ($isArdDestination || $isDivisionDestination || $isSectionDestination) {
         return;
     }
 
-    $destinationOffice = workflow_get_office_context($pdo, $destinationOfficeId);
     $destinationName = trim((string)($destinationOffice['name'] ?? 'selected office'));
     if ($destinationName === '') {
         $destinationName = 'selected office';
     }
     throw new RuntimeException(
-        'ORED reroute can target only ARD TS or ARD MS. Selected destination "' . $destinationName . '" is not allowed.'
+        'ORED reroute can target only ARD TS/MS, Division, or Section. Selected destination "' . $destinationName . '" is not allowed.'
     );
 }
 
@@ -1307,7 +1332,16 @@ function workflow_route_document_internal(
     }
 }
 
-function workflow_forward_document(PDO $pdo, int $documentId, int $actorUserId, int $destinationOfficeId, ?int $destinationUserId = null, string $remarks = ''): void
+function workflow_forward_document(
+    PDO $pdo,
+    int $documentId,
+    int $actorUserId,
+    int $destinationOfficeId,
+    ?int $destinationUserId = null,
+    string $remarks = '',
+    string $bypassReason = '',
+    bool $hasRouteAttachment = false
+): void
 {
     $documentStatus = 'Forwarded';
     $finalRemarks = $remarks === '' ? 'Forwarded to next office.' : $remarks;
@@ -1402,7 +1436,12 @@ function workflow_forward_document(PDO $pdo, int $documentId, int $actorUserId, 
         if ($requiredDestination !== null) {
             $requiredOfficeId = (int)($requiredDestination['office_id'] ?? 0);
             if ($requiredOfficeId > 0 && $destinationOfficeId !== $requiredOfficeId) {
-                throw new RuntimeException('Routing policy violation: ' . (string)($requiredDestination['policy_label'] ?? 'CENRO/PASU must route to PENRO first.'));
+                $destinationOffice = workflow_get_office_context($pdo, $destinationOfficeId);
+                $destinationOfficeName = strtoupper(trim((string)($destinationOffice['name'] ?? '')));
+                $isRecordsUnitBypass = workflow_name_matches_records_unit($destinationOfficeName);
+                if (!$isRecordsUnitBypass) {
+                    throw new RuntimeException('Routing policy violation: ' . (string)($requiredDestination['policy_label'] ?? 'CENRO/PASU must route to PENRO first. Direct to RECORDS-UNIT is allowed only as bypass.'));
+                }
             }
         }
     }
@@ -1413,6 +1452,12 @@ function workflow_forward_document(PDO $pdo, int $documentId, int $actorUserId, 
 
         if ($penroPendingOfficeId > 0 && $penroActorOfficeId > 0 && $penroPendingOfficeId !== $penroActorOfficeId) {
             throw new RuntimeException('Document is already forwarded and waiting for the destination office to receive it.');
+        }
+
+        $penroDestinationOffice = workflow_get_office_context($pdo, $destinationOfficeId);
+        $penroDestinationName = strtoupper(trim((string)($penroDestinationOffice['name'] ?? '')));
+        if (workflow_name_matches_records_unit($penroDestinationName) && !$hasRouteAttachment) {
+            throw new RuntimeException('Endorsement letter attachment is required before forwarding to PACDO/RECORDS-UNIT.');
         }
     }
 
@@ -1491,6 +1536,9 @@ function workflow_forward_document(PDO $pdo, int $documentId, int $actorUserId, 
         $destinationName = strtoupper(trim((string)($destinationOffice['name'] ?? '')));
         $isPacdoDestination = workflow_name_matches_records_unit($destinationName);
         $isArdDestination = workflow_ard_track_from_office_name((string)($destinationOffice['name'] ?? '')) !== null;
+        $isDivisionDestination = $destinationLevel === 'DIVISION' || str_contains($destinationName, 'DIVISION');
+        $isSectionDestination = $destinationLevel === 'SECTION' || str_contains($destinationName, 'SECTION');
+        $normalizedBypassReason = trim($bypassReason);
 
         if ($isPostSignStage) {
             if (!$isPacdoDestination) {
@@ -1500,17 +1548,37 @@ function workflow_forward_document(PDO $pdo, int $documentId, int $actorUserId, 
             if ($isPacdoDestination) {
                 throw new RuntimeException('ORED can forward to RECORDS-UNIT only after signing.');
             }
-            if ($destinationLevel !== 'DIVISION' && !$isArdDestination) {
-                throw new RuntimeException('Before signing, ORED can forward only to ARD or Division.');
+            if (!$isArdDestination && !$isDivisionDestination && !$isSectionDestination) {
+                throw new RuntimeException('Before signing, ORED can forward only to ARD, Division, or Section.');
             }
-            if ($destinationLevel === 'DIVISION') {
-                $documentStatus = workflow_build_assigned_status((string)($destinationOffice['name'] ?? 'Division'));
+
+            if ($isDivisionDestination || $isSectionDestination) {
+                if ($normalizedBypassReason === '') {
+                    throw new RuntimeException('Bypass reason is required when ORED forwards directly to Division/Section.');
+                }
+                $bypassPrefix = 'Bypass reason: ' . $normalizedBypassReason;
                 if ($remarks === '') {
+                    $finalRemarks = $bypassPrefix;
+                } elseif (stripos($remarks, 'bypass reason:') === false) {
+                    $finalRemarks = trim($remarks) . ' | ' . $bypassPrefix;
+                } else {
+                    $finalRemarks = $remarks;
+                }
+            }
+
+            if ($isDivisionDestination) {
+                $documentStatus = workflow_build_assigned_status((string)($destinationOffice['name'] ?? 'Division'));
+                if ($finalRemarks === '') {
                     $finalRemarks = 'ORED instruction: assigned to concerned division.';
                 }
-            } else {
+            } elseif ($isSectionDestination) {
+                $documentStatus = workflow_build_assigned_status((string)($destinationOffice['name'] ?? 'Section'));
+                if ($finalRemarks === '') {
+                    $finalRemarks = 'ORED instruction: assigned directly to concerned section.';
+                }
+            } elseif ($isArdDestination) {
                 $documentStatus = workflow_build_assigned_status((string)($destinationOffice['name'] ?? 'ARD'));
-                if ($remarks === '') {
+                if ($finalRemarks === '') {
                     $finalRemarks = 'ORED instruction: assigned to concerned ARD.';
                 }
             }

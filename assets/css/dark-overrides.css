@@ -40,6 +40,7 @@ html[data-theme="dark"] body .profile-menu-btn.danger {
    Notification panel
    -------------------------------------------------------------------------- */
 body[data-theme="dark"] .notif-btn,
+body[data-theme="dark"] .screenshot-page-btn,
 html[data-theme="dark"] body .notif-btn {
     color: #64748b;
     background: #111827;
@@ -47,6 +48,7 @@ html[data-theme="dark"] body .notif-btn {
 }
 
 body[data-theme="dark"] .notif-btn:hover,
+body[data-theme="dark"] .screenshot-page-btn:hover,
 html[data-theme="dark"] body .notif-btn:hover {
     background: #0e1825;
     color: #94a3b8;
@@ -222,6 +224,7 @@ html[data-theme="dark"] body .status-filter-select:hover {
 }
 
 body[data-theme="dark"] .date-filter-icon-btn,
+body[data-theme="dark"] .screenshot-page-btn,
 html[data-theme="dark"] body .date-filter-icon-btn {
     color: #64748b;
     background: #111827;
@@ -229,6 +232,7 @@ html[data-theme="dark"] body .date-filter-icon-btn {
 }
 
 body[data-theme="dark"] .date-filter-icon-btn:hover,
+body[data-theme="dark"] .screenshot-page-btn:hover,
 html[data-theme="dark"] body .date-filter-icon-btn:hover {
     background: #0e1825;
     color: #94a3b8;

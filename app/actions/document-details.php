@@ -346,6 +346,7 @@ try {
             'current_office' => trim((string)($document['current_office'] ?? '')) !== '' ? (string)$document['current_office'] : '-',
             'pending_office' => trim((string)($document['pending_office'] ?? '')) !== '' ? (string)$document['pending_office'] : '-',
             'created_by' => $createdBy,
+            'created_by_user_id' => (int)($document['created_by_user_id'] ?? 0),
             'created_at' => format_dt_label((string)($document['created_at'] ?? null)),
             'last_action' => trim((string)($lastActivity['action_type'] ?? '')) !== '' ? (string)$lastActivity['action_type'] : '-',
             'last_action_at' => format_dt_label((string)($lastActivity['created_at'] ?? null)),

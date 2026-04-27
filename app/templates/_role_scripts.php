@@ -50,6 +50,10 @@
             const chartPieSeries = <?= json_encode($chartPieSeries ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
             const chartPieTotal  = <?= (int)($chartPieTotal ?? 0) ?>;
             const notificationReadKey = 'edats_notif_read_until_' + String(currentUserId > 0 ? currentUserId : 'global');
+            const screenshotAutoCaptureKey = 'edats_screenshot_auto_capture_' + String(currentUserId > 0 ? currentUserId : 'global');
+            const screenshotPreferenceDbName = 'edats_user_preferences';
+            const screenshotPreferenceStoreName = 'kv';
+            const screenshotDirectoryHandleKey = 'screenshot_directory_handle_v1_' + String(currentUserId > 0 ? currentUserId : 'global');
             const hideCompletedQueueRows = <?= json_encode($hideCompletedQueueRows) ?>;
             const showCompletedQueueRowsOnly = <?= json_encode($showCompletedQueueRowsOnly) ?>;
             const showStrictCompletedOnly = <?= json_encode($showStrictCompletedOnly) ?>;
@@ -98,7 +102,11 @@
             const notifDropdown = document.getElementById('notifDropdown');
             const profileToggle = document.getElementById('profileToggle');
             const profileDropdown = document.getElementById('profileDropdown');
-            const profileSettingsButton = document.querySelector('.profile-menu-btn:not(.danger)');
+            const profileSettingsButton = document.querySelector('[data-profile-settings="true"]');
+            const setScreenshotDirectoryBtn = document.getElementById('setScreenshotDirectoryBtn');
+            const capturePageScreenshotBtn = document.getElementById('capturePageScreenshotBtn');
+            const capturePageScreenshotHeaderBtn = document.getElementById('capturePageScreenshotHeaderBtn');
+            const toggleAutoScreenshotBtn = document.getElementById('toggleAutoScreenshotBtn');
             const statusFilterSelect = document.getElementById('statusFilterSelect');
             const dateFilterToggle = document.getElementById('dateFilterToggle');
             const dateFilterDropdown = document.getElementById('dateFilterDropdown');
@@ -114,6 +122,8 @@
                 ? Array.from(routeDestinationTypeFilterWrap.querySelectorAll('[data-route-destination-filter]'))
                 : [];
             const routeDestinationOffice = document.getElementById('routeDestinationOffice');
+            const routeBypassReasonWrap = document.getElementById('routeBypassReasonWrap');
+            const routeBypassReason = document.getElementById('routeBypassReason');
             const routeRemarks = document.getElementById('routeRemarks');
             const routeNewSubjectWrap = document.getElementById('routeNewSubjectWrap');
             const routeNewSubject = document.getElementById('routeNewSubject');
@@ -155,6 +165,10 @@
             const documentDetailsLoading = document.getElementById('documentDetailsLoading');
             const documentDetailsContent = document.getElementById('documentDetailsContent');
             const documentDetailsFields = document.getElementById('documentDetailsFields');
+            const documentDetailsAttachmentFilterWrap = document.getElementById('documentDetailsAttachmentFilterWrap');
+            const documentDetailsAttachmentFilterButtons = documentDetailsAttachmentFilterWrap
+                ? Array.from(documentDetailsAttachmentFilterWrap.querySelectorAll('[data-details-attachment-filter]'))
+                : [];
             const documentDetailsAttachmentSelect = document.getElementById('documentDetailsAttachmentSelect');
             const documentDetailsOpenAttachment = document.getElementById('documentDetailsOpenAttachment');
             const documentDetailsPreviewEmpty = document.getElementById('documentDetailsPreviewEmpty');
@@ -220,6 +234,17 @@
             let appDialogResolver = null;
             let documentDetailsAbortController = null;
             let documentDetailsAttachments = [];
+            let documentDetailsAllAttachments = [];
+            let documentDetailsAttachmentFilter = 'original';
+            let documentDetailsCreatorUserId = 0;
+            let html2CanvasLoaderPromise = null;
+            let htmlToImageLoaderPromise = null;
+            let screenshotDirectoryHandleCache = null;
+            let screenshotDisplayStream = null;
+            let screenshotDisplayVideo = null;
+            let screenshotAutoCaptureEnabled = false;
+            let screenshotAutoCaptureTriggered = false;
+            let screenshotCaptureInProgress = false;
             let editIntakeTriggerButton = null;
             let editIntakeDocumentVersion = 0;
             let liveFlowScale = 1;
@@ -330,6 +355,817 @@
                     }
                 });
             }
+
+            function screenshotDirectoryPickerSupported() {
+                return typeof window.showDirectoryPicker === 'function' && typeof window.indexedDB !== 'undefined';
+            }
+
+            function openScreenshotPreferenceDb() {
+                return new Promise(function (resolve, reject) {
+                    if (typeof window.indexedDB === 'undefined') {
+                        reject(new Error('IndexedDB is not available in this browser.'));
+                        return;
+                    }
+                    const request = window.indexedDB.open(screenshotPreferenceDbName, 1);
+                    request.onupgradeneeded = function () {
+                        const db = request.result;
+                        if (!db.objectStoreNames.contains(screenshotPreferenceStoreName)) {
+                            db.createObjectStore(screenshotPreferenceStoreName);
+                        }
+                    };
+                    request.onsuccess = function () {
+                        resolve(request.result);
+                    };
+                    request.onerror = function () {
+                        reject(request.error || new Error('Unable to open screenshot preference storage.'));
+                    };
+                });
+            }
+
+            function screenshotPreferenceGet(key) {
+                return openScreenshotPreferenceDb().then(function (db) {
+                    return new Promise(function (resolve, reject) {
+                        const tx = db.transaction(screenshotPreferenceStoreName, 'readonly');
+                        const store = tx.objectStore(screenshotPreferenceStoreName);
+                        const request = store.get(String(key || ''));
+                        request.onsuccess = function () {
+                            resolve(request.result || null);
+                        };
+                        request.onerror = function () {
+                            reject(request.error || new Error('Unable to read screenshot preference.'));
+                        };
+                        tx.oncomplete = function () {
+                            db.close();
+                        };
+                    });
+                });
+            }
+
+            function screenshotPreferenceSet(key, value) {
+                return openScreenshotPreferenceDb().then(function (db) {
+                    return new Promise(function (resolve, reject) {
+                        const tx = db.transaction(screenshotPreferenceStoreName, 'readwrite');
+                        const store = tx.objectStore(screenshotPreferenceStoreName);
+                        const request = store.put(value, String(key || ''));
+                        request.onsuccess = function () {
+                            resolve(true);
+                        };
+                        request.onerror = function () {
+                            reject(request.error || new Error('Unable to save screenshot preference.'));
+                        };
+                        tx.oncomplete = function () {
+                            db.close();
+                        };
+                    });
+                });
+            }
+
+            function screenshotPreferenceDelete(key) {
+                return openScreenshotPreferenceDb().then(function (db) {
+                    return new Promise(function (resolve, reject) {
+                        const tx = db.transaction(screenshotPreferenceStoreName, 'readwrite');
+                        const store = tx.objectStore(screenshotPreferenceStoreName);
+                        const request = store.delete(String(key || ''));
+                        request.onsuccess = function () {
+                            resolve(true);
+                        };
+                        request.onerror = function () {
+                            reject(request.error || new Error('Unable to clear screenshot preference.'));
+                        };
+                        tx.oncomplete = function () {
+                            db.close();
+                        };
+                    });
+                });
+            }
+
+            async function ensureScreenshotDirectoryPermission(handle) {
+                if (!handle || typeof handle.queryPermission !== 'function' || typeof handle.requestPermission !== 'function') {
+                    return false;
+                }
+                const options = { mode: 'readwrite' };
+                try {
+                    const existing = await handle.queryPermission(options);
+                    if (existing === 'granted') {
+                        return true;
+                    }
+                } catch (error) {
+                    return false;
+                }
+
+                try {
+                    const requested = await handle.requestPermission(options);
+                    return requested === 'granted';
+                } catch (error) {
+                    return false;
+                }
+            }
+
+            async function getStoredScreenshotDirectoryHandle() {
+                if (!screenshotDirectoryPickerSupported()) {
+                    return null;
+                }
+                if (screenshotDirectoryHandleCache) {
+                    return screenshotDirectoryHandleCache;
+                }
+                try {
+                    const storedHandle = await screenshotPreferenceGet(screenshotDirectoryHandleKey);
+                    if (!storedHandle) {
+                        return null;
+                    }
+                    const granted = await ensureScreenshotDirectoryPermission(storedHandle);
+                    if (!granted) {
+                        return null;
+                    }
+                    screenshotDirectoryHandleCache = storedHandle;
+                    return storedHandle;
+                } catch (error) {
+                    return null;
+                }
+            }
+
+            async function pickScreenshotDirectory(options) {
+                const settings = options && typeof options === 'object' ? options : {};
+                const forcePrompt = !!settings.forcePrompt;
+                const promptIfMissing = settings.promptIfMissing !== false;
+
+                if (!screenshotDirectoryPickerSupported()) {
+                    return null;
+                }
+
+                if (!forcePrompt) {
+                    const existingHandle = await getStoredScreenshotDirectoryHandle();
+                    if (existingHandle) {
+                        return existingHandle;
+                    }
+                    if (!promptIfMissing) {
+                        return null;
+                    }
+                }
+
+                let selectedHandle = null;
+                try {
+                    selectedHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+                } catch (error) {
+                    return null;
+                }
+                if (!selectedHandle) {
+                    return null;
+                }
+                const granted = await ensureScreenshotDirectoryPermission(selectedHandle);
+                if (!granted) {
+                    return null;
+                }
+                screenshotDirectoryHandleCache = selectedHandle;
+                try {
+                    await screenshotPreferenceSet(screenshotDirectoryHandleKey, selectedHandle);
+                } catch (error) {
+                    // Keep runtime-selected handle even if preference storage write fails.
+                }
+                return selectedHandle;
+            }
+
+            function buildPageScreenshotFileName() {
+                const now = new Date();
+                const stamp = now.getFullYear().toString()
+                    + String(now.getMonth() + 1).padStart(2, '0')
+                    + String(now.getDate()).padStart(2, '0')
+                    + '-'
+                    + String(now.getHours()).padStart(2, '0')
+                    + String(now.getMinutes()).padStart(2, '0')
+                    + String(now.getSeconds()).padStart(2, '0');
+                const pathKey = String(window.location.pathname || '')
+                    .replace(/\\/g, '/')
+                    .split('/')
+                    .filter(function (part) { return String(part || '').trim() !== ''; })
+                    .join('-')
+                    .replace(/[^A-Za-z0-9._-]+/g, '-')
+                    .replace(/-+/g, '-')
+                    .replace(/^-|-$/g, '')
+                    .toLowerCase();
+                const pageKey = pathKey !== '' ? pathKey : 'dashboard';
+                return 'edats-' + pageKey + '-' + stamp + '.png';
+            }
+
+            function screenshotDisplayCaptureSupported() {
+                return !!(navigator.mediaDevices && typeof navigator.mediaDevices.getDisplayMedia === 'function');
+            }
+
+            function hasActiveScreenshotDisplayStream() {
+                if (!screenshotDisplayStream || typeof screenshotDisplayStream.getVideoTracks !== 'function') {
+                    return false;
+                }
+                const tracks = screenshotDisplayStream.getVideoTracks();
+                if (!tracks || tracks.length === 0) {
+                    return false;
+                }
+                return tracks.some(function (track) {
+                    return track && track.readyState === 'live';
+                });
+            }
+
+            function stopScreenshotDisplayStream() {
+                if (screenshotDisplayStream && typeof screenshotDisplayStream.getTracks === 'function') {
+                    screenshotDisplayStream.getTracks().forEach(function (track) {
+                        if (track && typeof track.stop === 'function') {
+                            track.stop();
+                        }
+                    });
+                }
+                screenshotDisplayStream = null;
+                if (screenshotDisplayVideo) {
+                    try {
+                        screenshotDisplayVideo.pause();
+                    } catch (pauseError) {
+                        // Ignore pause failures.
+                    }
+                    screenshotDisplayVideo.srcObject = null;
+                }
+                screenshotDisplayVideo = null;
+            }
+
+            function waitForVideoPlayable(videoElement) {
+                return new Promise(function (resolve, reject) {
+                    if (!videoElement) {
+                        reject(new Error('Display stream video is unavailable.'));
+                        return;
+                    }
+                    const handleReady = function () {
+                        cleanup();
+                        resolve(true);
+                    };
+                    const handleError = function () {
+                        cleanup();
+                        reject(new Error('Unable to prepare display stream for screenshot.'));
+                    };
+                    const cleanup = function () {
+                        videoElement.removeEventListener('loadedmetadata', handleReady);
+                        videoElement.removeEventListener('canplay', handleReady);
+                        videoElement.removeEventListener('error', handleError);
+                    };
+                    videoElement.addEventListener('loadedmetadata', handleReady);
+                    videoElement.addEventListener('canplay', handleReady);
+                    videoElement.addEventListener('error', handleError);
+                    setTimeout(function () {
+                        if (videoElement.videoWidth > 0 && videoElement.videoHeight > 0) {
+                            cleanup();
+                            resolve(true);
+                        }
+                    }, 140);
+                });
+            }
+
+            async function ensureScreenshotDisplayStream(options) {
+                const settings = options && typeof options === 'object' ? options : {};
+                const allowPrompt = settings.allowPrompt !== false;
+
+                if (!screenshotDisplayCaptureSupported()) {
+                    return null;
+                }
+                if (hasActiveScreenshotDisplayStream()) {
+                    return screenshotDisplayStream;
+                }
+                if (!allowPrompt) {
+                    return null;
+                }
+
+                const requestedStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: {
+                        displaySurface: 'browser',
+                        cursor: 'always',
+                        frameRate: { ideal: 30, max: 30 },
+                    },
+                    audio: false,
+                    preferCurrentTab: true,
+                    selfBrowserSurface: 'include',
+                    surfaceSwitching: 'include',
+                });
+                if (!requestedStream) {
+                    return null;
+                }
+
+                screenshotDisplayStream = requestedStream;
+                const videoTracks = requestedStream.getVideoTracks ? requestedStream.getVideoTracks() : [];
+                if (videoTracks && videoTracks[0]) {
+                    videoTracks[0].addEventListener('ended', function () {
+                        stopScreenshotDisplayStream();
+                    });
+                }
+                return requestedStream;
+            }
+
+            async function capturePageScreenshotBlobFromDisplay(options) {
+                const settings = options && typeof options === 'object' ? options : {};
+                const allowPrompt = settings.allowPrompt !== false;
+                const displayStream = await ensureScreenshotDisplayStream({
+                    allowPrompt: allowPrompt,
+                });
+                if (!displayStream) {
+                    return null;
+                }
+
+                if (!screenshotDisplayVideo) {
+                    screenshotDisplayVideo = document.createElement('video');
+                    screenshotDisplayVideo.muted = true;
+                    screenshotDisplayVideo.autoplay = true;
+                    screenshotDisplayVideo.playsInline = true;
+                    screenshotDisplayVideo.style.position = 'fixed';
+                    screenshotDisplayVideo.style.left = '-99999px';
+                    screenshotDisplayVideo.style.top = '-99999px';
+                    screenshotDisplayVideo.style.width = '1px';
+                    screenshotDisplayVideo.style.height = '1px';
+                    screenshotDisplayVideo.setAttribute('aria-hidden', 'true');
+                    document.body.appendChild(screenshotDisplayVideo);
+                }
+
+                screenshotDisplayVideo.srcObject = displayStream;
+                try {
+                    await screenshotDisplayVideo.play();
+                } catch (playError) {
+                    // Continue and let readiness check decide if frame is available.
+                }
+                await waitForVideoPlayable(screenshotDisplayVideo);
+
+                const fallbackWidth = Math.max(window.innerWidth || 0, 1);
+                const fallbackHeight = Math.max(window.innerHeight || 0, 1);
+                const captureWidth = Math.max(Number(screenshotDisplayVideo.videoWidth || 0), fallbackWidth);
+                const captureHeight = Math.max(Number(screenshotDisplayVideo.videoHeight || 0), fallbackHeight);
+                const frameCanvas = document.createElement('canvas');
+                frameCanvas.width = captureWidth;
+                frameCanvas.height = captureHeight;
+                const context = frameCanvas.getContext('2d');
+                if (!context) {
+                    throw new Error('Unable to capture screenshot frame context.');
+                }
+                context.drawImage(screenshotDisplayVideo, 0, 0, captureWidth, captureHeight);
+                const frameBlob = await new Promise(function (resolve, reject) {
+                    frameCanvas.toBlob(function (blob) {
+                        if (!blob) {
+                            reject(new Error('Unable to build display screenshot image.'));
+                            return;
+                        }
+                        resolve(blob);
+                    }, 'image/png');
+                });
+                return frameBlob || null;
+            }
+
+            function ensureHtml2CanvasLoaded() {
+                if (typeof window.html2canvas === 'function') {
+                    return Promise.resolve(window.html2canvas);
+                }
+                if (html2CanvasLoaderPromise) {
+                    return html2CanvasLoaderPromise;
+                }
+
+                html2CanvasLoaderPromise = new Promise(function (resolve, reject) {
+                    const existingScript = document.querySelector('script[data-edats-html2canvas="true"]');
+                    if (existingScript) {
+                        existingScript.addEventListener('load', function () {
+                            if (typeof window.html2canvas === 'function') {
+                                resolve(window.html2canvas);
+                            } else {
+                                reject(new Error('Screenshot library loaded but unavailable.'));
+                            }
+                        }, { once: true });
+                        existingScript.addEventListener('error', function () {
+                            reject(new Error('Unable to load screenshot library.'));
+                        }, { once: true });
+                        return;
+                    }
+
+                    const script = document.createElement('script');
+                    script.src = 'https://cdn.jsdelivr.net/npm/html2canvas-pro@1.5.13/dist/html2canvas-pro.min.js';
+                    script.async = true;
+                    script.defer = true;
+                    script.dataset.edatsHtml2canvas = 'true';
+                    script.onload = function () {
+                        if (typeof window.html2canvas === 'function') {
+                            resolve(window.html2canvas);
+                        } else {
+                            reject(new Error('Screenshot library loaded but unavailable.'));
+                        }
+                    };
+                    script.onerror = function () {
+                        reject(new Error('Unable to load screenshot library. Check internet access.'));
+                    };
+                    document.head.appendChild(script);
+                }).catch(function (error) {
+                    html2CanvasLoaderPromise = null;
+                    throw error;
+                });
+
+                return html2CanvasLoaderPromise;
+            }
+
+            function ensureHtmlToImageLoaded() {
+                if (window.htmlToImage && typeof window.htmlToImage.toBlob === 'function') {
+                    return Promise.resolve(window.htmlToImage);
+                }
+                if (htmlToImageLoaderPromise) {
+                    return htmlToImageLoaderPromise;
+                }
+
+                htmlToImageLoaderPromise = new Promise(function (resolve, reject) {
+                    const existingScript = document.querySelector('script[data-edats-htmltoimage="true"]');
+                    if (existingScript) {
+                        existingScript.addEventListener('load', function () {
+                            if (window.htmlToImage && typeof window.htmlToImage.toBlob === 'function') {
+                                resolve(window.htmlToImage);
+                            } else {
+                                reject(new Error('Fallback screenshot library loaded but unavailable.'));
+                            }
+                        }, { once: true });
+                        existingScript.addEventListener('error', function () {
+                            reject(new Error('Unable to load fallback screenshot library.'));
+                        }, { once: true });
+                        return;
+                    }
+
+                    const script = document.createElement('script');
+                    script.src = 'https://cdn.jsdelivr.net/npm/html-to-image@1.11.13/dist/html-to-image.min.js';
+                    script.async = true;
+                    script.defer = true;
+                    script.dataset.edatsHtmltoimage = 'true';
+                    script.onload = function () {
+                        if (window.htmlToImage && typeof window.htmlToImage.toBlob === 'function') {
+                            resolve(window.htmlToImage);
+                        } else {
+                            reject(new Error('Fallback screenshot library loaded but unavailable.'));
+                        }
+                    };
+                    script.onerror = function () {
+                        reject(new Error('Unable to load fallback screenshot library. Check internet access.'));
+                    };
+                    document.head.appendChild(script);
+                }).catch(function (error) {
+                    htmlToImageLoaderPromise = null;
+                    throw error;
+                });
+
+                return htmlToImageLoaderPromise;
+            }
+
+            async function capturePageScreenshotBlobFallback() {
+                await ensureHtmlToImageLoaded();
+                if (!window.htmlToImage || typeof window.htmlToImage.toBlob !== 'function') {
+                    throw new Error('Fallback screenshot library is unavailable.');
+                }
+                if (document.fonts && typeof document.fonts.ready === 'object') {
+                    try {
+                        await document.fonts.ready;
+                    } catch (fontError) {
+                        // Ignore font readiness errors and proceed with capture.
+                    }
+                }
+
+                const captureRoot = document.body || document.documentElement;
+                const documentElement = document.documentElement || captureRoot;
+                const bodyElement = document.body || captureRoot;
+                const captureWidth = Math.max(
+                    Number(documentElement.scrollWidth || 0),
+                    Number(bodyElement.scrollWidth || 0),
+                    Number(window.innerWidth || 0)
+                );
+                const captureHeight = Math.max(
+                    Number(documentElement.scrollHeight || 0),
+                    Number(bodyElement.scrollHeight || 0),
+                    Number(window.innerHeight || 0)
+                );
+                const captureScale = Math.max(1, Math.min(2.5, Number(window.devicePixelRatio || 1)));
+                let fontEmbedCss = '';
+                if (typeof window.htmlToImage.getFontEmbedCSS === 'function') {
+                    try {
+                        fontEmbedCss = String(await window.htmlToImage.getFontEmbedCSS(captureRoot) || '');
+                    } catch (fontEmbedError) {
+                        fontEmbedCss = '';
+                    }
+                }
+
+                const screenshotBlob = await window.htmlToImage.toBlob(captureRoot, {
+                    cacheBust: true,
+                    backgroundColor: '#0b1324',
+                    pixelRatio: captureScale,
+                    width: captureWidth,
+                    height: captureHeight,
+                    fontEmbedCSS: fontEmbedCss !== '' ? fontEmbedCss : undefined,
+                });
+                if (!screenshotBlob) {
+                    throw new Error('Fallback screenshot capture returned an empty image.');
+                }
+                return screenshotBlob;
+            }
+
+            async function capturePageScreenshotBlob(options) {
+                const settings = options && typeof options === 'object' ? options : {};
+                const allowDisplayPrompt = settings.allowDisplayPrompt !== false;
+                try {
+                    const displayBlob = await capturePageScreenshotBlobFromDisplay({
+                        allowPrompt: allowDisplayPrompt,
+                    });
+                    if (displayBlob) {
+                        return displayBlob;
+                    }
+                } catch (displayCaptureError) {
+                    if (window && window.console && typeof window.console.warn === 'function') {
+                        window.console.warn('Display capture fallback to DOM renderer:', displayCaptureError);
+                    }
+                }
+
+                const captureRoot = document.body || document.documentElement;
+                const scrollX = Number(window.scrollX || window.pageXOffset || 0);
+                const scrollY = Number(window.scrollY || window.pageYOffset || 0);
+                const captureScale = Math.max(1, Math.min(2.5, Number(window.devicePixelRatio || 1)));
+                const captureWidth = Math.max(captureRoot.scrollWidth || 0, window.innerWidth || 0);
+                const captureHeight = Math.max(captureRoot.scrollHeight || 0, window.innerHeight || 0);
+                try {
+                    if (document.fonts && typeof document.fonts.ready === 'object') {
+                        try {
+                            await document.fonts.ready;
+                        } catch (fontError) {
+                            // Ignore font readiness errors and proceed with capture.
+                        }
+                    }
+                    await ensureHtml2CanvasLoaded();
+                    let captureCanvas = null;
+                    try {
+                        captureCanvas = await window.html2canvas(captureRoot, {
+                            useCORS: true,
+                            allowTaint: false,
+                            backgroundColor: '#0b1324',
+                            scale: captureScale,
+                            windowWidth: captureWidth,
+                            windowHeight: captureHeight,
+                            scrollX: -scrollX,
+                            scrollY: -scrollY,
+                            foreignObjectRendering: true,
+                            removeContainer: true,
+                            logging: false,
+                        });
+                    } catch (foreignObjectError) {
+                        captureCanvas = await window.html2canvas(captureRoot, {
+                            useCORS: true,
+                            allowTaint: false,
+                            backgroundColor: '#0b1324',
+                            scale: captureScale,
+                            windowWidth: captureWidth,
+                            windowHeight: captureHeight,
+                            scrollX: -scrollX,
+                            scrollY: -scrollY,
+                            removeContainer: true,
+                            logging: false,
+                        });
+                    }
+
+                    return await new Promise(function (resolve, reject) {
+                        captureCanvas.toBlob(function (blob) {
+                            if (!blob) {
+                                reject(new Error('Unable to build screenshot image.'));
+                                return;
+                            }
+                            resolve(blob);
+                        }, 'image/png');
+                    });
+                } catch (primaryError) {
+                    try {
+                        return await capturePageScreenshotBlobFallback();
+                    } catch (fallbackError) {
+                        const primaryMessage = primaryError && primaryError.message ? String(primaryError.message) : '';
+                        const fallbackMessage = fallbackError && fallbackError.message ? String(fallbackError.message) : '';
+                        if (primaryMessage !== '' && fallbackMessage !== '' && fallbackMessage !== primaryMessage) {
+                            throw new Error(primaryMessage + ' Fallback capture failed: ' + fallbackMessage);
+                        }
+                        throw fallbackError || primaryError || new Error('Unable to capture screenshot right now.');
+                    }
+                }
+            }
+
+            function downloadScreenshotBlob(blob, fileName) {
+                const objectUrl = URL.createObjectURL(blob);
+                const anchor = document.createElement('a');
+                anchor.href = objectUrl;
+                anchor.download = fileName;
+                document.body.appendChild(anchor);
+                anchor.click();
+                anchor.remove();
+                setTimeout(function () {
+                    URL.revokeObjectURL(objectUrl);
+                }, 1500);
+            }
+
+            async function saveScreenshotBlobToDirectory(blob, fileName, directoryHandle) {
+                if (!directoryHandle || typeof directoryHandle.getFileHandle !== 'function') {
+                    throw new Error('Screenshot folder is not available.');
+                }
+                const fileHandle = await directoryHandle.getFileHandle(fileName, { create: true });
+                const writable = await fileHandle.createWritable();
+                try {
+                    await writable.write(blob);
+                    await writable.close();
+                } catch (error) {
+                    try {
+                        await writable.abort();
+                    } catch (abortError) {
+                        // Ignore abort errors when write fails.
+                    }
+                    throw error;
+                }
+            }
+
+            async function clearStoredScreenshotDirectoryHandle() {
+                screenshotDirectoryHandleCache = null;
+                if (!screenshotDirectoryPickerSupported()) {
+                    return;
+                }
+                try {
+                    await screenshotPreferenceDelete(screenshotDirectoryHandleKey);
+                } catch (error) {
+                    // Ignore preference clear errors.
+                }
+            }
+
+            function getReadableScreenshotErrorMessage(error) {
+                const rawMessage = error && error.message
+                    ? String(error.message)
+                    : (typeof error === 'string' ? error : (error ? String(error) : ''));
+                if (rawMessage === '') {
+                    return 'Unable to capture screenshot right now.';
+                }
+                if (/unsupported color function|Attempting to parse/i.test(rawMessage)) {
+                    return 'Screenshot capture failed due to unsupported page styling in this browser. Please refresh and try again.';
+                }
+                return rawMessage;
+            }
+
+            function readAutoScreenshotPreference() {
+                screenshotAutoCaptureEnabled = String(localStorage.getItem(screenshotAutoCaptureKey) || '') === '1';
+            }
+
+            function writeAutoScreenshotPreference(enabled) {
+                screenshotAutoCaptureEnabled = !!enabled;
+                if (screenshotAutoCaptureEnabled) {
+                    localStorage.setItem(screenshotAutoCaptureKey, '1');
+                } else {
+                    localStorage.removeItem(screenshotAutoCaptureKey);
+                }
+            }
+
+            function syncAutoScreenshotToggleUi() {
+                if (!toggleAutoScreenshotBtn) {
+                    return;
+                }
+                toggleAutoScreenshotBtn.textContent = screenshotAutoCaptureEnabled ? 'Auto Screenshot: On' : 'Auto Screenshot: Off';
+                toggleAutoScreenshotBtn.setAttribute('aria-pressed', screenshotAutoCaptureEnabled ? 'true' : 'false');
+            }
+
+            async function captureAndSaveCurrentPageScreenshot(options) {
+                const settings = options && typeof options === 'object' ? options : {};
+                const forceDirectoryPrompt = !!settings.forceDirectoryPrompt;
+                const silentSuccess = !!settings.silentSuccess;
+                const silentErrors = !!settings.silentErrors;
+                const skipPromptOnMissingDirectory = !!settings.skipPromptOnMissingDirectory;
+
+                if (screenshotCaptureInProgress) {
+                    return false;
+                }
+                screenshotCaptureInProgress = true;
+
+                try {
+                    let directoryHandle = null;
+                    if (screenshotDirectoryPickerSupported()) {
+                        directoryHandle = await pickScreenshotDirectory({
+                            forcePrompt: forceDirectoryPrompt,
+                            promptIfMissing: !skipPromptOnMissingDirectory,
+                        });
+                        if (!directoryHandle && skipPromptOnMissingDirectory) {
+                            return false;
+                        }
+                        if (!directoryHandle && !skipPromptOnMissingDirectory) {
+                            if (!silentErrors) {
+                                showAlertDialog('Please set a screenshot folder first.');
+                            }
+                            return false;
+                        }
+                    }
+
+                    const screenshotBlob = await capturePageScreenshotBlob({
+                        allowDisplayPrompt: !silentSuccess && !silentErrors,
+                    });
+                    const screenshotFileName = buildPageScreenshotFileName();
+                    if (directoryHandle) {
+                        const granted = await ensureScreenshotDirectoryPermission(directoryHandle);
+                        if (!granted) {
+                            await clearStoredScreenshotDirectoryHandle();
+                            if (!silentErrors) {
+                                showAlertDialog('Screenshot folder access was denied. Please choose the folder again.');
+                            }
+                            return false;
+                        }
+                        await saveScreenshotBlobToDirectory(screenshotBlob, screenshotFileName, directoryHandle);
+                        if (!silentSuccess) {
+                            showAlertDialog('Screenshot saved to your configured folder as "' + screenshotFileName + '".');
+                        }
+                    } else {
+                        downloadScreenshotBlob(screenshotBlob, screenshotFileName);
+                        if (!silentSuccess) {
+                            showAlertDialog('Screenshot downloaded as "' + screenshotFileName + '".');
+                        }
+                    }
+                    return true;
+                } catch (error) {
+                    const errorName = error && error.name ? String(error.name) : '';
+                    if (errorName === 'NotAllowedError' || errorName === 'SecurityError') {
+                        await clearStoredScreenshotDirectoryHandle();
+                    }
+                    if (window && window.console && typeof window.console.error === 'function') {
+                        window.console.error('Screenshot capture failure:', error);
+                    }
+                    if (!silentErrors) {
+                        showAlertDialog(getReadableScreenshotErrorMessage(error));
+                    }
+                    return false;
+                } finally {
+                    screenshotCaptureInProgress = false;
+                }
+            }
+
+            async function bindScreenshotTools() {
+                readAutoScreenshotPreference();
+                syncAutoScreenshotToggleUi();
+
+                if (setScreenshotDirectoryBtn) {
+                    setScreenshotDirectoryBtn.addEventListener('click', function () {
+                        if (!screenshotDirectoryPickerSupported()) {
+                            showAlertDialog('This browser does not support persistent folder access. Screenshots will download to your default Downloads folder.');
+                            return;
+                        }
+                        pickScreenshotDirectory({
+                            forcePrompt: true,
+                            promptIfMissing: true,
+                        }).then(function (directoryHandle) {
+                            if (directoryHandle) {
+                                showAlertDialog('Screenshot folder saved. Future captures will reuse this location.');
+                                return;
+                            }
+                            showAlertDialog('No screenshot folder selected. You can set it again anytime.');
+                        }).catch(function (error) {
+                            showAlertDialog(error && error.message ? error.message : 'Unable to save screenshot folder.');
+                        });
+                    });
+                }
+
+                if (capturePageScreenshotBtn) {
+                    capturePageScreenshotBtn.addEventListener('click', function () {
+                        captureAndSaveCurrentPageScreenshot({
+                            forceDirectoryPrompt: false,
+                            silentSuccess: false,
+                            silentErrors: false,
+                            skipPromptOnMissingDirectory: false,
+                        });
+                    });
+                }
+                if (capturePageScreenshotHeaderBtn) {
+                    capturePageScreenshotHeaderBtn.addEventListener('click', function () {
+                        captureAndSaveCurrentPageScreenshot({
+                            forceDirectoryPrompt: false,
+                            silentSuccess: false,
+                            silentErrors: false,
+                            skipPromptOnMissingDirectory: false,
+                        });
+                    });
+                }
+
+                if (toggleAutoScreenshotBtn) {
+                    toggleAutoScreenshotBtn.addEventListener('click', function () {
+                        const nextState = !screenshotAutoCaptureEnabled;
+                        writeAutoScreenshotPreference(nextState);
+                        syncAutoScreenshotToggleUi();
+                        showAlertDialog(nextState
+                            ? 'Auto screenshot is enabled. This page will capture once after loading and save to your configured folder.'
+                            : 'Auto screenshot is disabled.'
+                        );
+                    });
+                }
+            }
+
+            function runAutoScreenshotOnceAfterLoad() {
+                if (!screenshotAutoCaptureEnabled || screenshotAutoCaptureTriggered) {
+                    return;
+                }
+                screenshotAutoCaptureTriggered = true;
+                setTimeout(function () {
+                    captureAndSaveCurrentPageScreenshot({
+                        forceDirectoryPrompt: false,
+                        silentSuccess: true,
+                        silentErrors: true,
+                        skipPromptOnMissingDirectory: true,
+                    });
+                }, 850);
+            }
+
+            window.addEventListener('beforeunload', function () {
+                stopScreenshotDisplayStream();
+            });
 
             function getSelectedQueueRowContext() {
                 if (selectedQueueTrackingId === '') {
@@ -452,8 +1288,116 @@
                 resetDocumentDetailsPreview('Preview is not available for this file type. Use Open File.');
             }
 
-            function renderDocumentAttachments(attachments) {
-                documentDetailsAttachments = Array.isArray(attachments) ? attachments.slice() : [];
+            function normalizeDocumentDetailsAttachmentFilter(value) {
+                const normalized = normalizeLabelKey(String(value || ''));
+                if (normalized === 'endorsement' || normalized === 'endorsement_letter') {
+                    return 'endorsement';
+                }
+                if (normalized === 'response') {
+                    return 'response';
+                }
+                return 'original';
+            }
+
+            function classifyDocumentAttachmentCategory(attachment) {
+                if (!attachment || typeof attachment !== 'object') {
+                    return 'original';
+                }
+
+                const fileNameKey = normalizeLabelKey(String(attachment.file_name || ''));
+                const uploadedByRoleKey = normalizeLabelKey(String(
+                    attachment.uploaded_by_role_key || attachment.uploaded_by_role || ''
+                ));
+                const uploadedByUserId = Number(attachment.uploaded_by_user_id || 0);
+                const creatorUserId = Number(documentDetailsCreatorUserId || 0);
+                const isCreatorUpload = Number.isFinite(uploadedByUserId)
+                    && uploadedByUserId > 0
+                    && Number.isFinite(creatorUserId)
+                    && creatorUserId > 0
+                    && uploadedByUserId === creatorUserId;
+
+                const isPreparedResponse = attachment.is_prepared_response === true
+                    || Number(attachment.is_prepared_response || 0) === 1
+                    || uploadedByRoleKey === 'division_chief'
+                    || uploadedByRoleKey === 'section_staff'
+                    || fileNameKey.indexOf('prepared response') !== -1
+                    || fileNameKey.indexOf('prepared_response') !== -1
+                    || fileNameKey.indexOf('prepared-response') !== -1
+                    || fileNameKey.indexOf('prepared_of_response') !== -1;
+                if (isPreparedResponse) {
+                    return 'response';
+                }
+
+                const looksEndorsementByName = fileNameKey.indexOf('endorsement') !== -1
+                    || fileNameKey.indexOf('endorse') !== -1;
+                const isPenroCenroPasuUpload = uploadedByRoleKey === 'penro'
+                    || uploadedByRoleKey === 'cenro'
+                    || uploadedByRoleKey === 'pasu';
+                if (looksEndorsementByName || (isPenroCenroPasuUpload && !isCreatorUpload)) {
+                    return 'endorsement';
+                }
+
+                return 'original';
+            }
+
+            function updateDocumentAttachmentFilterButtons(categoryCounts) {
+                if (!documentDetailsAttachmentFilterWrap) {
+                    return;
+                }
+
+                const counts = categoryCounts && typeof categoryCounts === 'object' ? categoryCounts : {};
+                const hasAnyAttachment = Number(counts.original || 0) > 0
+                    || Number(counts.endorsement || 0) > 0
+                    || Number(counts.response || 0) > 0;
+                documentDetailsAttachmentFilterWrap.hidden = !hasAnyAttachment;
+                if (!hasAnyAttachment) {
+                    return;
+                }
+
+                documentDetailsAttachmentFilterButtons.forEach(function (button) {
+                    const mode = normalizeDocumentDetailsAttachmentFilter(button.dataset.detailsAttachmentFilter || '');
+                    const count = Number(counts[mode] || 0);
+                    button.disabled = count < 1;
+                    button.classList.toggle('is-active', mode === documentDetailsAttachmentFilter);
+                });
+            }
+
+            function renderDocumentAttachments(attachments, documentData) {
+                const doc = documentData && typeof documentData === 'object' ? documentData : {};
+                documentDetailsCreatorUserId = Number(doc.created_by_user_id || 0);
+                documentDetailsAllAttachments = Array.isArray(attachments)
+                    ? attachments.map(function (attachment) {
+                        const safeAttachment = attachment && typeof attachment === 'object'
+                            ? Object.assign({}, attachment)
+                            : {};
+                        safeAttachment.attachment_category = classifyDocumentAttachmentCategory(safeAttachment);
+                        return safeAttachment;
+                    })
+                    : [];
+
+                const categoryCounts = { original: 0, endorsement: 0, response: 0 };
+                documentDetailsAllAttachments.forEach(function (attachment) {
+                    const category = normalizeDocumentDetailsAttachmentFilter(attachment.attachment_category || 'original');
+                    categoryCounts[category] = Number(categoryCounts[category] || 0) + 1;
+                });
+
+                if (Number(categoryCounts[documentDetailsAttachmentFilter] || 0) < 1) {
+                    if (categoryCounts.original > 0) {
+                        documentDetailsAttachmentFilter = 'original';
+                    } else if (categoryCounts.endorsement > 0) {
+                        documentDetailsAttachmentFilter = 'endorsement';
+                    } else if (categoryCounts.response > 0) {
+                        documentDetailsAttachmentFilter = 'response';
+                    } else {
+                        documentDetailsAttachmentFilter = 'original';
+                    }
+                }
+                updateDocumentAttachmentFilterButtons(categoryCounts);
+
+                documentDetailsAttachments = documentDetailsAllAttachments.filter(function (attachment) {
+                    const category = normalizeDocumentDetailsAttachmentFilter(attachment.attachment_category || 'original');
+                    return category === documentDetailsAttachmentFilter;
+                });
 
                 if (!documentDetailsAttachmentSelect) {
                     return;
@@ -461,13 +1405,26 @@
 
                 documentDetailsAttachmentSelect.innerHTML = '';
 
-                if (documentDetailsAttachments.length === 0) {
+                if (documentDetailsAllAttachments.length === 0) {
                     const emptyOption = document.createElement('option');
                     emptyOption.value = '';
                     emptyOption.textContent = 'No attachments uploaded yet';
                     documentDetailsAttachmentSelect.appendChild(emptyOption);
                     documentDetailsAttachmentSelect.disabled = true;
                     resetDocumentDetailsPreview('No uploaded file found for this document.');
+                    return;
+                }
+
+                if (documentDetailsAttachments.length === 0) {
+                    const emptyCategoryOption = document.createElement('option');
+                    emptyCategoryOption.value = '';
+                    const categoryLabel = documentDetailsAttachmentFilter === 'response'
+                        ? 'Response'
+                        : (documentDetailsAttachmentFilter === 'endorsement' ? 'Endorsement Letter' : 'Original Attachment');
+                    emptyCategoryOption.textContent = 'No ' + categoryLabel + ' files found';
+                    documentDetailsAttachmentSelect.appendChild(emptyCategoryOption);
+                    documentDetailsAttachmentSelect.disabled = true;
+                    resetDocumentDetailsPreview('No file found in this category.');
                     return;
                 }
 
@@ -517,7 +1474,7 @@
                 appendDocumentDetailItem(documentDetailsFields, 'Subject / Text Details', doc.subject || '-', true);
                 appendDocumentDetailItem(documentDetailsFields, 'Latest Remarks', doc.last_remarks || '-', true);
 
-                renderDocumentAttachments(attachments);
+                renderDocumentAttachments(attachments, doc);
                 documentDetailsLoading.hidden = true;
                 documentDetailsLoading.classList.remove('error');
                 documentDetailsContent.hidden = false;
@@ -535,8 +1492,21 @@
                     documentDetailsAbortController = null;
                 }
                 documentDetailsAttachments = [];
+                documentDetailsAllAttachments = [];
+                documentDetailsCreatorUserId = 0;
+                documentDetailsAttachmentFilter = 'original';
                 if (documentDetailsFields) {
                     documentDetailsFields.innerHTML = '';
+                }
+                if (documentDetailsAttachmentFilterWrap) {
+                    documentDetailsAttachmentFilterWrap.hidden = true;
+                }
+                if (documentDetailsAttachmentFilterButtons.length > 0) {
+                    documentDetailsAttachmentFilterButtons.forEach(function (button) {
+                        const mode = normalizeDocumentDetailsAttachmentFilter(button.dataset.detailsAttachmentFilter || '');
+                        button.disabled = false;
+                        button.classList.toggle('is-active', mode === 'original');
+                    });
                 }
                 if (documentDetailsAttachmentSelect) {
                     documentDetailsAttachmentSelect.innerHTML = '<option value="">No attachment selected</option>';
@@ -627,6 +1597,22 @@
                             return;
                         }
                         renderDocumentAttachmentPreview(documentDetailsAttachments[selectedIndex]);
+                    });
+                }
+                if (documentDetailsAttachmentFilterButtons.length > 0) {
+                    documentDetailsAttachmentFilterButtons.forEach(function (button) {
+                        button.addEventListener('click', function () {
+                            const requestedFilter = normalizeDocumentDetailsAttachmentFilter(
+                                button.dataset.detailsAttachmentFilter || ''
+                            );
+                            if (requestedFilter === documentDetailsAttachmentFilter) {
+                                return;
+                            }
+                            documentDetailsAttachmentFilter = requestedFilter;
+                            renderDocumentAttachments(documentDetailsAllAttachments, {
+                                created_by_user_id: documentDetailsCreatorUserId,
+                            });
+                        });
                     });
                 }
                 document.addEventListener('keydown', function (event) {
@@ -2326,6 +3312,51 @@
                 return false;
             }
 
+            function routeDestinationOptionIsPenro(option) {
+                const optionLevel = routeDestinationOptionLevel(option);
+                const optionLabel = String(option && option.textContent ? option.textContent : '').toUpperCase();
+                return optionLevel === 'PROVINCIAL' || optionLabel.indexOf('PENRO') !== -1;
+            }
+
+            function routeDestinationOptionIsRecordsUnit(option) {
+                const optionLabel = String(option && option.textContent ? option.textContent : '').toUpperCase();
+                return officeNameMatchesRecordsUnit(optionLabel);
+            }
+
+            function allowsEndorsementLetterAttachment(context, option) {
+                const action = String(context && context.action ? context.action : '').toUpperCase();
+                if (action !== 'FORWARD') {
+                    return false;
+                }
+
+                if ((currentRoleKey === 'CENRO' || currentRoleKey === 'PASU') && routeDestinationOptionIsRecordsUnit(option)) {
+                    return true;
+                }
+                if (currentRoleKey === 'PENRO' && routeDestinationOptionIsRecordsUnit(option)) {
+                    return true;
+                }
+
+                return false;
+            }
+
+            function endorsementLetterRequired(context, option) {
+                const action = String(context && context.action ? context.action : '').toUpperCase();
+                if (action !== 'FORWARD') {
+                    return false;
+                }
+                return currentRoleKey === 'PENRO' && routeDestinationOptionIsRecordsUnit(option);
+            }
+
+            function routeAttachmentRequirement(context, option) {
+                if (allowsPreparedResponseAttachment(context)) {
+                    return 'prepared_response';
+                }
+                if (allowsEndorsementLetterAttachment(context, option)) {
+                    return 'endorsement_letter';
+                }
+                return '';
+            }
+
             function updatePreparedResponseAttachmentMeta(context) {
                 if (!routeAttachmentMeta || !allowsPreparedResponseAttachment(context)) {
                     return;
@@ -2445,6 +3476,56 @@
 
                 routeExistingAttachmentsList.hidden = false;
                 updatePreparedResponseAttachmentMeta(activeRouteContext);
+            }
+
+            function syncRouteAttachmentUi(context) {
+                if (!routeAttachmentWrap || !routeAttachmentInput || !routeAttachmentLabel || !routeAttachmentMeta) {
+                    return '';
+                }
+
+                const selectedIndex = routeDestinationOffice ? routeDestinationOffice.selectedIndex : -1;
+                const selectedOption = routeDestinationOffice && selectedIndex >= 0
+                    ? routeDestinationOffice.options[selectedIndex]
+                    : null;
+                const attachmentKind = routeAttachmentRequirement(context, selectedOption);
+                const showAttachment = attachmentKind !== '';
+                routeAttachmentWrap.hidden = !showAttachment;
+
+                if (!showAttachment) {
+                    resetRouteExistingAttachmentsDisplay();
+                    routeAttachmentInput.value = '';
+                    return '';
+                }
+
+                if (attachmentKind === 'prepared_response') {
+                    if (currentRoleKey === 'DIVISION_CHIEF') {
+                        routeAttachmentLabel.textContent = 'Prepared of Response (Send Back to ARD)';
+                    } else {
+                        routeAttachmentLabel.textContent = 'Prepared of Response (Send Back to Division Chief)';
+                    }
+                    routeExistingPreparedResponseCount = null;
+                    routeExistingPreparedResponseLoading = true;
+                    updatePreparedResponseAttachmentMeta(context);
+                    loadRouteExistingAttachments(context);
+                    routeAttachmentInput.value = '';
+                    return attachmentKind;
+                }
+
+                if (attachmentKind === 'endorsement_letter') {
+                    routeAttachmentLabel.textContent = 'Endorsement Letter (Attachment)';
+                    const targetLabel = 'PACDO/RECORDS-UNIT';
+                    const isRequired = endorsementLetterRequired(context, selectedOption);
+                    routeAttachmentMeta.textContent = isRequired
+                        ? 'Required: upload endorsement letter before forwarding to ' + targetLabel + '.'
+                        : 'Optional: upload endorsement letter when needed before forwarding to ' + targetLabel + '.';
+                    resetRouteExistingAttachmentsDisplay();
+                    routeAttachmentInput.value = '';
+                    return attachmentKind;
+                }
+
+                resetRouteExistingAttachmentsDisplay();
+                routeAttachmentInput.value = '';
+                return '';
             }
 
             function loadRouteExistingAttachments(context) {
@@ -2673,7 +3754,13 @@
 
             function routeSupportsDestinationTypeFilter(context) {
                 const action = String(context && context.action ? context.action : '').toUpperCase();
-                if (currentRoleKey !== 'ORED' || action !== 'FORWARD') {
+                if (currentRoleKey !== 'ORED') {
+                    return false;
+                }
+                if (action === 'REROUTE') {
+                    return true;
+                }
+                if (action !== 'FORWARD') {
                     return false;
                 }
                 return !isOredPostSignStatus(context && context.currentStatus ? context.currentStatus : '');
@@ -2690,6 +3777,7 @@
                 const officeLevel = String(office && office.level ? office.level : '').toUpperCase();
                 const isArdOffice = ardTrackFromOfficeName(officeNameUpper) !== '';
                 const isDivisionOffice = officeLevel === 'DIVISION' || officeNameUpper.indexOf('DIVISION') !== -1;
+                const isSectionOffice = officeLevel === 'SECTION' || officeNameUpper.indexOf('SECTION') !== -1;
 
                 if (normalizedFilter === 'ard') {
                     return isArdOffice;
@@ -2697,13 +3785,16 @@
                 if (normalizedFilter === 'division') {
                     return isDivisionOffice;
                 }
+                if (normalizedFilter === 'section') {
+                    return isSectionOffice;
+                }
 
                 return true;
             }
 
             function setRouteDestinationFilterMode(mode) {
                 const normalizedMode = normalizeLabelKey(String(mode || ''));
-                if (normalizedMode === 'ard' || normalizedMode === 'division' || normalizedMode === 'all') {
+                if (normalizedMode === 'ard' || normalizedMode === 'division' || normalizedMode === 'section' || normalizedMode === 'all') {
                     activeRouteDestinationFilter = normalizedMode;
                 } else {
                     activeRouteDestinationFilter = 'all';
@@ -2715,6 +3806,20 @@
                     button.classList.toggle('is-active', isActive);
                     button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
                 });
+            }
+
+            function routeDestinationFilterFallbackModes(mode) {
+                const normalizedMode = normalizeLabelKey(String(mode || ''));
+                if (normalizedMode === 'ard') {
+                    return ['division', 'section'];
+                }
+                if (normalizedMode === 'division') {
+                    return ['section', 'ard'];
+                }
+                if (normalizedMode === 'section') {
+                    return ['division', 'ard'];
+                }
+                return ['ard', 'division', 'section'];
             }
 
             function syncRouteDestinationFilterUi(context) {
@@ -2735,23 +3840,93 @@
                     return;
                 }
                 const action = String(context && context.action ? context.action : '').toUpperCase();
-                if (action !== 'FORWARD') {
+                if (action !== 'FORWARD' && action !== 'REROUTE') {
                     return;
                 }
                 const isPostSignStage = isOredPostSignStatus(context && context.currentStatus ? context.currentStatus : '');
                 const preferredOption = Array.from(routeDestinationOffice.options).find(function (option) {
                     const label = String(option.textContent || '').toUpperCase();
-                    if (isPostSignStage) {
+                    if (action === 'FORWARD' && isPostSignStage) {
                         return officeNameMatchesRecordsUnit(label);
                     }
                     if (activeRouteDestinationFilter === 'division') {
                         return label.indexOf('[DIVISION]') !== -1 || label.indexOf('DIVISION') !== -1;
+                    }
+                    if (activeRouteDestinationFilter === 'section') {
+                        return label.indexOf('[SECTION]') !== -1 || label.indexOf('SECTION') !== -1;
                     }
                     return label.indexOf('ARD') !== -1 || label.indexOf('ASSISTANT REGIONAL DIRECTOR') !== -1;
                 });
                 if (preferredOption) {
                     routeDestinationOffice.value = String(preferredOption.value || '');
                 }
+            }
+
+            function routeDestinationOptionLevel(option) {
+                if (!option) {
+                    return '';
+                }
+                const label = String(option.textContent || '').trim();
+                const levelMatch = label.match(/\[([^\]]+)\]\s*$/);
+                if (levelMatch && levelMatch[1]) {
+                    return String(levelMatch[1]).trim().toUpperCase();
+                }
+                const labelUpper = label.toUpperCase();
+                if (labelUpper.indexOf('SECTION') !== -1) {
+                    return 'SECTION';
+                }
+                if (labelUpper.indexOf('DIVISION') !== -1) {
+                    return 'DIVISION';
+                }
+                if (labelUpper.indexOf('REGIONAL') !== -1) {
+                    return 'REGIONAL';
+                }
+                return '';
+            }
+
+            function routeRequiresOredBypassReason(context, option) {
+                if (currentRoleKey !== 'ORED') {
+                    return false;
+                }
+                const action = String(context && context.action ? context.action : '').toUpperCase();
+                if (action !== 'FORWARD') {
+                    return false;
+                }
+                if (isOredPostSignStatus(context && context.currentStatus ? context.currentStatus : '')) {
+                    return false;
+                }
+                const optionLabel = String(option && option.textContent ? option.textContent : '').toUpperCase();
+                const optionLevel = routeDestinationOptionLevel(option);
+                const isArdDestination = optionLabel.indexOf('ARD') !== -1
+                    || optionLabel.indexOf('ASSISTANT REGIONAL DIRECTOR') !== -1
+                    || optionLabel.indexOf('TECHNICAL SERVICES') !== -1
+                    || optionLabel.indexOf('MANAGEMENT SERVICES') !== -1;
+                if (isArdDestination) {
+                    return false;
+                }
+                return optionLevel === 'DIVISION'
+                    || optionLevel === 'SECTION'
+                    || optionLabel.indexOf('DIVISION') !== -1
+                    || optionLabel.indexOf('SECTION') !== -1;
+            }
+
+            function syncRouteBypassReasonUi(context) {
+                if (!routeBypassReasonWrap || !routeBypassReason) {
+                    return false;
+                }
+
+                const selectedIndex = routeDestinationOffice ? routeDestinationOffice.selectedIndex : -1;
+                const selectedOption = routeDestinationOffice && selectedIndex >= 0
+                    ? routeDestinationOffice.options[selectedIndex]
+                    : null;
+                const requiresBypassReason = routeRequiresOredBypassReason(context, selectedOption);
+                routeBypassReasonWrap.hidden = !requiresBypassReason;
+                routeBypassReason.required = requiresBypassReason;
+                if (!requiresBypassReason) {
+                    routeBypassReason.value = '';
+                }
+
+                return requiresBypassReason;
             }
 
             function officePassesForwardPolicy(office, context) {
@@ -2772,6 +3947,12 @@
                 }
 
                 if (action === 'REROUTE') {
+                    if (currentRoleKey === 'ORED') {
+                        const isArdDestination = ardTrackFromOfficeName(officeName) !== '';
+                        const isDivisionDestination = officeLevel === 'DIVISION' || officeName.indexOf('DIVISION') !== -1;
+                        const isSectionDestination = officeLevel === 'SECTION' || officeName.indexOf('SECTION') !== -1;
+                        return isArdDestination || isDivisionDestination || isSectionDestination;
+                    }
                     if (currentRoleKey === 'DIVISION_CHIEF') {
                         const hasSectionStaff = String(office && office.has_section_staff ? office.has_section_staff : '') === '1'
                             || Boolean(office && office.has_section_staff);
@@ -2848,10 +4029,18 @@
                 }
                 if (currentRoleKey === 'CENRO' || currentRoleKey === 'PASU') {
                     const policyOfficeId = Number(routeFallbackOffice && routeFallbackOffice.id ? routeFallbackOffice.id : 0);
-                    if (Number.isFinite(policyOfficeId) && policyOfficeId > 0) {
-                        return Number.isFinite(officeId) && officeId === policyOfficeId;
+                    const isPolicyOffice = Number.isFinite(policyOfficeId)
+                        && policyOfficeId > 0
+                        && Number.isFinite(officeId)
+                        && officeId === policyOfficeId;
+                    const isRecordsUnitOffice = officeNameMatchesRecordsUnit(officeName);
+                    if (isPolicyOffice || isRecordsUnitOffice) {
+                        return true;
                     }
-                    return officeName.indexOf('PENRO') !== -1 || officeLevel === 'PROVINCIAL';
+                    if (Number.isFinite(policyOfficeId) && policyOfficeId > 0) {
+                        return false;
+                    }
+                    return officeLevel === 'PROVINCIAL' || officeName.indexOf('PENRO') !== -1;
                 }
                 if (currentRoleKey === 'RECORDS_UNIT') {
                     return officeName.indexOf('ORED') !== -1 || officeName.indexOf('REGIONAL EXECUTIVE') !== -1;
@@ -2861,7 +4050,11 @@
                         return officeNameMatchesRecordsUnit(officeName);
                     }
                     const isArdDestination = ardTrackFromOfficeName(officeName) !== '';
-                    return isArdDestination || officeLevel === 'DIVISION' || officeName.indexOf('DIVISION') !== -1;
+                    return isArdDestination
+                        || officeLevel === 'DIVISION'
+                        || officeName.indexOf('DIVISION') !== -1
+                        || officeLevel === 'SECTION'
+                        || officeName.indexOf('SECTION') !== -1;
                 }
                 if (currentRoleKey === 'DIVISION_CHIEF') {
                     const isOredDestination = officeName.indexOf('ORED') !== -1 || officeName.indexOf('REGIONAL EXECUTIVE') !== -1;
@@ -2993,9 +4186,16 @@
                 activeRouteContext = context;
                 const routeFilterEnabled = syncRouteDestinationFilterUi(context);
                 let optionCount = populateDestinationOfficeSelect(context);
-                if (optionCount === 0 && routeFilterEnabled && activeRouteDestinationFilter === 'ard') {
-                    setRouteDestinationFilterMode('division');
-                    optionCount = populateDestinationOfficeSelect(context);
+                if (optionCount === 0 && routeFilterEnabled) {
+                    const fallbackModes = routeDestinationFilterFallbackModes(activeRouteDestinationFilter);
+                    for (let index = 0; index < fallbackModes.length; index += 1) {
+                        const fallbackMode = fallbackModes[index];
+                        setRouteDestinationFilterMode(fallbackMode);
+                        optionCount = populateDestinationOfficeSelect(context);
+                        if (optionCount > 0) {
+                            break;
+                        }
+                    }
                 }
                 if (optionCount === 0) {
                     showAlertDialog('No destination offices are configured for routing.');
@@ -3024,31 +4224,18 @@
                     ? 'Required: describe specific corrections needed before re-processing.'
                     : 'Optional remarks for activity logs';
                 routeDestinationOffice.value = '';
+                if (routeBypassReason) {
+                    routeBypassReason.value = '';
+                    routeBypassReason.required = false;
+                }
+                if (routeBypassReasonWrap) {
+                    routeBypassReasonWrap.hidden = true;
+                }
                 if (routeNewSubjectWrap && routeNewSubject) {
                     const allowSubjectChange = routeActionAllowsSubjectChange(context);
                     routeNewSubjectWrap.hidden = !allowSubjectChange;
                     routeNewSubject.value = '';
                     routeNewSubject.required = false;
-                }
-                if (routeAttachmentWrap && routeAttachmentInput) {
-                    const allowRemarksAttachment = allowsPreparedResponseAttachment(context);
-                    routeAttachmentWrap.hidden = !allowRemarksAttachment;
-                    if (allowRemarksAttachment && routeAttachmentLabel && routeAttachmentMeta) {
-                        if (currentRoleKey === 'DIVISION_CHIEF') {
-                            routeAttachmentLabel.textContent = 'Prepared of Response (Send Back to ARD)';
-                        } else {
-                            routeAttachmentLabel.textContent = 'Prepared of Response (Send Back to Division Chief)';
-                        }
-                        routeExistingPreparedResponseCount = null;
-                        routeExistingPreparedResponseLoading = true;
-                        updatePreparedResponseAttachmentMeta(context);
-                        loadRouteExistingAttachments(context);
-                    } else {
-                        resetRouteExistingAttachmentsDisplay();
-                    }
-                    routeAttachmentInput.value = '';
-                } else {
-                    resetRouteExistingAttachmentsDisplay();
                 }
 
                 if (currentRoleKey === 'PENRO' && context.action === 'FORWARD') {
@@ -3191,6 +4378,9 @@
                     }
                 }
 
+                syncRouteBypassReasonUi(context);
+                syncRouteAttachmentUi(context);
+
                 routeActionModal.hidden = false;
                 routeActionModal.classList.add('is-open');
                 document.body.classList.add('modal-open');
@@ -3216,6 +4406,13 @@
                 if (routeRemarks) {
                     routeRemarks.required = false;
                     routeRemarks.placeholder = 'Optional remarks for activity logs';
+                }
+                if (routeBypassReasonWrap) {
+                    routeBypassReasonWrap.hidden = true;
+                }
+                if (routeBypassReason) {
+                    routeBypassReason.value = '';
+                    routeBypassReason.required = false;
                 }
                 if (routeAttachmentWrap) {
                     routeAttachmentWrap.hidden = true;
@@ -3265,14 +4462,30 @@
                         setRouteDestinationFilterMode(requestedMode);
                         let optionCount = populateDestinationOfficeSelect(activeRouteContext);
                         if (optionCount === 0) {
-                            const fallbackMode = activeRouteDestinationFilter === 'ard' ? 'division' : 'ard';
-                            setRouteDestinationFilterMode(fallbackMode);
-                            optionCount = populateDestinationOfficeSelect(activeRouteContext);
+                            const fallbackModes = routeDestinationFilterFallbackModes(activeRouteDestinationFilter);
+                            for (let index = 0; index < fallbackModes.length; index += 1) {
+                                const fallbackMode = fallbackModes[index];
+                                setRouteDestinationFilterMode(fallbackMode);
+                                optionCount = populateDestinationOfficeSelect(activeRouteContext);
+                                if (optionCount > 0) {
+                                    break;
+                                }
+                            }
                         }
                         if (optionCount > 0) {
                             selectPreferredOredForwardDestination(activeRouteContext);
                         }
+                        syncRouteBypassReasonUi(activeRouteContext);
+                        syncRouteAttachmentUi(activeRouteContext);
                     });
+                });
+
+                routeDestinationOffice.addEventListener('change', function () {
+                    if (!activeRouteContext) {
+                        return;
+                    }
+                    syncRouteBypassReasonUi(activeRouteContext);
+                    syncRouteAttachmentUi(activeRouteContext);
                 });
 
                 document.addEventListener('keydown', function (event) {
@@ -3295,6 +4508,16 @@
                         routeDestinationOffice.focus();
                         return;
                     }
+                    const selectedOption = routeDestinationOffice.options[routeDestinationOffice.selectedIndex];
+                    const bypassReasonValue = routeBypassReason ? String(routeBypassReason.value || '').trim() : '';
+                    const bypassReasonRequired = routeRequiresOredBypassReason(activeRouteContext, selectedOption);
+                    if (bypassReasonRequired && bypassReasonValue === '') {
+                        showAlertDialog('Bypass reason is required when ORED forwards directly to Division/Section.');
+                        if (routeBypassReason) {
+                            routeBypassReason.focus();
+                        }
+                        return;
+                    }
                     if ((currentRoleKey === 'ORED' || isArdRole || currentRoleKey === 'DIVISION_CHIEF') && routeContextAction === 'REROUTE' && remarksValue === '') {
                         const rerouteActorLabel = currentRoleKey === 'ORED'
                             ? 'ORED'
@@ -3309,7 +4532,6 @@
                         return;
                     }
 
-                    const selectedOption = routeDestinationOffice.options[routeDestinationOffice.selectedIndex];
                     const destinationOfficeLabel = selectedOption ? String(selectedOption.textContent || '').trim() : 'selected office';
                     const submitButton = routeActionSubmit || null;
                     const triggerButton = activeRouteContext.triggerButton || null;
@@ -3349,7 +4571,9 @@
                             }
                             return;
                         }
+                        const selectedAttachmentOption = routeDestinationOffice.options[routeDestinationOffice.selectedIndex];
                         const requiresPreparedResponse = allowsPreparedResponseAttachment(activeRouteContext);
+                        const requiresEndorsementLetter = endorsementLetterRequired(activeRouteContext, selectedAttachmentOption);
                         if (requiresPreparedResponse && attachmentFiles.length < 1) {
                             if (routeExistingPreparedResponseLoading) {
                                 showAlertDialog('Please wait until existing prepared response attachments finish loading, then submit again.');
@@ -3375,6 +4599,20 @@
                                 return;
                             }
                         }
+                        if (requiresEndorsementLetter && attachmentFiles.length < 1) {
+                            const endorsementTarget = 'PACDO/RECORDS-UNIT';
+                            showAlertDialog('Endorsement letter attachment is required before forwarding to ' + endorsementTarget + '.');
+                            if (routeAttachmentInput && routeAttachmentWrap && !routeAttachmentWrap.hidden) {
+                                routeAttachmentInput.focus();
+                            }
+                            if (submitButton) {
+                                submitButton.disabled = false;
+                            }
+                            if (triggerButton) {
+                                triggerButton.disabled = false;
+                            }
+                            return;
+                        }
 
                         const routeContextTrackingId = String(activeRouteContext.trackingId || '').trim();
                         sendDocumentAction({
@@ -3382,6 +4620,7 @@
                             documentId: activeRouteContext.documentId,
                             preconditionVersion: Number(activeRouteContext.documentVersion || 0),
                             destinationOfficeId: destinationOfficeId,
+                            bypassReason: bypassReasonValue,
                             remarks: remarksValue,
                             subject: nextSubjectValue,
                             attachmentFiles: attachmentFiles,
@@ -3939,6 +5178,9 @@
                     if (payload.destinationOfficeId && payload.destinationOfficeId > 0) {
                         formData.set('destination_office_id', String(payload.destinationOfficeId));
                     }
+                    if (payload.bypassReason) {
+                        formData.set('bypass_reason', String(payload.bypassReason));
+                    }
                     if (payload.remarks) {
                         formData.set('remarks', payload.remarks);
                     }
@@ -3970,6 +5212,9 @@
                     }
                     if (payload.destinationOfficeId && payload.destinationOfficeId > 0) {
                         body.set('destination_office_id', String(payload.destinationOfficeId));
+                    }
+                    if (payload.bypassReason) {
+                        body.set('bypass_reason', String(payload.bypassReason));
                     }
                     if (payload.remarks) {
                         body.set('remarks', payload.remarks);
@@ -8484,6 +9729,9 @@
             bindQrReceivePanel();
             applyTableFilters();
             bindLiveDashboardRefresh();
+            bindScreenshotTools().finally(function () {
+                runAutoScreenshotOnceAfterLoad();
+            });
 
 
             if (sidebarToggle && dashboardShell) {

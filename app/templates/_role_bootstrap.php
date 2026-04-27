@@ -496,7 +496,7 @@ if (!empty($liveQueueRows)) {
     }
 }
 
-if (!empty($routeOffices) && $roleKey !== 'DIVISION_CHIEF') {
+if (!empty($routeOffices) && !in_array($roleKey, ['DIVISION_CHIEF', 'ORED'], true)) {
     $routeOffices = array_values(array_filter(
         $routeOffices,
         static function (array $office): bool {
@@ -515,33 +515,91 @@ if (in_array($roleKey, ['CENRO', 'PASU'], true) && $pdo instanceof PDO && $offic
             if ($originatingOfficeId > 0) {
                 $policyDestination = workflow_required_initial_destination_office($pdo, $actorContext, $originatingOfficeId);
                 $policyOfficeId = (int)($policyDestination['office_id'] ?? 0);
+                $resolvedRecordsUnit = role_find_records_unit_route_office($pdo);
+                $recordsUnitOfficeId = (int)($resolvedRecordsUnit['id'] ?? 0);
+                $allowedOfficeIds = [];
                 if ($policyOfficeId > 0) {
+                    $allowedOfficeIds[] = $policyOfficeId;
+                }
+                if ($recordsUnitOfficeId > 0 && $recordsUnitOfficeId !== $policyOfficeId) {
+                    $allowedOfficeIds[] = $recordsUnitOfficeId;
+                }
+
+                if (!empty($allowedOfficeIds)) {
                     $routeOffices = array_values(array_filter(
                         $routeOffices,
-                        static fn(array $office): bool => (int)($office['id'] ?? 0) === $policyOfficeId
+                        static fn(array $office): bool => in_array((int)($office['id'] ?? 0), $allowedOfficeIds, true)
                     ));
 
-                    if (empty($routeOffices)) {
-                        $officeStmt = $pdo->prepare(
-                            'SELECT id, name, level
-                             FROM offices
-                             WHERE id = :id
-                             LIMIT 1'
-                        );
-                        $officeStmt->execute(['id' => $policyOfficeId]);
-                        $resolvedPolicyOffice = $officeStmt->fetch();
-                        if ($resolvedPolicyOffice) {
-                            $routeOffices[] = [
-                                'id' => (int)($resolvedPolicyOffice['id'] ?? 0),
-                                'name' => (string)($resolvedPolicyOffice['name'] ?? ''),
-                                'level' => (string)($resolvedPolicyOffice['level'] ?? ''),
-                            ];
+                    if ($policyOfficeId > 0) {
+                        $policyExists = false;
+                        foreach ($routeOffices as $office) {
+                            if ((int)($office['id'] ?? 0) === $policyOfficeId) {
+                                $policyExists = true;
+                                break;
+                            }
+                        }
+                        if (!$policyExists) {
+                            $officeStmt = $pdo->prepare(
+                                'SELECT id, name, level
+                                 FROM offices
+                                 WHERE id = :id
+                                 LIMIT 1'
+                            );
+                            $officeStmt->execute(['id' => $policyOfficeId]);
+                            $resolvedPolicyOffice = $officeStmt->fetch();
+                            if ($resolvedPolicyOffice) {
+                                $routeOffices[] = [
+                                    'id' => (int)($resolvedPolicyOffice['id'] ?? 0),
+                                    'name' => (string)($resolvedPolicyOffice['name'] ?? ''),
+                                    'level' => (string)($resolvedPolicyOffice['level'] ?? ''),
+                                ];
+                            }
                         }
                     }
 
-                    if (!empty($routeOffices)) {
-                        $routeFallbackOffice = $routeOffices[0];
-                        $routeFallbackOffices = [$routeFallbackOffice];
+                    if ($recordsUnitOfficeId > 0 && $resolvedRecordsUnit !== null) {
+                        $recordsExists = false;
+                        foreach ($routeOffices as $office) {
+                            if ((int)($office['id'] ?? 0) === $recordsUnitOfficeId) {
+                                $recordsExists = true;
+                                break;
+                            }
+                        }
+                        if (!$recordsExists) {
+                            $routeOffices[] = $resolvedRecordsUnit;
+                        }
+                    }
+
+                    $routeFallbackOffices = [];
+                    if ($policyOfficeId > 0) {
+                        foreach ($routeOffices as $office) {
+                            if ((int)($office['id'] ?? 0) === $policyOfficeId) {
+                                $routeFallbackOffices[] = $office;
+                                break;
+                            }
+                        }
+                    }
+                    if ($recordsUnitOfficeId > 0) {
+                        foreach ($routeOffices as $office) {
+                            if ((int)($office['id'] ?? 0) === $recordsUnitOfficeId) {
+                                $alreadyIncluded = false;
+                                foreach ($routeFallbackOffices as $fallbackOffice) {
+                                    if ((int)($fallbackOffice['id'] ?? 0) === $recordsUnitOfficeId) {
+                                        $alreadyIncluded = true;
+                                        break;
+                                    }
+                                }
+                                if (!$alreadyIncluded) {
+                                    $routeFallbackOffices[] = $office;
+                                }
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!empty($routeFallbackOffices)) {
+                        $routeFallbackOffice = $routeFallbackOffices[0];
                     }
                 }
             }

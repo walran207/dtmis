@@ -303,6 +303,40 @@ html[data-theme] body .user-dot {
     outline-offset: 2px;
 }
 
+.screenshot-page-btn {
+    min-height: 42px;
+    border: 1px solid var(--dash-border-soft);
+    border-radius: 12px;
+    background: var(--dash-surface-elevated);
+    color: #3f5c77;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 0 12px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    cursor: pointer;
+    transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+.screenshot-page-btn svg {
+    width: 17px;
+    height: 17px;
+}
+
+.screenshot-page-btn:hover {
+    background: var(--dash-surface-soft);
+    border-color: var(--dash-border-soft);
+    color: #2f4d69;
+}
+
+.screenshot-page-btn:focus-visible {
+    outline: 2px solid var(--theme-focus, var(--edats-accent-3, #a7bdd4));
+    outline-offset: 2px;
+}
+
 .notif-count {
     position: absolute;
     top: -6px;
@@ -1926,7 +1960,8 @@ td.date-created-cell {
     .content-header .header-actions .theme-toggle-btn,
     .content-header .header-actions .notif-btn,
     .content-header .header-actions .profile-btn,
-    .content-header .header-actions .date-filter-icon-btn {
+    .content-header .header-actions .date-filter-icon-btn,
+    .content-header .header-actions .screenshot-page-btn {
         width: 36px;
         height: 36px;
         min-width: 36px;
@@ -1943,7 +1978,8 @@ td.date-created-cell {
     .content-header .header-actions .theme-toggle-btn:hover,
     .content-header .header-actions .notif-btn:hover,
     .content-header .header-actions .profile-btn:hover,
-    .content-header .header-actions .date-filter-icon-btn:hover {
+    .content-header .header-actions .date-filter-icon-btn:hover,
+    .content-header .header-actions .screenshot-page-btn:hover {
         background: rgba(17, 39, 58, 0.08);
         color: var(--dash-text-strong);
     }
@@ -1952,7 +1988,8 @@ td.date-created-cell {
     .content-header .header-actions .theme-toggle-btn:focus-visible,
     .content-header .header-actions .notif-btn:focus-visible,
     .content-header .header-actions .profile-btn:focus-visible,
-    .content-header .header-actions .date-filter-icon-btn:focus-visible {
+    .content-header .header-actions .date-filter-icon-btn:focus-visible,
+    .content-header .header-actions .screenshot-page-btn:focus-visible {
         outline: 2px solid var(--theme-focus, rgba(176, 210, 252, 0.92));
         outline-offset: 2px;
     }
@@ -1988,7 +2025,8 @@ td.date-created-cell {
     body[data-theme="dark"] .content-header .header-actions .theme-toggle-btn,
     body[data-theme="dark"] .content-header .header-actions .notif-btn,
     body[data-theme="dark"] .content-header .header-actions .profile-btn,
-    body[data-theme="dark"] .content-header .header-actions .date-filter-icon-btn {
+    body[data-theme="dark"] .content-header .header-actions .date-filter-icon-btn,
+    body[data-theme="dark"] .content-header .header-actions .screenshot-page-btn {
         color: #b8c8e6;
     }
 
@@ -1996,7 +2034,8 @@ td.date-created-cell {
     body[data-theme="dark"] .content-header .header-actions .theme-toggle-btn:hover,
     body[data-theme="dark"] .content-header .header-actions .notif-btn:hover,
     body[data-theme="dark"] .content-header .header-actions .profile-btn:hover,
-    body[data-theme="dark"] .content-header .header-actions .date-filter-icon-btn:hover {
+    body[data-theme="dark"] .content-header .header-actions .date-filter-icon-btn:hover,
+    body[data-theme="dark"] .content-header .header-actions .screenshot-page-btn:hover {
         background: rgba(255, 255, 255, 0.08);
         color: #f5f9ff;
     }
@@ -2086,9 +2125,18 @@ td.date-created-cell {
 
     .content-header .mobile-nav-toggle svg,
     .content-header .header-actions .theme-toggle-btn svg,
-    .content-header .header-actions .date-filter-icon-btn svg {
+    .content-header .header-actions .date-filter-icon-btn svg,
+    .content-header .header-actions .screenshot-page-btn svg {
         width: 18px;
         height: 18px;
+    }
+
+    .content-header .header-actions .screenshot-page-btn {
+        padding: 0;
+    }
+
+    .content-header .header-actions .screenshot-page-btn .label {
+        display: none;
     }
 
     .status-filter-wrap {
@@ -2225,6 +2273,7 @@ body[data-theme="dark"] .content-header .assignment-context {
 body[data-theme="dark"] .profile-btn,
 body[data-theme="dark"] .notif-btn,
 body[data-theme="dark"] .date-filter-icon-btn,
+body[data-theme="dark"] .screenshot-page-btn,
 body[data-theme="dark"] .status-filter-select,
 body[data-theme="dark"] .date-field input[type="date"] {
     background: var(--dash-surface-elevated);
@@ -2234,7 +2283,8 @@ body[data-theme="dark"] .date-field input[type="date"] {
 
 body[data-theme="dark"] .profile-btn:hover,
 body[data-theme="dark"] .notif-btn:hover,
-body[data-theme="dark"] .date-filter-icon-btn:hover {
+body[data-theme="dark"] .date-filter-icon-btn:hover,
+body[data-theme="dark"] .screenshot-page-btn:hover {
     background: var(--dash-surface-soft);
     border-color: var(--dash-border-soft);
     color: #e6eef8;

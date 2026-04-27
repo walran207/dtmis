@@ -126,6 +126,19 @@ include $roleBasePath . '/partials/sidebar.php';
                             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
                         </span>
                     </button>
+                    <button
+                        type="button"
+                        id="capturePageScreenshotHeaderBtn"
+                        class="screenshot-page-btn"
+                        aria-label="Capture screenshot of this page"
+                        title="Capture screenshot of this page"
+                    >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3.2l1.6-2h6.4l1.6 2H20a2 2 0 0 1 2 2z"></path>
+                            <circle cx="12" cy="13" r="3.2"></circle>
+                        </svg>
+                        <span class="label">Screenshot</span>
+                    </button>
 
                     <div class="profile-wrap">
                         <button id="profileToggle" type="button" class="profile-btn" aria-label="Open profile menu" aria-expanded="false" aria-controls="profileDropdown" title="Open profile settings and logout menu.">
@@ -136,7 +149,10 @@ include $roleBasePath . '/partials/sidebar.php';
                             </svg>
                         </button>
                         <div id="profileDropdown" class="profile-dropdown" role="menu" aria-label="Profile menu">
-                            <button type="button" class="profile-menu-btn" role="menuitem">Profile settings</button>
+                            <button type="button" class="profile-menu-btn" role="menuitem" data-profile-settings="true">Profile settings</button>
+                            <button type="button" id="setScreenshotDirectoryBtn" class="profile-menu-btn" role="menuitem">Set Screenshot Folder</button>
+                            <button type="button" id="capturePageScreenshotBtn" class="profile-menu-btn" role="menuitem">Capture This Page</button>
+                            <button type="button" id="toggleAutoScreenshotBtn" class="profile-menu-btn" role="menuitem" aria-pressed="false">Auto Screenshot: Off</button>
                             <button type="button" class="profile-menu-btn danger" role="menuitem" data-logout="true">Logout</button>
                         </div>
                     </div>
@@ -848,15 +864,21 @@ include $roleBasePath . '/partials/sidebar.php';
                 <label class="action-modal-label" for="routeDestinationOffice">Destination Office</label>
                 <p class="action-modal-meta">Required for routing actions. Remarks are optional.</p>
                 <div id="routeDestinationTypeFilterWrap" class="route-destination-filter" hidden>
-                    <p class="action-modal-meta">Choose path: <strong>ARD first</strong> is recommended. Direct Division is optional.</p>
+                    <p class="action-modal-meta">Choose path: <strong>ARD first</strong> is recommended. Direct Division or Section is a bypass and requires reason.</p>
                     <div class="route-destination-filter-actions" role="group" aria-label="Destination type filter">
                         <button type="button" class="route-destination-filter-btn is-active" data-route-destination-filter="ard">ARD (Recommended)</button>
-                        <button type="button" class="route-destination-filter-btn" data-route-destination-filter="division">Division (Optional)</button>
+                        <button type="button" class="route-destination-filter-btn" data-route-destination-filter="division">Division (Bypass)</button>
+                        <button type="button" class="route-destination-filter-btn" data-route-destination-filter="section">Section (Bypass)</button>
                     </div>
                 </div>
                 <select id="routeDestinationOffice" class="action-modal-input" required>
                     <option value="">Select destination office</option>
                 </select>
+                <div id="routeBypassReasonWrap" hidden>
+                    <label class="action-modal-label" for="routeBypassReason">Bypass Reason</label>
+                    <p class="action-modal-meta">Required when ORED forwards directly to Division/Section instead of ARD.</p>
+                    <textarea id="routeBypassReason" class="action-modal-input" rows="3" maxlength="1000" placeholder="Required for ORED direct bypass routing"></textarea>
+                </div>
                 <label class="action-modal-label" for="routeRemarks">Remarks</label>
                 <p class="action-modal-meta">This text appears in the tracking slip under <strong>Action Required / Taken</strong> after the receiving office clicks Receive.</p>
                 <textarea id="routeRemarks" class="action-modal-input" rows="4" maxlength="1000" placeholder="Optional remarks for activity logs"></textarea>
@@ -957,6 +979,13 @@ include $roleBasePath . '/partials/sidebar.php';
                         <div class="details-attachments-head">
                             <h4>Attachment Preview</h4>
                             <a id="documentDetailsOpenAttachment" class="details-open-file" href="#" target="_blank" rel="noopener noreferrer" hidden>Open File</a>
+                        </div>
+                        <div id="documentDetailsAttachmentFilterWrap" class="details-attachment-filter" hidden>
+                            <div class="details-attachment-filter-actions" role="group" aria-label="Attachment category filter">
+                                <button type="button" class="details-attachment-filter-btn is-active" data-details-attachment-filter="original">Original Attachment</button>
+                                <button type="button" class="details-attachment-filter-btn" data-details-attachment-filter="endorsement">Endorsement Letter</button>
+                                <button type="button" class="details-attachment-filter-btn" data-details-attachment-filter="response">Response</button>
+                            </div>
                         </div>
                         <select id="documentDetailsAttachmentSelect" class="details-attachment-select" aria-label="Select attachment">
                             <option value="">No attachment selected</option>
