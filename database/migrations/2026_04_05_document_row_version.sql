@@ -1,0 +1,7 @@
+START TRANSACTION;
+
+ALTER TABLE documents
+    ADD COLUMN IF NOT EXISTS row_version INT UNSIGNED NOT NULL DEFAULT 1
+    AFTER pending_user_id;
+
+COMMIT;

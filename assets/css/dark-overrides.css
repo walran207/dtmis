@@ -1,0 +1,534 @@
+/* ==========================================================================
+   dark-overrides.css
+   Deep element-level dark mode overrides for EDATS.
+   Applied on top of the variable system where colors were hard-coded.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   Profile dropdown & menu buttons
+   -------------------------------------------------------------------------- */
+body[data-theme="dark"] .profile-btn,
+html[data-theme="dark"] body .profile-btn {
+    color: #94a3b8;
+    background: #111827;
+    border-color: #1e293b;
+}
+
+body[data-theme="dark"] .profile-btn:hover,
+html[data-theme="dark"] body .profile-btn:hover {
+    background: #0e1825;
+    border-color: #273c54;
+}
+
+body[data-theme="dark"] .profile-menu-btn,
+html[data-theme="dark"] body .profile-menu-btn {
+    color: #cbd5e1;
+}
+
+body[data-theme="dark"] .profile-menu-btn:hover,
+html[data-theme="dark"] body .profile-menu-btn:hover {
+    background: #111c2b;
+    color: #f1f5f9;
+}
+
+body[data-theme="dark"] .profile-menu-btn.danger,
+html[data-theme="dark"] body .profile-menu-btn.danger {
+    color: #fca5a5;
+}
+
+/* --------------------------------------------------------------------------
+   Notification panel
+   -------------------------------------------------------------------------- */
+body[data-theme="dark"] .notif-btn,
+html[data-theme="dark"] body .notif-btn {
+    color: #64748b;
+    background: #111827;
+    border-color: #1e293b;
+}
+
+body[data-theme="dark"] .notif-btn:hover,
+html[data-theme="dark"] body .notif-btn:hover {
+    background: #0e1825;
+    color: #94a3b8;
+}
+
+@media (max-width: 620px) {
+    body[data-theme="dark"] .content-header .header-actions .notif-btn,
+    html[data-theme="dark"] body .content-header .header-actions .notif-btn {
+        border-color: #2a5ca3;
+        background: linear-gradient(135deg, #3d89f0 0%, #228d84 100%);
+        color: #f7fbff;
+        box-shadow: 0 16px 34px rgba(0, 0, 0, 0.48);
+    }
+
+    body[data-theme="dark"] .content-header .header-actions .notif-btn:hover,
+    html[data-theme="dark"] body .content-header .header-actions .notif-btn:hover {
+        background: linear-gradient(135deg, #4f95f3 0%, #28a198 100%);
+        color: #ffffff;
+    }
+}
+
+body[data-theme="dark"] .notif-head,
+html[data-theme="dark"] body .notif-head {
+    border-bottom-color: #1e293b;
+}
+
+body[data-theme="dark"] .notif-item,
+html[data-theme="dark"] body .notif-item {
+    border-bottom-color: #1e293b;
+}
+
+body[data-theme="dark"] .notif-item p,
+html[data-theme="dark"] body .notif-item p {
+    color: #64748b;
+}
+
+body[data-theme="dark"] .notif-item time,
+html[data-theme="dark"] body .notif-item time {
+    color: #475569;
+}
+
+body[data-theme="dark"] .notif-item.is-unread,
+html[data-theme="dark"] body .notif-item.is-unread {
+    background: #0d1c2e;
+}
+
+body[data-theme="dark"] .notif-empty,
+html[data-theme="dark"] body .notif-empty {
+    color: #475569;
+}
+
+body[data-theme="dark"] .notif-item-indicator.is-yellow,
+html[data-theme="dark"] body .notif-item-indicator.is-yellow {
+    background: #f59e0b;
+    border-color: #fcd34d;
+}
+
+body[data-theme="dark"] .notif-item-indicator.is-pink,
+html[data-theme="dark"] body .notif-item-indicator.is-pink {
+    background: #ec4899;
+    border-color: #f9a8d4;
+}
+
+body[data-theme="dark"] .notif-item-indicator.is-blue,
+html[data-theme="dark"] body .notif-item-indicator.is-blue {
+    background: #3b82f6;
+    border-color: #93c5fd;
+}
+
+body[data-theme="dark"] .notif-item-indicator.is-green,
+html[data-theme="dark"] body .notif-item-indicator.is-green {
+    background: #10b981;
+    border-color: #6ee7b7;
+}
+
+body[data-theme="dark"] .notif-item-indicator.is-neutral,
+html[data-theme="dark"] body .notif-item-indicator.is-neutral {
+    background: #64748b;
+    border-color: #cbd5e1;
+}
+
+body[data-theme="dark"] .date-recency-indicator.is-recent,
+html[data-theme="dark"] body .date-recency-indicator.is-recent {
+    background: rgba(16, 185, 129, 0.14);
+    border-color: rgba(16, 185, 129, 0.34);
+    color: #6ee7b7;
+}
+
+body[data-theme="dark"] .date-recency-indicator.is-past,
+html[data-theme="dark"] body .date-recency-indicator.is-past {
+    background: rgba(100, 116, 139, 0.2);
+    border-color: rgba(148, 163, 184, 0.3);
+    color: #cbd5e1;
+}
+
+body[data-theme="dark"] .queue-indicator-badge.is-yellow,
+html[data-theme="dark"] body .queue-indicator-badge.is-yellow {
+    background: rgba(245, 158, 11, 0.2);
+    border-color: rgba(245, 158, 11, 0.36);
+    color: #fcd34d;
+}
+
+body[data-theme="dark"] .queue-indicator-badge.is-pink,
+html[data-theme="dark"] body .queue-indicator-badge.is-pink {
+    background: rgba(236, 72, 153, 0.2);
+    border-color: rgba(236, 72, 153, 0.34);
+    color: #f9a8d4;
+}
+
+body[data-theme="dark"] .queue-indicator-badge.is-blue,
+html[data-theme="dark"] body .queue-indicator-badge.is-blue {
+    background: rgba(59, 130, 246, 0.2);
+    border-color: rgba(96, 165, 250, 0.36);
+    color: #93c5fd;
+}
+
+body[data-theme="dark"] .queue-indicator-badge.is-green,
+html[data-theme="dark"] body .queue-indicator-badge.is-green {
+    background: rgba(16, 185, 129, 0.18);
+    border-color: rgba(16, 185, 129, 0.34);
+    color: #6ee7b7;
+}
+
+body[data-theme="dark"] .queue-indicator-badge.is-neutral,
+html[data-theme="dark"] body .queue-indicator-badge.is-neutral {
+    background: rgba(100, 116, 139, 0.2);
+    border-color: rgba(148, 163, 184, 0.3);
+    color: #cbd5e1;
+}
+
+/* --------------------------------------------------------------------------
+   Popovers & Hover Cards
+   -------------------------------------------------------------------------- */
+body[data-theme="dark"] .dash-popover-inner {
+    background: rgba(15, 23, 42, 0.95);
+    backdrop-filter: blur(20px) saturate(200%);
+    -webkit-backdrop-filter: blur(20px) saturate(200%);
+    border-color: #1e293b;
+    box-shadow: 
+        0 12px 32px rgba(0, 0, 0, 0.6),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+body[data-theme="dark"] .dash-popover-inner::before {
+    background: linear-gradient(90deg, #3b82f6, #10b981);
+    opacity: 0.8;
+}
+
+body[data-theme="dark"] .top-search input {
+    background: #0f172a;
+    border-color: #1e293b;
+    box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+body[data-theme="dark"] .top-search input:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2), inset 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* --------------------------------------------------------------------------
+   Status filter select & date inputs
+   -------------------------------------------------------------------------- */
+body[data-theme="dark"] .status-filter-select,
+html[data-theme="dark"] body .status-filter-select {
+    color: #94a3b8;
+    background: #111827;
+    border-color: #1e293b;
+}
+
+body[data-theme="dark"] .status-filter-select:hover,
+html[data-theme="dark"] body .status-filter-select:hover {
+    background: #0e1825;
+}
+
+body[data-theme="dark"] .date-filter-icon-btn,
+html[data-theme="dark"] body .date-filter-icon-btn {
+    color: #64748b;
+    background: #111827;
+    border-color: #1e293b;
+}
+
+body[data-theme="dark"] .date-filter-icon-btn:hover,
+html[data-theme="dark"] body .date-filter-icon-btn:hover {
+    background: #0e1825;
+    color: #94a3b8;
+}
+
+body[data-theme="dark"] .date-field input[type="date"],
+html[data-theme="dark"] body .date-field input[type="date"] {
+    color: #cbd5e1;
+    background: #0e1825;
+    border-color: #1e293b;
+}
+
+/* --------------------------------------------------------------------------
+   Tables
+   -------------------------------------------------------------------------- */
+body[data-theme="dark"] table,
+html[data-theme="dark"] body table {
+    color: #cbd5e1;
+}
+
+body[data-theme="dark"] th,
+html[data-theme="dark"] body th {
+    color: #475569;
+    border-bottom-color: #1e293b;
+    background: #080c14;
+}
+
+body[data-theme="dark"] td,
+html[data-theme="dark"] body td {
+    border-color: #1a2535;
+}
+
+body[data-theme="dark"] tr:hover > td,
+html[data-theme="dark"] body tr:hover > td {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+body[data-theme="dark"] tbody tr:nth-child(even) {
+    background: rgba(15, 23, 42, 0.5);
+}
+
+/* --------------------------------------------------------------------------
+   Status / badge pills
+   -------------------------------------------------------------------------- */
+body[data-theme="dark"] .live-pill,
+html[data-theme="dark"] body .live-pill {
+    background: rgba(91, 143, 253, 0.16);
+    color: #7eb5ff;
+}
+
+/* Paid */
+body[data-theme="dark"] [class*="status-paid"],
+body[data-theme="dark"] [class*="badge-paid"],
+body[data-theme="dark"] .badge.paid,
+body[data-theme="dark"] .status.paid,
+html[data-theme="dark"] body [class*="status-paid"],
+html[data-theme="dark"] body [class*="badge-paid"] {
+    background: rgba(34, 197, 94, 0.14);
+    color: #4ade80;
+    border-color: rgba(34, 197, 94, 0.28);
+}
+
+/* Pending */
+body[data-theme="dark"] [class*="status-pending"],
+body[data-theme="dark"] [class*="badge-pending"],
+html[data-theme="dark"] body [class*="status-pending"],
+html[data-theme="dark"] body [class*="badge-pending"] {
+    background: rgba(234, 179, 8, 0.13);
+    color: #fbbf24;
+    border-color: rgba(234, 179, 8, 0.26);
+}
+
+/* Rejected / Returned */
+body[data-theme="dark"] [class*="status-reject"],
+body[data-theme="dark"] [class*="badge-reject"],
+body[data-theme="dark"] [class*="status-return"],
+body[data-theme="dark"] [class*="badge-return"],
+html[data-theme="dark"] body [class*="status-reject"],
+html[data-theme="dark"] body [class*="status-return"] {
+    background: rgba(239, 68, 68, 0.13);
+    color: #f87171;
+    border-color: rgba(239, 68, 68, 0.26);
+}
+
+/* --------------------------------------------------------------------------
+   Action chips
+   -------------------------------------------------------------------------- */
+body[data-theme="dark"] .action-chip,
+html[data-theme="dark"] body .action-chip {
+    border-color: #1e293b;
+    background: #0e1825;
+    color: #94a3b8;
+}
+
+/* --------------------------------------------------------------------------
+   QR receive panel
+   -------------------------------------------------------------------------- */
+body[data-theme="dark"] .qr-receive-panel,
+html[data-theme="dark"] body .qr-receive-panel {
+    border-color: #1e293b;
+    background: #0e1825;
+}
+
+body[data-theme="dark"] .qr-receive-input,
+html[data-theme="dark"] body .qr-receive-input {
+    background: #111827;
+    color: #cbd5e1;
+    border-color: #1e293b;
+}
+
+/* --------------------------------------------------------------------------
+   Live flow tracker
+   -------------------------------------------------------------------------- */
+body[data-theme="dark"] .live-flow-tracker {
+    background: #0a0f18;
+    border-color: #1e293b;
+}
+
+body[data-theme="dark"] .live-flow-head {
+    border-bottom-color: #1e293b;
+}
+
+body[data-theme="dark"] .live-flow-head h2 {
+    color: #f8fafc;
+}
+
+body[data-theme="dark"] .live-flow-viewport {
+    border-color: #1e293b;
+    background-color: #030711;
+    background-image: radial-gradient(circle at 2px 2px, rgba(30, 41, 59, 0.35) 1px, transparent 0);
+    background-size: 28px 28px;
+}
+
+body[data-theme="dark"] .live-flow-viewport::before {
+    background: rgba(10, 15, 24, 0.95);
+    border-color: #1e293b;
+    color: #94a3b8;
+    backdrop-filter: blur(8px);
+}
+
+body[data-theme="dark"] .live-flow-step {
+    border-color: #1e293b;
+    background: #0f172a; /* Solid opaque navy */
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+    opacity: 1 !important; /* Force full opacity to hide lines */
+}
+
+body[data-theme="dark"] .live-flow-step::before {
+    display: none;
+}
+
+body[data-theme="dark"] .live-flow-step-title {
+    color: #f1f5f9;
+    text-shadow: none;
+}
+
+body[data-theme="dark"] .live-flow-step-glyph {
+    border-color: #1e293b;
+    background: #1e293b;
+    color: #94a3b8;
+}
+
+body[data-theme="dark"] .live-flow-step-dot {
+    border-color: #334155;
+    background: #0f172a;
+}
+
+body[data-theme="dark"] .live-flow-step-dot::after {
+    background: #475569;
+}
+
+body[data-theme="dark"] .live-flow-step-state {
+    background: #1e293b;
+    color: #94a3b8;
+}
+
+/* State overrides: Active */
+body[data-theme="dark"] .live-flow-step.is-active {
+    border-color: #3b82f6;
+    background: #0f1c3a; /* Opaque deep navy-blue tint */
+    box-shadow: 0 0 20px rgba(59, 130, 246, 0.2);
+}
+
+body[data-theme="dark"] .live-flow-step.is-active .live-flow-step-state {
+    background: #3b82f6;
+    color: #ffffff;
+}
+
+body[data-theme="dark"] .live-flow-step.is-active .live-flow-step-dot {
+    background: #3b82f6;
+    border-color: #3b82f6;
+    box-shadow: 0 0 8px rgba(59, 130, 246, 0.5);
+}
+
+/* State overrides: Completed */
+body[data-theme="dark"] .live-flow-step.is-completed {
+    border-color: #10b981;
+    background: #0f241a; /* Opaque deep emerald-green tint */
+    box-shadow: 0 0 20px rgba(16, 185, 129, 0.15);
+}
+
+body[data-theme="dark"] .live-flow-step.is-completed .live-flow-step-dot {
+    background: #10b981;
+    border-color: #10b981;
+}
+
+body[data-theme="dark"] .live-flow-legend {
+    color: #64748b;
+    border-top-color: #1e293b;
+}
+
+body[data-theme="dark"] .live-flow-legend span {
+    background: #0f172a;
+    border-color: #1e293b;
+    color: #94a3b8;
+}
+
+body[data-theme="dark"] .live-flow-pill {
+    border-color: #1e293b;
+    background: #0f172a;
+    color: #94a3b8;
+}
+
+/* --------------------------------------------------------------------------
+   Document tools panel
+   -------------------------------------------------------------------------- */
+body[data-theme="dark"] .document-tools,
+html[data-theme="dark"] body .document-tools {
+    background: #0e1825;
+    border-color: #1e293b;
+}
+
+/* --------------------------------------------------------------------------
+   Dashboard footer
+   -------------------------------------------------------------------------- */
+body[data-theme="dark"] .dashboard-footer,
+html[data-theme="dark"] body .dashboard-footer {
+    border-top-color: #1e293b;
+}
+
+body[data-theme="dark"] .footer-meta a,
+html[data-theme="dark"] body .footer-meta a {
+    color: #5b8ffd;
+}
+
+/* --------------------------------------------------------------------------
+   Search inputs
+   -------------------------------------------------------------------------- */
+body[data-theme="dark"] .top-search input,
+html[data-theme="dark"] body .top-search input {
+    background: #111827;
+    border-color: #1e293b;
+    color: #cbd5e1;
+}
+
+body[data-theme="dark"] .top-search input::placeholder,
+html[data-theme="dark"] body .top-search input::placeholder {
+    color: #334155;
+}
+
+/* --------------------------------------------------------------------------
+   Card hover (clickable stat cards)
+   -------------------------------------------------------------------------- */
+body[data-theme="dark"] .stat-card.stat-card-clickable:hover,
+html[data-theme="dark"] body .stat-card.stat-card-clickable:hover {
+    border-color: rgba(47, 125, 225, 0.3);
+    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+/* --------------------------------------------------------------------------
+   Flow line / SVG colors
+   -------------------------------------------------------------------------- */
+body[data-theme="dark"] .live-flow-line-outer,
+html[data-theme="dark"] body .live-flow-line-outer {
+    stroke: #273c54;
+}
+
+body[data-theme="dark"] .live-flow-line-guide,
+html[data-theme="dark"] body .live-flow-line-guide {
+    stroke: #1e293b;
+}
+
+body[data-theme="dark"] .live-flow-line-main,
+html[data-theme="dark"] body .live-flow-line-main {
+    stroke: #5b8ffd;
+    filter: drop-shadow(0 0 6px rgba(91, 143, 253, 0.35));
+}
+
+body[data-theme="dark"] .live-flow-marker .marker-core,
+html[data-theme="dark"] body .live-flow-marker .marker-core {
+    fill: #5b8ffd;
+}
+
+body[data-theme="dark"] .live-flow-marker .marker-halo,
+html[data-theme="dark"] body .live-flow-marker .marker-halo {
+    fill: #0e1825;
+    stroke: #1e293b;
+}
+
+body[data-theme="dark"] .live-flow-marker .marker-label,
+html[data-theme="dark"] body .live-flow-marker .marker-label {
+    fill: #475569;
+}

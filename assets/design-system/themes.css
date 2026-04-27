@@ -1,0 +1,84 @@
+:root {
+    --theme-bg: var(--color-bg);
+    --theme-surface: var(--color-surface);
+    --theme-border: var(--color-border);
+    --theme-text: var(--color-text);
+    --theme-text-muted: var(--color-text-muted);
+    --theme-link: var(--color-primary);
+    --theme-focus: #bdd0e3;
+    --theme-primary: #198f7f;
+    --theme-secondary: #2f7de1;
+    --theme-surface-soft: #f7fbff;
+
+    /* Compatibility aliases used by existing templates/components. */
+    --bg: var(--theme-bg);
+    --surface: var(--theme-surface);
+    --card: var(--theme-surface);
+    --line: var(--theme-border);
+    --text: var(--theme-text);
+    --muted: var(--theme-text-muted);
+    --primary: var(--theme-primary);
+    --secondary: var(--theme-secondary);
+}
+
+:root[data-theme="light"],
+html[data-theme="light"],
+body[data-theme="light"] {
+    color-scheme: light;
+}
+
+:root[data-theme="dark"],
+html[data-theme="dark"],
+body[data-theme="dark"] {
+    color-scheme: dark;
+    --theme-bg: #080c14;
+    --theme-surface: #0e1420;
+    --theme-border: #1e293b;
+    --theme-text: #f1f5f9;
+    --theme-text-muted: #64748b;
+    --theme-link: #7eb5ff;
+    --theme-focus: #3b5998;
+    --theme-primary: #5b8ffd;
+    --theme-secondary: #6366f1;
+    --theme-surface-soft: #111827;
+}
+
+/* Non-invasive base layer:
+   - Keeps text readable for plain HTML tags
+   - Uses low-specificity selectors so component-specific styles still win */
+html[data-theme],
+body[data-theme] {
+    background: var(--theme-bg);
+    color: var(--theme-text);
+}
+
+html[data-theme] body {
+    background: var(--theme-bg);
+    color: var(--theme-text);
+}
+
+:where(body[data-theme], html[data-theme] body) :where(
+    h1, h2, h3, h4, h5, h6,
+    p, span, small, strong, em, b, i,
+    li, dt, dd, td, th, label, legend
+) {
+    color: inherit;
+}
+
+:where(body[data-theme], html[data-theme] body) :where(a:not([class])) {
+    color: var(--theme-link);
+}
+
+:where(body[data-theme], html[data-theme] body) :where(input, textarea, select) {
+    color: var(--theme-text);
+    border-color: var(--theme-border);
+    background: var(--theme-surface);
+}
+
+:where(body[data-theme], html[data-theme] body) :where(button) {
+    color: inherit;
+}
+
+:where(body[data-theme], html[data-theme] body) :where(input:focus, textarea:focus, select:focus, button:focus) {
+    outline-color: var(--theme-focus);
+}

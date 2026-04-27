@@ -1,0 +1,91 @@
+<IfModule mod_php8.c>
+    php_value max_file_uploads 60
+    php_value upload_max_filesize 20M
+    php_value post_max_size 256M
+    php_value max_input_time 300
+    php_value max_execution_time 300
+</IfModule>
+<IfModule mod_php.c>
+    php_value max_file_uploads 60
+    php_value upload_max_filesize 20M
+    php_value post_max_size 256M
+    php_value max_input_time 300
+    php_value max_execution_time 300
+</IfModule>
+
+<IfModule mod_headers.c>
+    <FilesMatch "^(service-worker\.js|manifest\.webmanifest)$">
+        Header set Cache-Control "no-cache, no-store, must-revalidate"
+    </FilesMatch>
+</IfModule>
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Canonical app path in lowercase.
+    RewriteCond %{REQUEST_URI} !^/edats(/|$)
+    RewriteRule ^(.*)$ /edats/$1 [R=302,L]
+
+    # Auth shortcut route.
+    RewriteRule ^auth/?$ auth/login.php [L,NC]
+
+    # Root URL compatibility for relocated utility and PWA files.
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^(check_qa\.php|verify_final\.php|service-worker\.js|manifest\.webmanifest|offline\.html)$ root-files/$1 [L,NC,QSA]
+
+    # Root page compatibility after moving standalone pages to app/pages.
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^(dashboard|notifications|print-package|tracking-slip|softcopy-digital-signature|softcopy-qr-stamp|softcopy-records-unit-stamp)\.php$ app/pages/$1.php [L,NC,QSA]
+
+    # Root asset compatibility for moved global assets.
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^dashboard\.css$ assets/css/dashboard.css [L,NC,QSA]
+
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^notif-sound\.wav$ assets/audio/notif-sound.wav [L,NC,QSA]
+
+    # Legacy runtime endpoint compatibility after app/* migration.
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^actions/([A-Za-z0-9._-]+\.php)$ app/actions/$1 [L,NC,QSA]
+
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^modules/([A-Za-z0-9._-]+\.php)$ app/modules/$1 [L,NC,QSA]
+
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^role-page-template\.php$ app/templates/role-page-template.php [L,NC,QSA]
+
+    # PACDO legacy URL alias -> RECORS-UNIT.
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^PACDO/pages/([A-Za-z0-9._-]+\.php)$ roles/RECORS-UNIT/pages/$1 [L,NC,QSA]
+
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^PACDO/assets/(.+)$ roles/RECORS-UNIT/assets/$1 [L,NC,QSA]
+
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^PACDO/partials/(.+)$ roles/RECORS-UNIT/partials/$1 [L,NC,QSA]
+
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^PACDO/css/(.+\.css)$ roles/RECORS-UNIT/assets/css/$1 [L,NC,QSA]
+
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^PACDO/([A-Za-z0-9._-]+\.php)$ roles/RECORS-UNIT/pages/$1 [L,NC,QSA]
+
+    # Role URL compatibility with organized roles/* folder structure.
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^(ARD-MS|ARD-TS|CENRO|DIVISION-CHIEF|ORED|RECORS-UNIT|PASU|PENRO|SECTION-STAFF|SUPER-ADMIN)/pages/([A-Za-z0-9._-]+\.php)$ roles/$1/pages/$2 [L,NC,QSA]
+
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^(ARD-MS|ARD-TS|CENRO|DIVISION-CHIEF|ORED|RECORS-UNIT|PASU|PENRO|SECTION-STAFF|SUPER-ADMIN)/assets/(.+)$ roles/$1/assets/$2 [L,NC,QSA]
+
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^(ARD-MS|ARD-TS|CENRO|DIVISION-CHIEF|ORED|RECORS-UNIT|PASU|PENRO|SECTION-STAFF|SUPER-ADMIN)/partials/(.+)$ roles/$1/partials/$2 [L,NC,QSA]
+
+    # Legacy role CSS path compatibility (ROLE/css/* -> roles/ROLE/assets/css/*).
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^(ARD-MS|ARD-TS|CENRO|DIVISION-CHIEF|ORED|RECORS-UNIT|PASU|PENRO|SECTION-STAFF|SUPER-ADMIN)/css/(.+\.css)$ roles/$1/assets/css/$2 [L,NC,QSA]
+
+    # Legacy role page URLs (ROLE/*.php -> roles/ROLE/pages/*.php).
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^(ARD-MS|ARD-TS|CENRO|DIVISION-CHIEF|ORED|RECORS-UNIT|PASU|PENRO|SECTION-STAFF|SUPER-ADMIN)/([A-Za-z0-9._-]+\.php)$ roles/$1/pages/$2 [L,NC,QSA]
+
+</IfModule>

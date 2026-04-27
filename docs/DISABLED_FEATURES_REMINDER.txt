@@ -1,0 +1,38 @@
+eDATS Disabled Features Reminder
+Updated: 2026-03-14
+
+1) First-Login Forced Password Reset (TEMPORARILY DISABLED)
+
+What was disabled:
+- Users with users.must_change_password = 1 are no longer redirected to:
+  auth/first-login-reset.php
+- Login now proceeds directly to role dashboard after password validation.
+
+Files changed:
+- auth/login.php
+  - Removed/disabled the must_change_password redirect block.
+  - Added comment: "First-login forced reset is temporarily disabled."
+
+- auth/first-login-reset.php
+  - Replaced with a temporary redirect page.
+  - Any direct visit now redirects to auth/login.php
+    with message: "First-login password reset is temporarily disabled."
+
+Current behavior:
+- must_change_password values in DB are currently ignored at login.
+- Existing seeded/demo users can log in without forced reset.
+
+How to re-enable later:
+1. Restore the conditional redirect in auth/login.php:
+   if ((int)($user['must_change_password'] ?? 0) === 1) {
+       $_SESSION['force_reset_user_id'] = (int)$user['id'];
+       $_SESSION['force_reset_email'] = (string)$user['email'];
+       app_redirect('auth/first-login-reset.php');
+   }
+
+2. Restore the full original auth/first-login-reset.php form logic
+   (password form + policy validation + update users.must_change_password = 0).
+
+3. Optional cleanup:
+   - Keep DB flags as-is while feature is disabled.
+   - When re-enabled, users with must_change_password = 1 will be forced again.

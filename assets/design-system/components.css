@@ -1,0 +1,79 @@
+.ds-card {
+    background: var(--theme-surface, var(--color-surface));
+    border: 1px solid var(--theme-border, var(--color-border));
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+}
+
+.ds-btn {
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    padding: 8px 12px;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.ds-btn-primary {
+    background: var(--color-primary);
+    color: #fff;
+}
+
+.ds-btn-primary:hover {
+    filter: brightness(0.95);
+}
+
+.theme-toggle-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 42px;
+    min-width: 42px;
+    border: 1px solid var(--theme-border, var(--color-border));
+    border-radius: 12px;
+    background: var(--theme-surface, var(--color-surface));
+    color: var(--theme-text, var(--color-text));
+    padding: 0;
+    cursor: pointer;
+    transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.theme-toggle-btn:hover {
+    background: var(--theme-surface-soft);
+    border-color: var(--theme-border);
+}
+
+/* Icon visibility based on theme */
+.theme-icon-light, .theme-icon-dark {
+    display: none;
+    line-height: 0;
+}
+
+[data-theme="light"] .theme-icon-dark {
+    display: block; /* Show moon in light mode to suggest switching to dark */
+}
+
+[data-theme="dark"] .theme-icon-light {
+    display: block; /* Show sun in dark mode to suggest switching to light */
+}
+
+/* Dark mode: card shadow and toggle button adjustments */
+body[data-theme="dark"] .ds-card,
+html[data-theme="dark"] body .ds-card {
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+body[data-theme="dark"] .theme-toggle-btn,
+html[data-theme="dark"] body .theme-toggle-btn {
+    background: #111827;
+    border-color: #1e293b;
+    color: #94a3b8;
+}
+
+body[data-theme="dark"] .theme-toggle-btn:hover,
+html[data-theme="dark"] body .theme-toggle-btn:hover {
+    background: #0e1825;
+    border-color: #273c54;
+    color: #f1f5f9;
+}
+

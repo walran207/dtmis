@@ -1,0 +1,92 @@
+/* RECORDS-UNIT Document Type Review: scoped enhancements only (no global layout overrides) */
+.dtr-stats-grid {
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.dtr-grid {
+    gap: 12px;
+}
+
+.dtr-panel {
+    padding: 16px;
+}
+
+.dtr-head {
+    margin-bottom: 12px;
+}
+
+.dtr-head h2 {
+    font-size: 20px;
+}
+
+.dtr-head p {
+    font-size: 13px;
+}
+
+.dtr-badge {
+    font-size: 11px;
+    padding: 5px 10px;
+}
+
+.dtr-form {
+    gap: 10px;
+}
+
+.dtr-form-grid {
+    gap: 10px 12px;
+}
+
+.dtr-field input,
+.dtr-field select,
+.dtr-field textarea {
+    border-radius: 10px;
+}
+
+.dtr-form-actions {
+    gap: 8px;
+}
+
+.dtr-btn {
+    min-height: 36px;
+}
+
+.dtr-table-controls {
+    margin-bottom: 8px;
+}
+
+.dtr-table {
+    min-width: 860px;
+}
+
+.dtr-table th,
+.dtr-table td {
+    padding-top: 9px;
+    padding-bottom: 9px;
+}
+
+.dtr-row-actions {
+    gap: 6px;
+}
+
+.dtr-filter-empty {
+    margin-top: 6px;
+}
+
+@media (max-width: 900px) {
+    .dtr-panel {
+        padding: 14px;
+    }
+}
+
+@media (max-width: 620px) {
+    .dtr-panel {
+        padding: 12px;
+    }
+
+    .dtr-head h2 {
+        font-size: 18px;
+    }
+}
+
+

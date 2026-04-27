@@ -1,0 +1,44 @@
+body[data-role-key] {
+    --role-accent-soft: color-mix(in srgb, var(--role-accent) 15%, #ffffff);
+    --role-accent-text: var(--role-accent);
+    --role-accent-soft-dark: color-mix(in srgb, var(--role-accent) 30%, #0f1926);
+    --role-accent-text-dark: color-mix(in srgb, var(--role-accent) 82%, #eaf0f7);
+}
+
+body[data-role-key="CENRO"] {
+    --role-accent: #2f8f83;
+}
+
+body[data-role-key="PASU"] {
+    --role-accent: #4a8f6a;
+}
+
+body[data-role-key="PENRO"] {
+    --role-accent: #3f7fb1;
+}
+
+body[data-role-key="RECORDS_UNIT"],
+body[data-role-key="PACDO"] {
+    --role-accent: #9b7a4f;
+}
+
+body[data-role-key="ORED"] {
+    --role-accent: #7a6ab3;
+}
+
+body[data-role-key="DIVISION_CHIEF"] {
+    --role-accent: #8a6f66;
+}
+
+body[data-role-key="SECTION_STAFF"] {
+    --role-accent: #5f8596;
+}
+
+body[data-role-key="ARD_TS"],
+body[data-role-key="ARD_MS"] {
+    --role-accent: #4f7fb8;
+}
+
+body[data-role-key="SUPER_ADMIN"] {
+    --role-accent: #2a8f84;
+}

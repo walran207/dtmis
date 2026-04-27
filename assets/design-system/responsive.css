@@ -1,0 +1,38 @@
+/* Responsive Utility Classes */
+
+/* Hiding Elements */
+@media (max-width: 1024px) {
+    .hide-tablet-down { display: none !important; }
+}
+
+@media (max-width: 900px) {
+    .hide-mobile { display: none !important; }
+}
+
+@media (min-width: 901px) {
+    .show-mobile { display: none !important; }
+}
+
+@media (max-width: 640px) {
+    .hide-small { display: none !important; }
+}
+
+/* Flex Overrides */
+@media (max-width: 768px) {
+    .flex-col-tablet {
+        flex-direction: column !important;
+        align-items: flex-start !important;
+    }
+}
+
+/* Margin and Padding Overrides */
+@media (max-width: 640px) {
+    .m-0-mobile { margin: 0 !important; }
+    .p-0-mobile { padding: 0 !important; }
+    .mb-2-mobile { margin-bottom: 8px !important; }
+    .mb-4-mobile { margin-bottom: 16px !important; }
+    
+    /* Typography Utilities */
+    .text-center-mobile { text-align: center !important; }
+    .text-left-mobile { text-align: left !important; }
+}

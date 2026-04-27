@@ -1,0 +1,61 @@
+[Fri Apr  3 12:49:18 2026] PHP 8.2.12 Development Server (http://127.0.0.1:8089) started
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62745 Accepted
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62745 [302]: GET /index.php
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62745 Closing
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62746 Accepted
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62746 [200]: GET /auth/login.php
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62746 Closing
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62747 Accepted
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62747 [302]: GET /CENRO/dashboard.php
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62747 Closing
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62748 Accepted
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62748 [302]: GET /CENRO/pending-receive.php
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62748 Closing
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62749 Accepted
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62749 [302]: GET /PENRO/dashboard.php
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62749 Closing
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62750 Accepted
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62750 [302]: GET /PENRO/for-penro-action.php
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62750 Closing
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62751 Accepted
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62751 [302]: GET /PASU/dashboard.php
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62751 Closing
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62752 Accepted
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62752 [302]: GET /PASU/for-pasu-action.php
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62752 Closing
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62753 Accepted
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62753 [302]: GET /PACDO/dashboard.php
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62753 Closing
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62754 Accepted
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62754 [302]: GET /PACDO/pacdo-action.php
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62754 Closing
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62755 Accepted
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62755 [302]: GET /ORED/dashboard.php
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62755 Closing
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62756 Accepted
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62756 [302]: GET /ORED/rd-action-desk.php
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62756 Closing
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62757 Accepted
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62757 [302]: GET /ARD-MS/dashboard.php
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62757 Closing
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62758 Accepted
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62758 [302]: GET /ARD-MS/ard-ms-action.php
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62758 Closing
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62759 Accepted
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62759 [302]: GET /ARD-TS/dashboard.php
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62759 Closing
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62760 Accepted
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62760 [302]: GET /ARD-TS/ard-ts-action.php
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62760 Closing
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62761 Accepted
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62761 [302]: GET /DIVISION-CHIEF/dashboard.php
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62761 Closing
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62762 Accepted
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62762 [302]: GET /DIVISION-CHIEF/for-chief-action.php
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62762 Closing
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62763 Accepted
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62763 [302]: GET /SECTION-STAFF/dashboard.php
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62763 Closing
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62764 Accepted
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62764 [302]: GET /SECTION-STAFF/for-staff-action.php
+[Fri Apr  3 12:49:20 2026] 127.0.0.1:62764 Closing

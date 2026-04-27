@@ -1,0 +1,3 @@
+# Deny direct web access to storage files. 
+# Files should be served through the application's attachment-file.php action.
+Deny from all

@@ -1,0 +1,679 @@
+:root {
+    --super-admin-primary: #198f7f;
+    --super-admin-secondary: #2f7de1;
+    --super-admin-radius: 16px;
+    --super-admin-sidebar-width: 280px;
+    --super-admin-content-max: 1280px;
+}
+
+body[data-role-key="SUPER_ADMIN"] {
+    --primary: var(--super-admin-primary);
+    --secondary: var(--super-admin-secondary);
+    --radius-lg: var(--super-admin-radius);
+}
+
+body[data-role-key="SUPER_ADMIN"] .dashboard-shell {
+    --sidebar-width: var(--super-admin-sidebar-width);
+}
+
+body[data-role-key="SUPER_ADMIN"] .content {
+    max-width: var(--super-admin-content-max);
+    margin-inline: auto;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-grid {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: 16px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-panel {
+    grid-column: span 6;
+    border-radius: var(--super-admin-radius);
+    padding: clamp(12px, 1.6vw, 18px);
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-panel-full {
+    grid-column: span 12;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-panel-head {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-panel-head h2 {
+    margin: 0;
+    font-size: 1.1rem;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-panel-head p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.92rem;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: end;
+    margin-bottom: 10px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-search,
+body[data-role-key="SUPER_ADMIN"] .super-admin-filter {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-search {
+    flex: 1 1 260px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-search input,
+body[data-role-key="SUPER_ADMIN"] .super-admin-filter select,
+body[data-role-key="SUPER_ADMIN"] .super-admin-form input,
+body[data-role-key="SUPER_ADMIN"] .super-admin-form select,
+body[data-role-key="SUPER_ADMIN"] .super-admin-form textarea {
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+    color: var(--text);
+    padding: 10px 12px;
+    font-size: 0.92rem;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-table-wrap {
+    overflow: auto;
+    border: 1px solid var(--line);
+    border-radius: var(--super-admin-radius);
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 780px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-table thead th {
+    text-align: left;
+    padding: 11px 12px;
+    border-bottom: 1px solid var(--line);
+    font-size: 0.82rem;
+    letter-spacing: 0.02em;
+    color: var(--muted);
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-table tbody td {
+    padding: 11px 12px;
+    border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+    font-size: 0.89rem;
+    vertical-align: middle;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-table tbody tr.is-selected-row {
+    background: color-mix(in srgb, var(--edats-accent-1, var(--super-admin-primary)) 28%, transparent);
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-table-btn {
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--text);
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 0.82rem;
+    cursor: pointer;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-table-btn:hover {
+    border-color: var(--super-admin-primary);
+    color: var(--super-admin-primary);
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-empty {
+    margin-top: 10px;
+    color: var(--muted);
+    font-size: 0.9rem;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-form {
+    display: grid;
+    gap: 12px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-field span {
+    font-weight: 600;
+    font-size: 0.87rem;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.9rem;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-checkbox input {
+    width: auto;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-form-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-btn {
+    border: 1px solid transparent;
+    border-radius: 12px;
+    padding: 9px 14px;
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-btn:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-btn-primary {
+    background: var(--super-admin-primary);
+    color: #fff;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-btn-primary:hover {
+    filter: brightness(1.05);
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-btn-secondary {
+    border-color: var(--line);
+    background: var(--surface);
+    color: var(--text);
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-btn-secondary:hover {
+    border-color: var(--super-admin-primary);
+    color: var(--super-admin-primary);
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-status {
+    margin-top: 12px;
+    margin-bottom: 0;
+    font-size: 0.9rem;
+    color: var(--muted);
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-status.is-error {
+    color: var(--color-danger, #c0392b);
+}
+
+body[data-role-key="SUPER_ADMIN"] .status-pill {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    padding: 3px 10px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .status-pill.is-active {
+    color: color-mix(in srgb, var(--color-success, #10b981) 80%, #063d35);
+    background: color-mix(in srgb, var(--color-success, #10b981) 22%, transparent);
+}
+
+body[data-role-key="SUPER_ADMIN"] .status-pill.is-inactive {
+    color: color-mix(in srgb, var(--color-danger, #ef4444) 82%, #3f0a0f);
+    background: color-mix(in srgb, var(--color-danger, #ef4444) 18%, transparent);
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-mini-metrics {
+    margin-top: 10px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 10px 12px;
+    background: var(--surface);
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-mini-metrics p {
+    margin: 4px 0;
+    font-size: 0.88rem;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-live-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-live-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 999px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    padding: 6px 12px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-live-badge.is-online {
+    background: color-mix(in srgb, var(--color-success, #10b981) 22%, transparent);
+    color: color-mix(in srgb, var(--color-success, #10b981) 80%, #063d35);
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-live-badge.is-offline {
+    background: color-mix(in srgb, var(--color-danger, #ef4444) 20%, transparent);
+    color: color-mix(in srgb, var(--color-danger, #ef4444) 82%, #3f0a0f);
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-network-cards {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 14px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .network-card {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 10px;
+    background: var(--surface);
+}
+
+body[data-role-key="SUPER_ADMIN"] .network-card p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.78rem;
+}
+
+body[data-role-key="SUPER_ADMIN"] .network-card h3 {
+    margin: 4px 0 0;
+    font-size: 1.3rem;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-network-grid {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: 14px;
+    margin-bottom: 14px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .network-block {
+    grid-column: span 6;
+    border: 1px solid var(--line);
+    border-radius: var(--super-admin-radius);
+    padding: 12px;
+    background: var(--surface);
+}
+
+body[data-role-key="SUPER_ADMIN"] .network-block-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: end;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .network-block-head h3 {
+    margin: 0;
+    font-size: 0.98rem;
+}
+
+body[data-role-key="SUPER_ADMIN"] .network-block-head p {
+    margin: 0;
+    font-size: 0.82rem;
+    color: var(--muted);
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-traffic-bars {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: 6px;
+    align-items: end;
+    min-height: 180px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .traffic-bar-wrap {
+    display: grid;
+    gap: 4px;
+    justify-items: center;
+}
+
+body[data-role-key="SUPER_ADMIN"] .traffic-bar {
+    width: 100%;
+    min-height: 8px;
+    border-radius: 999px;
+    background: linear-gradient(180deg, var(--super-admin-secondary) 0%, var(--super-admin-primary) 100%);
+}
+
+body[data-role-key="SUPER_ADMIN"] .traffic-bar-wrap p,
+body[data-role-key="SUPER_ADMIN"] .traffic-bar-wrap span {
+    margin: 0;
+    font-size: 0.72rem;
+    color: var(--muted);
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-preview-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-preview-controls .is-active {
+    background: var(--super-admin-primary);
+    color: #fff;
+    border-color: var(--super-admin-primary);
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-preview-frame {
+    border: 1px dashed var(--line);
+    border-radius: var(--super-admin-radius);
+    background: var(--surface);
+    padding: 12px;
+    overflow: auto;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-preview-frame[data-preview-size="mobile"] .super-admin-preview-shell {
+    max-width: 390px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-preview-frame[data-preview-size="tablet"] .super-admin-preview-shell {
+    max-width: 820px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-preview-frame[data-preview-size="desktop"] .super-admin-preview-shell {
+    max-width: 100%;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-preview-shell {
+    margin: 0 auto;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 12px;
+    background: var(--surface);
+}
+
+body[data-role-key="SUPER_ADMIN"] .preview-header {
+    margin-bottom: 10px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .preview-header h3,
+body[data-role-key="SUPER_ADMIN"] .preview-header p {
+    margin: 0;
+}
+
+body[data-role-key="SUPER_ADMIN"] .preview-header p {
+    color: var(--muted);
+    font-size: 0.82rem;
+}
+
+body[data-role-key="SUPER_ADMIN"] .preview-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 10px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .preview-card {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 10px;
+    background: var(--surface);
+}
+
+body[data-role-key="SUPER_ADMIN"] .preview-card h4,
+body[data-role-key="SUPER_ADMIN"] .preview-card p {
+    margin: 0 0 6px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .preview-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .preview-actions button {
+    border: 1px solid transparent;
+    border-radius: 10px;
+    padding: 7px 10px;
+    background: var(--super-admin-primary);
+    color: #fff;
+}
+
+body[data-role-key="SUPER_ADMIN"] .preview-actions .secondary {
+    border-color: var(--line);
+    background: var(--surface);
+    color: var(--text);
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-design-workspace {
+    display: grid;
+    gap: 16px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-design-block {
+    border: 1px solid var(--line);
+    border-radius: var(--super-admin-radius);
+    background: var(--surface);
+    padding: 14px;
+    display: grid;
+    gap: 14px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-design-block-head h3 {
+    margin: 0;
+    font-size: 1.08rem;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-design-block-head p {
+    margin: 4px 0 0;
+    color: var(--muted);
+    font-size: 0.9rem;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-breakpoint-track {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 10px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-breakpoint-node {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--surface);
+    padding: 10px;
+    display: grid;
+    gap: 8px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-breakpoint-node.is-static {
+    align-content: start;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-breakpoint-icon {
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--muted);
+    background: var(--surface);
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-breakpoint-label {
+    font-weight: 700;
+    font-size: 0.9rem;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-breakpoint-static {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 8px 10px;
+    font-weight: 700;
+    background: var(--surface);
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-breakpoint-node input[type="range"] {
+    width: 100%;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-breakpoint-node input[type="number"] {
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+    color: var(--text);
+    padding: 8px 10px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-breakpoint-summary {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.88rem;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-layout-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-token-group h4 {
+    margin: 0 0 8px;
+    color: var(--muted);
+    font-size: 0.95rem;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-token-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-token-card {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+    padding: 10px;
+    display: grid;
+    gap: 8px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-token-swatch {
+    width: 100%;
+    height: 62px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: #d1d5db;
+    appearance: none;
+    -webkit-appearance: none;
+    cursor: pointer;
+    padding: 0;
+    overflow: hidden;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-token-swatch.is-invalid {
+    border-style: dashed;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-token-name {
+    font-weight: 700;
+    font-size: 0.9rem;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-token-picker {
+    background: transparent;
+    padding: 0;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-token-picker::-webkit-color-swatch-wrapper {
+    padding: 0;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-token-picker::-webkit-color-swatch {
+    border: none;
+    border-radius: 9px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-token-input {
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+    color: var(--text);
+    padding: 8px 10px;
+    font-size: 0.86rem;
+    text-transform: lowercase;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-token-input.is-invalid {
+    border-color: #b42318;
+    box-shadow: 0 0 0 1px rgba(180, 35, 24, 0.18);
+}
+
+body[data-role-key="SUPER_ADMIN"].super-admin-density-compact .content,
+body[data-role-key="SUPER_ADMIN"].super-admin-density-compact .super-admin-panel,
+body[data-role-key="SUPER_ADMIN"].super-admin-density-compact .network-block {
+    --super-admin-radius: 12px;
+}
+
+body[data-role-key="SUPER_ADMIN"].super-admin-density-compact .super-admin-panel,
+body[data-role-key="SUPER_ADMIN"].super-admin-density-compact .network-block {
+    padding: 10px;
+}
+
+body[data-role-key="SUPER_ADMIN"].super-admin-density-compact .super-admin-table thead th,
+body[data-role-key="SUPER_ADMIN"].super-admin-density-compact .super-admin-table tbody td {
+    padding: 8px 10px;
+}
+
+@media (max-width: 1200px) {
+    body[data-role-key="SUPER_ADMIN"] .super-admin-network-cards {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 992px) {
+    body[data-role-key="SUPER_ADMIN"] .super-admin-panel,
+    body[data-role-key="SUPER_ADMIN"] .network-block {
+        grid-column: span 12;
+    }
+
+    body[data-role-key="SUPER_ADMIN"] .super-admin-network-grid {
+        grid-template-columns: 1fr;
+    }
+
+    body[data-role-key="SUPER_ADMIN"] .super-admin-network-cards {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 640px) {
+    body[data-role-key="SUPER_ADMIN"] .super-admin-network-cards {
+        grid-template-columns: 1fr;
+    }
+
+    body[data-role-key="SUPER_ADMIN"] .super-admin-form-actions {
+        flex-direction: column;
+    }
+
+    body[data-role-key="SUPER_ADMIN"] .super-admin-btn {
+        width: 100%;
+    }
+}
