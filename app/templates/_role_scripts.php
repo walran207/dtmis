@@ -33,15 +33,26 @@
                 window.__EDATS_CACHE_SCOPE = 'user:' + String(currentUserId);
             }
             const currentRoleKey = <?= json_encode($roleKey) ?>;
+            const currentRoleKeyRaw = <?= json_encode($roleKeyRaw ?? $roleKey) ?>;
+            const isCenroAdminRecordRole = String(currentRoleKeyRaw || '').toUpperCase() === 'CENRO_ADMIN_RECORD';
+            const isCenroOfficerRole = String(currentRoleKeyRaw || '').toUpperCase() === 'CENRO_OFFICER';
+            const isCenroSectionRole = String(currentRoleKeyRaw || '').toUpperCase() === 'CENRO_SECTION';
+            const isCenroUnitRole = String(currentRoleKeyRaw || '').toUpperCase() === 'CENRO_UNIT';
+            const isCenroInternalFlowRole = isCenroAdminRecordRole || isCenroOfficerRole || isCenroSectionRole || isCenroUnitRole;
             const isArdRole = currentRoleKey === 'ARD_TS' || currentRoleKey === 'ARD_MS';
             const isIntakePage = <?= json_encode($isIntakePage) ?>;
             const filterRouteExistingAttachmentsToPreparedResponse = <?= json_encode((bool)($filterRouteExistingAttachmentsToPreparedResponse ?? false)) ?>;
-            const hideRerouteQuickAction = ['CENRO', 'PASU', 'PENRO', 'RECORDS_UNIT'].indexOf(String(currentRoleKey || '').toUpperCase()) !== -1;
+            const forceHideRerouteQuickAction = <?= json_encode((bool)($forceHideRerouteQuickAction ?? false)) ?>;
+            const hideRerouteQuickAction = ['CENRO', 'PASU', 'PENRO', 'RECORDS_UNIT'].indexOf(String(currentRoleKey || '').toUpperCase()) !== -1
+                || isCenroUnitRole
+                || forceHideRerouteQuickAction;
+            const executiveRoleLabel = isCenroOfficerRole ? 'CENRO Officer' : 'ORED';
             const hideQueueDocumentOnlyActions = <?= json_encode($hideQueueDocumentOnlyActions) ?>;
             const enableQueueRerouteAction = <?= json_encode($enableQueueRerouteAction) ?>;
             const rerouteOfficeLevelFilter = <?= json_encode($rerouteOfficeLevelFilter) ?>;
             const showDivisionChiefStaffRerouteTargets = <?= json_encode((bool)($showDivisionChiefStaffRerouteTargets ?? false)) ?>;
             const currentOfficeId = <?= json_encode((int)($_SESSION['office_id'] ?? 0)) ?>;
+            const currentOfficeParentId = <?= json_encode((int)($officeContext['parent_office_id'] ?? 0)) ?>;
             const routeOffices = <?= json_encode($routeOffices, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
             const routeFallbackOffice = <?= json_encode($routeFallbackOffice, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
             const routeFallbackOffices = <?= json_encode($routeFallbackOffices, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
@@ -183,6 +194,7 @@
             const intakeDocumentType = document.getElementById('intakeDocumentType');
             const intakeExternalField = document.querySelector('.intake-external-only');
             const intakeSubmitButton = document.getElementById('intakeSubmit');
+            const intakeSubmitForwardButton = document.getElementById('intakeSubmitForward');
             const intakeSaveDraftButton = document.getElementById('intakeSaveDraft');
             const intakeRemarksInput = document.getElementById('intakeRemarks');
             const intakeAttachmentsInput = document.getElementById('intakeAttachments');
@@ -2107,6 +2119,92 @@
                 const effectiveOfficeLevel = pendingOfficeId > 0 ? pendingOfficeLevel : currentOfficeLevel;
                 const normalizedStatus = normalizeLabelKey(statusRaw);
                 const normalizedHolder = normalizeLabelKey(currentHolderRaw);
+                if (isCenroInternalFlowRole) {
+                    const holderIsOriginOffice = normalizedHolder.indexOf('origin') !== -1
+                        || normalizedHolder.indexOf('cenro') !== -1
+                        || normalizedHolder.indexOf('pasu') !== -1
+                        || effectiveOfficeLevel === 'community'
+                        || effectiveOfficeLevel === 'protected area';
+                    const holderIsCenroAdminRecord = normalizedHolder.indexOf('admin record') !== -1
+                        || normalizedHolder.indexOf('admin records') !== -1
+                        || effectiveOfficeLevel === 'cenro_admin_record';
+                    const holderIsCenroOfficer = normalizedHolder.indexOf('cenro officer') !== -1
+                        || normalizedHolder.indexOf(' - officer') !== -1
+                        || normalizedHolder.indexOf(' officer') !== -1
+                        || effectiveOfficeLevel === 'cenro_officer';
+                    const holderIsCenroSection = normalizedHolder.indexOf('section') !== -1
+                        || effectiveOfficeLevel === 'cenro_section';
+                    const holderIsCenroUnit = normalizedHolder.indexOf('unit') !== -1
+                        || effectiveOfficeLevel === 'cenro_unit';
+                    const isSignedStage = queueStatusIsSignedCompleted(statusRaw) || hasSignedAction;
+                    const isForwardedStage = queueStatusIsForwarded(statusRaw);
+                    const isReleasedStage = normalizedStatus.indexOf('released') !== -1 || normalizedStatus.indexOf('release') !== -1;
+                    const isCompletedStage = normalizedStatus.indexOf('completed') !== -1 || normalizedStatus.indexOf('done') !== -1;
+
+                    let activeStep = -1;
+                    if (holderIsCenroOfficer) {
+                        activeStep = 1;
+                    } else if (holderIsCenroSection) {
+                        activeStep = 2;
+                    } else if (holderIsCenroUnit) {
+                        activeStep = 3;
+                    } else if (holderIsCenroAdminRecord) {
+                        activeStep = isSignedStage ? 5 : 0;
+                    } else if (holderIsOriginOffice) {
+                        activeStep = isReleasedStage ? 7 : 0;
+                    } else if (normalizedStatus.indexOf('created') !== -1) {
+                        activeStep = 0;
+                    }
+
+                    let completedThrough = activeStep > 0 ? (activeStep - 1) : -1;
+                    if (isSignedStage) {
+                        completedThrough = Math.max(completedThrough, 4);
+                        if (holderIsCenroOfficer && !isForwardedStage) {
+                            activeStep = Math.max(activeStep, 4);
+                        } else if (holderIsCenroAdminRecord && !isReleasedStage) {
+                            activeStep = Math.max(activeStep, 5);
+                        }
+                    }
+                    if (isReleasedStage) {
+                        completedThrough = Math.max(completedThrough, 6);
+                        activeStep = 7;
+                    }
+                    if (isCompletedStage) {
+                        completedThrough = 7;
+                        activeStep = -1;
+                    }
+
+                    const maxStepIndex = liveFlowSteps.length - 1;
+                    if (maxStepIndex < 0) {
+                        return null;
+                    }
+                    if (activeStep > maxStepIndex) {
+                        activeStep = maxStepIndex;
+                    }
+                    if (completedThrough > maxStepIndex) {
+                        completedThrough = maxStepIndex;
+                    }
+
+                    const stepStates = [];
+                    for (let stepIndex = 0; stepIndex < liveFlowSteps.length; stepIndex += 1) {
+                        if (stepIndex <= completedThrough) {
+                            stepStates.push('completed');
+                        } else if (activeStep >= 0 && stepIndex === activeStep) {
+                            stepStates.push('active');
+                        } else {
+                            stepStates.push('pending');
+                        }
+                    }
+
+                    return {
+                        trackingId: trackingId,
+                        statusRaw: statusRaw,
+                        currentHolderRaw: currentHolderRaw,
+                        activeStep: activeStep,
+                        isCompleted: isCompletedStage,
+                        stepStates: stepStates,
+                    };
+                }
                 const holderIsOrigin = normalizedHolder.indexOf('cenro') !== -1
                     || normalizedHolder.indexOf('pasu') !== -1
                     || normalizedHolder.indexOf('origin') !== -1
@@ -2753,12 +2851,14 @@
                     'receive': 'RECEIVE',
                     'forward': 'FORWARD',
                     'send back to ard': 'FORWARD',
+                    'send back to cenro officer': 'FORWARD',
                     'send back to ored': 'FORWARD',
                     'reroute': 'REROUTE',
                     'return': 'RETURN',
                     'override': 'OVERRIDE',
                     'approve': 'APPROVE',
                     'sign': 'SIGN',
+                    'complete': 'COMPLETE',
                     'undo sign': 'UNSIGN',
                     'release': 'RELEASE',
                     'edit': 'EDIT',
@@ -2768,12 +2868,14 @@
                     'receive': 'Mark this document as officially received by your office.',
                     'forward': 'Route this document to the next office in the workflow.',
                     'send back to ard': 'Forward this document back to your supervising ARD for review.',
+                    'send back to cenro officer': 'Send this document back to your parent CENRO Officer for review.',
                     'send back to ored': 'Forward this document back to ORED for final review.',
                     'reroute': 'Send this document to a different destination office.',
                     'return': 'Return this document for correction or additional input.',
                     'override': 'Apply executive override routing (ORED only).',
                     'approve': 'Approve this document at your current stage.',
                     'sign': 'Open digital signature workspace for signing and printing.',
+                    'complete': 'Mark transaction as released at CENRO Admin Record.',
                     'undo sign': 'Undo your ORED sign and revert the document back to Approved stage.',
                     'release': 'Release document back to the originating office.',
                     'edit': 'Edit source, subject, document type, complexity, days, attachments, and remarks.',
@@ -2781,6 +2883,7 @@
                 };
                 const displayLabelMap = {
                     'send back to ard': 'Send Back to ARD',
+                    'send back to cenro officer': 'Send Back to CENRO Officer',
                     'send back to ored': 'Send Back to ORED',
                     'undo sign': 'Undo Sign',
                 };
@@ -2789,7 +2892,21 @@
                 }
                 const routeMode = actionKey === 'send back to ard'
                     ? 'ard_back'
-                    : (actionKey === 'send back to ored' ? 'ored_back' : '');
+                    : (actionKey === 'send back to ored'
+                        ? 'ored_back'
+                        : (actionKey === 'send back to cenro officer' ? 'cenro_officer_back' : ''));
+                if (isCenroOfficerRole && actionKey === 'override') {
+                    return null;
+                }
+                if (isCenroSectionRole && actionKey === 'send back to ard') {
+                    return null;
+                }
+                if (!isCenroSectionRole && actionKey === 'send back to cenro officer') {
+                    return null;
+                }
+                if (isCenroUnitRole && actionKey === 'reroute') {
+                    return null;
+                }
                 if ((actionKey === 'edit' || actionKey === 'delete')) {
                     if (!canManageIntakeRow || isTerminal) {
                         return null;
@@ -2832,9 +2949,9 @@
                     && pendingOfficeId !== currentOfficeId;
                 const bypassRoleStageForReroute = actionKey === 'reroute'
                     && enableQueueRerouteAction
-                    && (currentRoleKey === 'ORED' || currentRoleKey === 'DIVISION_CHIEF' || isArdRole)
+                    && (currentRoleKey === 'ORED' || currentRoleKey === 'DIVISION_CHIEF' || isArdRole || isCenroOfficerRole || isCenroSectionRole)
                     && (isForwarded || routedOutFromCurrentOffice);
-                if (currentRoleKey === 'RECORDS_UNIT' && !canManageIntakeRow) {
+                if (currentRoleKey === 'RECORDS_UNIT' && !isCenroAdminRecordRole && !canManageIntakeRow) {
                     if (!isReceived && !isReleasedAwaitingOriginReceive) {
                         if (actionKey !== 'receive') {
                             return null;
@@ -2857,29 +2974,57 @@
                         return null;
                     }
                 }
+                if (isCenroAdminRecordRole && !canManageIntakeRow) {
+                    if (!isReceived) {
+                        if (actionKey !== 'receive') {
+                            return null;
+                        }
+                    } else if (isSignedForPhase) {
+                        if (actionKey !== 'complete') {
+                            return null;
+                        }
+                    } else if (!isApproved) {
+                        if (actionKey !== 'approve') {
+                            return null;
+                        }
+                    } else if (actionKey !== 'forward' && actionKey !== 'complete') {
+                        return null;
+                    }
+                }
                 if (currentRoleKey === 'ORED' && !bypassRoleStageForReroute) {
                     if (!isReceived) {
                         if (actionKey !== 'receive') {
                             return null;
                         }
                     } else if (isSignedForPhase && !isForwarded) {
-                        // After signing, ORED can undo sign, forward, or return to RECORDS-UNIT for correction.
-                        if (actionKey !== 'forward' && actionKey !== 'undo sign' && actionKey !== 'return') {
+                        if (isCenroOfficerRole) {
+                            if (actionKey !== 'forward') {
+                                return null;
+                            }
+                        } else if (actionKey !== 'forward' && actionKey !== 'undo sign' && actionKey !== 'return') {
                             return null;
                         }
                     } else if (isSignedForPhase && isForwarded) {
-                        if (actionKey !== 'override') {
+                        if (isCenroOfficerRole || actionKey !== 'override') {
                             return null;
                         }
                     } else if (!isApproved) {
-                        if (actionKey !== 'approve' && actionKey !== 'return') {
+                        if (isCenroOfficerRole) {
+                            if (actionKey !== 'approve') {
+                                return null;
+                            }
+                        } else if (actionKey !== 'approve' && actionKey !== 'return') {
                             return null;
                         }
                     } else if (!isForwarded) {
-                        if (actionKey !== 'sign' && actionKey !== 'forward' && actionKey !== 'return') {
+                        if (isCenroOfficerRole) {
+                            if (actionKey !== 'sign' && actionKey !== 'forward' && actionKey !== 'reroute') {
+                                return null;
+                            }
+                        } else if (actionKey !== 'sign' && actionKey !== 'forward' && actionKey !== 'return') {
                             return null;
                         }
-                    } else if (actionKey !== 'override') {
+                    } else if (isCenroOfficerRole || actionKey !== 'override') {
                         return null;
                     }
                 }
@@ -2892,7 +3037,9 @@
                         if (actionKey !== 'approve') {
                             return null;
                         }
-                    } else if (currentRoleKey === 'DIVISION_CHIEF' && actionKey !== 'forward' && actionKey !== 'send back to ard') {
+                    } else if (currentRoleKey === 'DIVISION_CHIEF' && !isCenroSectionRole && actionKey !== 'forward' && actionKey !== 'send back to ard') {
+                        return null;
+                    } else if (currentRoleKey === 'DIVISION_CHIEF' && isCenroSectionRole && actionKey !== 'forward' && actionKey !== 'reroute' && actionKey !== 'send back to cenro officer') {
                         return null;
                     } else if (isArdRole && actionKey !== 'forward' && actionKey !== 'send back to ored') {
                         return null;
@@ -2928,10 +3075,10 @@
                 ) {
                     return null;
                 }
-                if (actionKey === 'forward' || actionKey === 'send back to ard' || actionKey === 'send back to ored') {
+                if (actionKey === 'forward' || actionKey === 'send back to ard' || actionKey === 'send back to cenro officer' || actionKey === 'send back to ored') {
                     if (
                         (routedOutFromCurrentOffice || queueStatusIsForwarded(normalizedStatus))
-                        && currentRoleKey !== 'ORED'
+                        && !(currentRoleKey === 'ORED' && !isCenroOfficerRole)
                     ) {
                         return null;
                     }
@@ -2941,7 +3088,7 @@
                     if (currentRoleKey === 'PENRO' && !penroIntakeDirectForward && !canManageIntakeRow && !queueStatusIsApproved(normalizedStatus)) {
                         return null;
                     }
-                    if (currentRoleKey === 'RECORDS_UNIT' && !canManageIntakeRow && !isApproved) {
+                    if (currentRoleKey === 'RECORDS_UNIT' && !isCenroAdminRecordRole && !canManageIntakeRow && !isApproved) {
                         return null;
                     }
                 }
@@ -2985,6 +3132,9 @@
                     ? displayLabelMap[actionKey]
                     : (actionKey.charAt(0).toUpperCase() + actionKey.slice(1));
                 let buttonTooltip = String(tooltipMap[actionKey] || 'Run this document action.');
+                if (actionKey === 'complete' && isCenroAdminRecordRole) {
+                    buttonLabel = 'Released';
+                }
                 if (actionKey === 'release' && isReleasedAwaitingOriginReceive) {
                     buttonLabel = 'Send to Originating Office';
                     buttonTooltip = 'Send this released document to the originating office so they can Receive and complete.';
@@ -3206,7 +3356,13 @@
                             const normalizedItem = normalizeLabelKey(item);
                             const allowRoutedOutReroute = enableQueueRerouteAction
                                 && normalizedItem === 'reroute'
-                                && (currentRoleKey === 'ORED' || currentRoleKey === 'DIVISION_CHIEF' || isArdRole);
+                                && (
+                                    (currentRoleKey === 'ORED' && !isCenroOfficerRole)
+                                    || (currentRoleKey === 'DIVISION_CHIEF' && !isCenroSectionRole)
+                                    || isArdRole
+                                    || isCenroOfficerRole
+                                    || isCenroSectionRole
+                                );
                             const allowRoutedOutReleaseFollowup = currentRoleKey === 'RECORDS_UNIT'
                                 && normalizedItem === 'release'
                                 && normalizedRowStatus.indexOf('released') !== -1
@@ -3219,7 +3375,7 @@
                                 routedOutFromCurrentOffice
                                 && documentOnlyActions.indexOf(normalizedItem) === -1
                                 && intakeManageActions.indexOf(normalizedItem) === -1
-                                && !(currentRoleKey === 'ORED' && normalizedItem === 'override')
+                                && !(currentRoleKey === 'ORED' && !isCenroOfficerRole && normalizedItem === 'override')
                                 && !allowRoutedOutReroute
                                 && !allowRoutedOutReleaseFollowup
                             ) {
@@ -3229,6 +3385,15 @@
                                 return false;
                             }
                             if (normalizedItem === 'reroute' && hideRerouteQuickAction) {
+                                return false;
+                            }
+                            if (isCenroOfficerRole && normalizedItem === 'override') {
+                                return false;
+                            }
+                            if (isCenroSectionRole && normalizedItem === 'send_back_to_ard') {
+                                return false;
+                            }
+                            if (isCenroUnitRole && normalizedItem === 'reroute') {
                                 return false;
                             }
                             if (hideQueueDocumentOnlyActions && documentOnlyActions.indexOf(normalizedItem) !== -1) {
@@ -3251,6 +3416,16 @@
                         if (actionKeys.indexOf('delete') === -1) {
                             actionKeys.push('delete');
                         }
+                    }
+                    const rowIsSignedForUndo = queueStatusIsSignedCompleted(normalizedRowStatus) || rowHasSignedAction;
+                    if (
+                        currentRoleKey === 'ORED'
+                        && rowIsSignedForUndo
+                        && !queueStatusIsForwarded(normalizedRowStatus)
+                        && actionKeys.indexOf('forward') !== -1
+                        && actionKeys.indexOf('undo sign') === -1
+                    ) {
+                        actionKeys.push('undo sign');
                     }
 
                     if (actionKeys.length === 0) {
@@ -3297,16 +3472,64 @@
                 return action === 'FORWARD' || action === 'REROUTE' || action === 'RETURN' || action === 'OVERRIDE' || action === 'RELEASE';
             }
 
-            function allowsPreparedResponseAttachment(context) {
+            function selectedRouteDestinationOption() {
+                if (!routeDestinationOffice) {
+                    return null;
+                }
+                const selectedIndex = routeDestinationOffice.selectedIndex;
+                if (!Number.isFinite(selectedIndex) || selectedIndex < 0 || selectedIndex >= routeDestinationOffice.options.length) {
+                    return null;
+                }
+                return routeDestinationOffice.options[selectedIndex] || null;
+            }
+
+            function routeDestinationOptionIsCenroAdminRecord(option) {
+                const optionLevel = routeDestinationOptionLevel(option);
+                const optionLabel = String(option && option.textContent ? option.textContent : '').toUpperCase();
+                return optionLevel === 'CENRO_ADMIN_RECORD'
+                    || optionLabel.indexOf('ADMIN RECORD') !== -1;
+            }
+
+            function routeDestinationOptionIsCenroUnit(option) {
+                const optionLevel = routeDestinationOptionLevel(option);
+                const optionLabel = String(option && option.textContent ? option.textContent : '').toUpperCase();
+                return optionLevel === 'CENRO_UNIT'
+                    || optionLabel.indexOf('CENRO UNIT') !== -1;
+            }
+
+            function routeDestinationOptionIsCenroOfficer(option) {
+                const optionLevel = routeDestinationOptionLevel(option);
+                const optionLabel = String(option && option.textContent ? option.textContent : '').toUpperCase();
+                return optionLevel === 'CENRO_OFFICER'
+                    || optionLabel.indexOf('CENRO OFFICER') !== -1
+                    || optionLabel.indexOf(' - OFFICER') !== -1;
+            }
+
+            function preparedResponseSourceLabel() {
+                if (isCenroSectionRole || isCenroUnitRole) {
+                    return 'CENRO Section/Unit';
+                }
+                return 'Division/Section';
+            }
+
+            function allowsPreparedResponseAttachment(context, option) {
                 const action = String(context && context.action ? context.action : '').toUpperCase();
                 const routeMode = normalizeLabelKey(context && context.routeMode ? context.routeMode : '');
+                const destinationOption = option || selectedRouteDestinationOption();
                 if (action !== 'FORWARD') {
                     return false;
                 }
-                if (currentRoleKey === 'DIVISION_CHIEF') {
+                if (currentRoleKey === 'DIVISION_CHIEF' && !isCenroSectionRole) {
                     return routeMode === 'ard_back';
                 }
-                if (currentRoleKey === 'SECTION_STAFF') {
+                if (currentRoleKey === 'SECTION_STAFF' && !isCenroUnitRole) {
+                    return true;
+                }
+                if (isCenroSectionRole) {
+                    return routeMode === 'cenro_officer_back'
+                        || routeDestinationOptionIsCenroOfficer(destinationOption);
+                }
+                if (isCenroUnitRole) {
                     return true;
                 }
                 return false;
@@ -3332,6 +3555,9 @@
                 if ((currentRoleKey === 'CENRO' || currentRoleKey === 'PASU') && routeDestinationOptionIsRecordsUnit(option)) {
                     return true;
                 }
+                if (isCenroAdminRecordRole && routeDestinationOptionIsRecordsUnit(option)) {
+                    return true;
+                }
                 if (currentRoleKey === 'PENRO' && routeDestinationOptionIsRecordsUnit(option)) {
                     return true;
                 }
@@ -3344,11 +3570,11 @@
                 if (action !== 'FORWARD') {
                     return false;
                 }
-                return currentRoleKey === 'PENRO' && routeDestinationOptionIsRecordsUnit(option);
+                return (currentRoleKey === 'PENRO' || isCenroAdminRecordRole) && routeDestinationOptionIsRecordsUnit(option);
             }
 
             function routeAttachmentRequirement(context, option) {
-                if (allowsPreparedResponseAttachment(context)) {
+                if (allowsPreparedResponseAttachment(context, option)) {
                     return 'prepared_response';
                 }
                 if (allowsEndorsementLetterAttachment(context, option)) {
@@ -3363,16 +3589,16 @@
                 }
 
                 if (routeExistingPreparedResponseLoading) {
-                    routeAttachmentMeta.textContent = 'Checking existing prepared response attachments. Upload is required if none is found from Division/Section.';
+                    routeAttachmentMeta.textContent = 'Checking existing prepared response attachments. Upload is required if none is found from ' + preparedResponseSourceLabel() + '.';
                     return;
                 }
 
                 if (Number.isFinite(routeExistingPreparedResponseCount) && routeExistingPreparedResponseCount > 0) {
-                    routeAttachmentMeta.textContent = 'Optional: prepared response is already uploaded by Division/Section. Upload another file only when needed.';
+                    routeAttachmentMeta.textContent = 'Optional: prepared response is already uploaded by ' + preparedResponseSourceLabel() + '. Upload another file only when needed.';
                     return;
                 }
 
-                routeAttachmentMeta.textContent = 'Required: upload prepared response file(s). It becomes optional once Division or Section already uploaded one.';
+                routeAttachmentMeta.textContent = 'Required: upload prepared response file(s). It becomes optional once ' + preparedResponseSourceLabel() + ' already uploaded one.';
             }
 
             function resetRouteExistingAttachmentsDisplay() {
@@ -3399,7 +3625,10 @@
                 const uploadedByRoleKey = normalizeLabelKey(String(
                     attachment.uploaded_by_role_key || attachment.uploaded_by_role || ''
                 ));
-                return uploadedByRoleKey === 'division_chief' || uploadedByRoleKey === 'section_staff';
+                return uploadedByRoleKey === 'division_chief'
+                    || uploadedByRoleKey === 'section_staff'
+                    || uploadedByRoleKey === 'cenro_section'
+                    || uploadedByRoleKey === 'cenro_unit';
             }
 
             function filterRouteAttachmentsByPurpose(attachments) {
@@ -3498,7 +3727,11 @@
                 }
 
                 if (attachmentKind === 'prepared_response') {
-                    if (currentRoleKey === 'DIVISION_CHIEF') {
+                    if (isCenroSectionRole) {
+                        routeAttachmentLabel.textContent = 'Prepared of Response (Send Back to CENRO Officer)';
+                    } else if (isCenroUnitRole) {
+                        routeAttachmentLabel.textContent = 'Prepared of Response (Forward to CENRO Section)';
+                    } else if (currentRoleKey === 'DIVISION_CHIEF') {
                         routeAttachmentLabel.textContent = 'Prepared of Response (Send Back to ARD)';
                     } else {
                         routeAttachmentLabel.textContent = 'Prepared of Response (Send Back to Division Chief)';
@@ -3613,6 +3846,7 @@
                     'UNSIGN': 'Undo Sign',
                     'PENDING': 'Pending',
                     'RELEASE': 'Release',
+                    'COMPLETE': 'Released',
                     'EDIT': 'Edit',
                     'DELETE': 'Delete',
                 };
@@ -3624,7 +3858,7 @@
             }
 
             function redirectToRecordsUnitActionStamp(action, trackingId) {
-                if (String(currentRoleKey || '').toUpperCase() !== 'RECORDS_UNIT') {
+                if (String(currentRoleKey || '').toUpperCase() !== 'RECORDS_UNIT' || isCenroAdminRecordRole) {
                     return false;
                 }
                 if (String(actionStampWorkspacePath || '').trim() === '') {
@@ -3658,7 +3892,10 @@
             function routeActionLabel(context) {
                 const action = String(context && context.action ? context.action : '').toUpperCase();
                 const routeMode = normalizeLabelKey(context && context.routeMode ? context.routeMode : '');
-                if (action === 'FORWARD' && currentRoleKey === 'DIVISION_CHIEF' && routeMode === 'ard_back') {
+                if (action === 'FORWARD' && isCenroSectionRole && routeMode === 'cenro_officer_back') {
+                    return 'Send Back to CENRO Officer';
+                }
+                if (action === 'FORWARD' && currentRoleKey === 'DIVISION_CHIEF' && !isCenroSectionRole && routeMode === 'ard_back') {
                     return 'Send Back to ARD';
                 }
                 if (action === 'FORWARD' && isArdRole && routeMode === 'ored_back') {
@@ -3752,18 +3989,134 @@
                     || normalized.indexOf('RECORDSUNIT') !== -1;
             }
 
+            function routeDestinationFilterUiPreset(context) {
+                if (isCenroAdminRecordRole) {
+                    return 'cenro_admin_record';
+                }
+                if (isCenroOfficerRole) {
+                    const action = String(context && context.action ? context.action : '').toUpperCase();
+                    if (action === 'REROUTE') {
+                        return 'cenro_officer_reroute';
+                    }
+                    if (action === 'FORWARD' && !isOredPostSignStatus(context && context.currentStatus ? context.currentStatus : '')) {
+                        return 'cenro_officer_forward';
+                    }
+                }
+                if (currentRoleKey === 'ORED' && !isCenroOfficerRole) {
+                    const action = String(context && context.action ? context.action : '').toUpperCase();
+                    if (action === 'REROUTE') {
+                        return 'ored';
+                    }
+                    if (action === 'FORWARD' && !isOredPostSignStatus(context && context.currentStatus ? context.currentStatus : '')) {
+                        return 'ored';
+                    }
+                }
+                return 'default';
+            }
+
+            function syncRouteDestinationFilterLabels(context) {
+                if (!routeDestinationTypeFilterWrap) {
+                    return;
+                }
+                const preset = routeDestinationFilterUiPreset(context);
+                const helperMeta = routeDestinationTypeFilterWrap.querySelector('.action-modal-meta');
+                const filterButtons = routeDestinationFilterButtons.slice(0, 3);
+                if (filterButtons.length < 3) {
+                    return;
+                }
+                let showSecondFilterButton = true;
+                let showThirdFilterButton = true;
+                if (preset === 'cenro_officer_forward') {
+                    showThirdFilterButton = false;
+                } else if (preset === 'cenro_officer_reroute') {
+                    showSecondFilterButton = false;
+                    showThirdFilterButton = false;
+                }
+                filterButtons[1].hidden = !showSecondFilterButton;
+                filterButtons[1].disabled = !showSecondFilterButton;
+                filterButtons[2].hidden = !showThirdFilterButton;
+                filterButtons[2].disabled = !showThirdFilterButton;
+                if (!showSecondFilterButton) {
+                    filterButtons[1].classList.remove('is-active');
+                    filterButtons[1].setAttribute('aria-pressed', 'false');
+                }
+                if (!showThirdFilterButton) {
+                    filterButtons[2].classList.remove('is-active');
+                    filterButtons[2].setAttribute('aria-pressed', 'false');
+                }
+
+                if (preset === 'cenro_admin_record') {
+                    if (helperMeta) {
+                        helperMeta.textContent = 'Choose destination path: Internal is recommended. PENRO or Regional (PACDO) are optional.';
+                    }
+                    filterButtons[0].textContent = 'Internal (Recommended)';
+                    filterButtons[1].textContent = 'PENRO (Optional)';
+                    filterButtons[2].textContent = 'Regional (Optional)';
+                    return;
+                }
+
+                if (preset === 'ored') {
+                    if (helperMeta) {
+                        helperMeta.innerHTML = 'Choose path: <strong>ARD first</strong> is recommended. Direct Division or Section is a bypass and requires reason.';
+                    }
+                    filterButtons[0].textContent = 'ARD (Recommended)';
+                    filterButtons[1].textContent = 'Division (Bypass)';
+                    filterButtons[2].textContent = 'Section (Bypass)';
+                    return;
+                }
+
+                if (preset === 'cenro_officer_reroute') {
+                    if (helperMeta) {
+                        helperMeta.innerHTML = 'Choose path: <strong>CENRO Section only</strong> for CENRO Officer reroute.';
+                    }
+                    filterButtons[0].textContent = 'Section (Recommended)';
+                    filterButtons[1].textContent = 'Unit (Bypass)';
+                    filterButtons[2].textContent = 'Admin Record (Bypass)';
+                    return;
+                }
+
+                if (preset === 'cenro_officer_forward') {
+                    if (helperMeta) {
+                        helperMeta.innerHTML = 'Choose path: <strong>CENRO Section first</strong> is recommended. Direct CENRO Unit is a bypass and requires reason.';
+                    }
+                    filterButtons[0].textContent = 'Section (Recommended)';
+                    filterButtons[1].textContent = 'Unit (Bypass)';
+                    filterButtons[2].textContent = 'Section (Bypass)';
+                    return;
+                }
+
+                if (helperMeta) {
+                    helperMeta.innerHTML = 'Choose path: <strong>ARD first</strong> is recommended. Direct Division or Section is a bypass and requires reason.';
+                }
+                filterButtons[0].textContent = 'ARD (Recommended)';
+                filterButtons[1].textContent = 'Division (Bypass)';
+                filterButtons[2].textContent = 'Section (Bypass)';
+            }
+
             function routeSupportsDestinationTypeFilter(context) {
                 const action = String(context && context.action ? context.action : '').toUpperCase();
-                if (currentRoleKey !== 'ORED') {
+                if (isCenroAdminRecordRole) {
+                    return action === 'FORWARD';
+                }
+                if (isCenroOfficerRole) {
+                    if (action === 'REROUTE') {
+                        return true;
+                    }
+                    if (action === 'FORWARD') {
+                        return !isOredPostSignStatus(context && context.currentStatus ? context.currentStatus : '');
+                    }
                     return false;
                 }
-                if (action === 'REROUTE') {
-                    return true;
+                if (currentRoleKey === 'ORED' && !isCenroOfficerRole) {
+                    if (action === 'REROUTE') {
+                        return true;
+                    }
+                    if (action !== 'FORWARD') {
+                        return false;
+                    }
+                    return !isOredPostSignStatus(context && context.currentStatus ? context.currentStatus : '');
                 }
-                if (action !== 'FORWARD') {
-                    return false;
-                }
-                return !isOredPostSignStatus(context && context.currentStatus ? context.currentStatus : '');
+                return false;
             }
 
             function officeMatchesDestinationTypeFilter(office, filterMode) {
@@ -3775,6 +4128,53 @@
                 const officeName = String(office && office.name ? office.name : '');
                 const officeNameUpper = officeName.toUpperCase();
                 const officeLevel = String(office && office.level ? office.level : '').toUpperCase();
+
+                if (isCenroAdminRecordRole) {
+                    const isInternalOffice = officeLevel === 'CENRO_OFFICER'
+                        || officeNameUpper.indexOf(' - OFFICER') !== -1
+                        || officeNameUpper.indexOf('CENRO OFFICER') !== -1;
+                    const isPenroOffice = officeLevel === 'PROVINCIAL' || officeNameUpper.indexOf('PENRO') !== -1;
+                    const isRegionalOffice = officeNameMatchesRecordsUnit(officeNameUpper);
+                    if (normalizedFilter === 'ard') {
+                        return isInternalOffice;
+                    }
+                    if (normalizedFilter === 'division') {
+                        return isPenroOffice;
+                    }
+                    if (normalizedFilter === 'section') {
+                        return isRegionalOffice;
+                    }
+                    return true;
+                }
+
+                if (isCenroOfficerRole) {
+                    const routeAction = String(activeRouteContext && activeRouteContext.action ? activeRouteContext.action : '').toUpperCase();
+                    const isSectionOffice = officeLevel === 'CENRO_SECTION'
+                        || officeNameUpper.indexOf('CENRO SECTION') !== -1
+                        || officeNameUpper.indexOf('SECTION') !== -1;
+                    const isUnitOffice = officeLevel === 'CENRO_UNIT'
+                        || officeNameUpper.indexOf('CENRO UNIT') !== -1
+                        || officeNameUpper.indexOf('UNIT') !== -1;
+                    const isAdminRecordOffice = officeLevel === 'CENRO_ADMIN_RECORD'
+                        || officeNameUpper.indexOf('ADMIN RECORD') !== -1;
+                    if (routeAction === 'REROUTE') {
+                        return isSectionOffice;
+                    }
+                    if (normalizedFilter === 'ard') {
+                        return isSectionOffice;
+                    }
+                    if (normalizedFilter === 'division') {
+                        return isUnitOffice;
+                    }
+                    if (normalizedFilter === 'section') {
+                        if (routeAction === 'FORWARD') {
+                            return isSectionOffice || isUnitOffice || isAdminRecordOffice;
+                        }
+                        return isAdminRecordOffice;
+                    }
+                    return true;
+                }
+
                 const isArdOffice = ardTrackFromOfficeName(officeNameUpper) !== '';
                 const isDivisionOffice = officeLevel === 'DIVISION' || officeNameUpper.indexOf('DIVISION') !== -1;
                 const isSectionOffice = officeLevel === 'SECTION' || officeNameUpper.indexOf('SECTION') !== -1;
@@ -3810,6 +4210,20 @@
 
             function routeDestinationFilterFallbackModes(mode) {
                 const normalizedMode = normalizeLabelKey(String(mode || ''));
+                const context = activeRouteContext || null;
+                const preset = routeDestinationFilterUiPreset(context);
+                if (preset === 'cenro_officer_reroute') {
+                    return [];
+                }
+                if (preset === 'cenro_officer_forward') {
+                    if (normalizedMode === 'ard') {
+                        return ['division'];
+                    }
+                    if (normalizedMode === 'division') {
+                        return ['ard'];
+                    }
+                    return ['ard', 'division'];
+                }
                 if (normalizedMode === 'ard') {
                     return ['division', 'section'];
                 }
@@ -3824,6 +4238,7 @@
 
             function syncRouteDestinationFilterUi(context) {
                 const showFilter = routeSupportsDestinationTypeFilter(context);
+                syncRouteDestinationFilterLabels(context);
                 if (routeDestinationTypeFilterWrap) {
                     routeDestinationTypeFilterWrap.hidden = !showFilter;
                 }
@@ -3835,8 +4250,26 @@
                 return showFilter;
             }
 
+            function autoSelectFirstRouteDestinationOption(context) {
+                if (!routeDestinationOffice) {
+                    return false;
+                }
+                const action = String(context && context.action ? context.action : '').toUpperCase();
+                if (!isCenroAdminRecordRole || action !== 'FORWARD') {
+                    return false;
+                }
+                const firstSelectable = Array.from(routeDestinationOffice.options).find(function (option) {
+                    return String(option && option.value ? option.value : '').trim() !== '';
+                }) || null;
+                if (!firstSelectable) {
+                    return false;
+                }
+                routeDestinationOffice.value = String(firstSelectable.value || '');
+                return true;
+            }
+
             function selectPreferredOredForwardDestination(context) {
-                if (currentRoleKey !== 'ORED' || !routeDestinationOffice) {
+                if (currentRoleKey !== 'ORED' || isCenroOfficerRole || !routeDestinationOffice) {
                     return;
                 }
                 const action = String(context && context.action ? context.action : '').toUpperCase();
@@ -3862,9 +4295,42 @@
                 }
             }
 
+            function selectPreferredCenroOfficerRerouteDestination(context) {
+                if (!isCenroOfficerRole || !routeDestinationOffice) {
+                    return;
+                }
+                const action = String(context && context.action ? context.action : '').toUpperCase();
+                if (action !== 'REROUTE' && action !== 'FORWARD') {
+                    return;
+                }
+                const currentStatus = normalizeLabelKey(context && context.currentStatus ? context.currentStatus : '');
+                const isPostSignStage = currentStatus.indexOf('signed') !== -1 || currentStatus.indexOf('completed') !== -1;
+                const preferredOption = Array.from(routeDestinationOffice.options).find(function (option) {
+                    const label = String(option.textContent || '').toUpperCase();
+                    const level = routeDestinationOptionLevel(option);
+                    if (action === 'FORWARD') {
+                        if (isPostSignStage) {
+                            return level === 'CENRO_ADMIN_RECORD' || label.indexOf('ADMIN RECORD') !== -1;
+                        }
+                        if (activeRouteDestinationFilter === 'division') {
+                            return level === 'CENRO_UNIT' || label.indexOf('CENRO UNIT') !== -1 || label.indexOf('UNIT') !== -1;
+                        }
+                        return level === 'CENRO_SECTION' || label.indexOf('CENRO SECTION') !== -1 || label.indexOf('SECTION') !== -1;
+                    }
+                    return level === 'CENRO_SECTION' || label.indexOf('CENRO SECTION') !== -1 || label.indexOf('SECTION') !== -1;
+                });
+                if (preferredOption) {
+                    routeDestinationOffice.value = String(preferredOption.value || '');
+                }
+            }
+
             function routeDestinationOptionLevel(option) {
                 if (!option) {
                     return '';
+                }
+                const dataLevel = String(option.dataset && option.dataset.officeLevel ? option.dataset.officeLevel : '').trim().toUpperCase();
+                if (dataLevel !== '') {
+                    return dataLevel;
                 }
                 const label = String(option.textContent || '').trim();
                 const levelMatch = label.match(/\[([^\]]+)\]\s*$/);
@@ -3885,18 +4351,33 @@
             }
 
             function routeRequiresOredBypassReason(context, option) {
-                if (currentRoleKey !== 'ORED') {
+                const action = String(context && context.action ? context.action : '').toUpperCase();
+                const optionLabel = String(option && option.textContent ? option.textContent : '').toUpperCase();
+                const optionLevel = routeDestinationOptionLevel(option);
+                if (isCenroOfficerRole) {
+                    if (action === 'REROUTE') {
+                        return false;
+                    }
+                    if (action === 'FORWARD') {
+                        const currentStatus = normalizeLabelKey(context && context.currentStatus ? context.currentStatus : '');
+                        const isPostSignStage = currentStatus.indexOf('signed') !== -1 || currentStatus.indexOf('completed') !== -1;
+                        if (isPostSignStage) {
+                            return false;
+                        }
+                        return optionLevel === 'CENRO_UNIT'
+                            || optionLabel.indexOf('CENRO UNIT') !== -1
+                            || optionLabel.indexOf('UNIT') !== -1;
+                    }
+                }
+                if (currentRoleKey !== 'ORED' || isCenroOfficerRole) {
                     return false;
                 }
-                const action = String(context && context.action ? context.action : '').toUpperCase();
                 if (action !== 'FORWARD') {
                     return false;
                 }
                 if (isOredPostSignStatus(context && context.currentStatus ? context.currentStatus : '')) {
                     return false;
                 }
-                const optionLabel = String(option && option.textContent ? option.textContent : '').toUpperCase();
-                const optionLevel = routeDestinationOptionLevel(option);
                 const isArdDestination = optionLabel.indexOf('ARD') !== -1
                     || optionLabel.indexOf('ASSISTANT REGIONAL DIRECTOR') !== -1
                     || optionLabel.indexOf('TECHNICAL SERVICES') !== -1
@@ -3947,6 +4428,27 @@
                 }
 
                 if (action === 'REROUTE') {
+                    if (isCenroOfficerRole) {
+                        const isPostSignStage = currentStatus.indexOf('signed') !== -1 || currentStatus.indexOf('completed') !== -1;
+                        if (isPostSignStage) {
+                            return false;
+                        }
+                        const parentOfficeId = Number(office && office.parent_office_id ? office.parent_office_id : 0);
+                        const isSectionDestination = (officeLevel === 'CENRO_SECTION' || officeName.indexOf('CENRO SECTION') !== -1)
+                            && Number.isFinite(parentOfficeId)
+                            && parentOfficeId > 0
+                            && parentOfficeId === currentOfficeId;
+                        const isUnitDestination = officeLevel === 'CENRO_UNIT' || officeName.indexOf('CENRO UNIT') !== -1;
+                        const isAdminRecordDestination = officeLevel === 'CENRO_ADMIN_RECORD' || officeName.indexOf('ADMIN RECORD') !== -1;
+                        return isSectionDestination || isUnitDestination || isAdminRecordDestination;
+                    }
+                    if (isCenroSectionRole) {
+                        const parentOfficeId = Number(office && office.parent_office_id ? office.parent_office_id : 0);
+                        return (officeLevel === 'CENRO_UNIT' || officeName.indexOf('CENRO UNIT') !== -1)
+                            && Number.isFinite(parentOfficeId)
+                            && parentOfficeId > 0
+                            && parentOfficeId === currentOfficeId;
+                    }
                     if (currentRoleKey === 'ORED') {
                         const isArdDestination = ardTrackFromOfficeName(officeName) !== '';
                         const isDivisionDestination = officeLevel === 'DIVISION' || officeName.indexOf('DIVISION') !== -1;
@@ -4024,6 +4526,53 @@
                     return true;
                 }
 
+                if (isCenroOfficerRole) {
+                    const isPostSignStage = currentStatus.indexOf('signed') !== -1 || currentStatus.indexOf('completed') !== -1;
+                    if (isPostSignStage) {
+                        const parentOfficeId = Number(office && office.parent_office_id ? office.parent_office_id : 0);
+                        const isAdminRecordChild = (officeLevel === 'CENRO_ADMIN_RECORD' || officeName.indexOf('ADMIN RECORD') !== -1)
+                            && Number.isFinite(parentOfficeId)
+                            && parentOfficeId > 0
+                            && (
+                                parentOfficeId === currentOfficeId
+                                || (
+                                    Number.isFinite(currentOfficeParentId)
+                                    && currentOfficeParentId > 0
+                                    && parentOfficeId === currentOfficeParentId
+                                )
+                            );
+                        if (Number.isFinite(originOfficeId) && originOfficeId > 0 && Number.isFinite(officeId) && officeId === originOfficeId) {
+                            return true;
+                        }
+                        return isAdminRecordChild;
+                    }
+                    const parentOfficeId = Number(office && office.parent_office_id ? office.parent_office_id : 0);
+                    const isSectionChild = (officeLevel === 'CENRO_SECTION' || officeName.indexOf('CENRO SECTION') !== -1)
+                        && Number.isFinite(parentOfficeId)
+                        && parentOfficeId > 0
+                        && parentOfficeId === currentOfficeId;
+                    const isUnitSameRoot = officeLevel === 'CENRO_UNIT' || officeName.indexOf('CENRO UNIT') !== -1 || officeName.indexOf('UNIT') !== -1;
+                    return isSectionChild || isUnitSameRoot;
+                }
+                if (isCenroSectionRole) {
+                    if (routeMode === 'cenro_officer_back') {
+                        return officeLevel === 'CENRO_OFFICER' || officeName.indexOf('CENRO OFFICER') !== -1 || officeName.indexOf(' - OFFICER') !== -1;
+                    }
+                    const isChildUnit = officeLevel === 'CENRO_UNIT' || officeName.indexOf('CENRO UNIT') !== -1;
+                    const isAdminSibling = officeLevel === 'CENRO_ADMIN_RECORD' || officeName.indexOf('ADMIN RECORD') !== -1;
+                    return isChildUnit || isAdminSibling;
+                }
+                if (isCenroUnitRole) {
+                    const policyOfficeId = Number(routeFallbackOffice && routeFallbackOffice.id ? routeFallbackOffice.id : 0);
+                    if (Number.isFinite(policyOfficeId) && policyOfficeId > 0) {
+                        return Number.isFinite(officeId) && officeId === policyOfficeId;
+                    }
+                    const parentOfficeId = Number(office && office.parent_office_id ? office.parent_office_id : 0);
+                    return (officeLevel === 'CENRO_SECTION' || officeName.indexOf('CENRO SECTION') !== -1)
+                        && Number.isFinite(parentOfficeId)
+                        && parentOfficeId > 0
+                        && parentOfficeId === currentOfficeId;
+                }
                 if (currentRoleKey === 'PENRO') {
                     return officeNameMatchesRecordsUnit(officeName);
                 }
@@ -4041,6 +4590,12 @@
                         return false;
                     }
                     return officeLevel === 'PROVINCIAL' || officeName.indexOf('PENRO') !== -1;
+                }
+                if (isCenroAdminRecordRole) {
+                    const isOfficerDestination = officeLevel === 'CENRO_OFFICER' || officeName.indexOf(' - OFFICER') !== -1;
+                    const isPenroDestination = officeLevel === 'PROVINCIAL' || officeName.indexOf('PENRO') !== -1;
+                    const isRecordsUnitDestination = officeNameMatchesRecordsUnit(officeName);
+                    return isOfficerDestination || isPenroDestination || isRecordsUnitDestination;
                 }
                 if (currentRoleKey === 'RECORDS_UNIT') {
                     return officeName.indexOf('ORED') !== -1 || officeName.indexOf('REGIONAL EXECUTIVE') !== -1;
@@ -4134,9 +4689,16 @@
                             return;
                         }
                         const level = String(office.level || '').trim();
+                        const normalizedLevel = String(level).toUpperCase();
+                        const hideLevelSuffix = normalizedLevel === 'CENRO_SECTION'
+                            || normalizedLevel === 'CENRO_UNIT'
+                            || normalizedLevel === 'CENRO_ADMIN_RECORD'
+                            || normalizedLevel === 'CENRO_OFFICER';
                         const option = document.createElement('option');
                         option.value = String(officeId);
-                        option.textContent = String(office.name || ('Office #' + String(officeId))) + (level === '' ? '' : ' [' + level + ']');
+                        option.dataset.officeLevel = normalizedLevel;
+                        option.textContent = String(office.name || ('Office #' + String(officeId)))
+                            + (level === '' || hideLevelSuffix ? '' : ' [' + level + ']');
                         routeDestinationOffice.appendChild(option);
                         count += 1;
                     });
@@ -4166,10 +4728,16 @@
                         }
 
                         const fallbackLevel = String(fallbackOffice.level || '').trim();
+                        const normalizedFallbackLevel = String(fallbackLevel).toUpperCase();
+                        const hideFallbackLevelSuffix = normalizedFallbackLevel === 'CENRO_SECTION'
+                            || normalizedFallbackLevel === 'CENRO_UNIT'
+                            || normalizedFallbackLevel === 'CENRO_ADMIN_RECORD'
+                            || normalizedFallbackLevel === 'CENRO_OFFICER';
                         const fallbackOption = document.createElement('option');
                         fallbackOption.value = String(fallbackOfficeId);
+                        fallbackOption.dataset.officeLevel = normalizedFallbackLevel;
                         fallbackOption.textContent = String(fallbackOffice.name || ('Office #' + String(fallbackOfficeId)))
-                            + (fallbackLevel === '' ? '' : ' [' + fallbackLevel + ']');
+                            + (fallbackLevel === '' || hideFallbackLevelSuffix ? '' : ' [' + fallbackLevel + ']');
                         routeDestinationOffice.appendChild(fallbackOption);
                         count += 1;
                     });
@@ -4204,7 +4772,9 @@
                 }
 
                 const normalizedRouteMode = normalizeLabelKey(context && context.routeMode ? context.routeMode : '');
-                if (currentRoleKey === 'DIVISION_CHIEF' && context.action === 'FORWARD' && normalizedRouteMode === 'ard_back') {
+                if (isCenroSectionRole && context.action === 'FORWARD' && normalizedRouteMode === 'cenro_officer_back') {
+                    routeActionTitle.textContent = 'Send Back to CENRO Officer';
+                } else if (currentRoleKey === 'DIVISION_CHIEF' && !isCenroSectionRole && context.action === 'FORWARD' && normalizedRouteMode === 'ard_back') {
                     routeActionTitle.textContent = 'Send Back to ARD';
                 } else if (isArdRole && context.action === 'FORWARD' && normalizedRouteMode === 'ored_back') {
                     routeActionTitle.textContent = 'Send Back to ORED';
@@ -4278,7 +4848,82 @@
                         }
                     }
                 }
-                if (currentRoleKey === 'RECORDS_UNIT' && context.action === 'FORWARD') {
+                if (isCenroAdminRecordRole && context.action === 'FORWARD') {
+                    const officerOption = Array.from(routeDestinationOffice.options).find(function (option) {
+                        const label = String(option.textContent || '').toUpperCase();
+                        return routeDestinationOptionLevel(option) === 'CENRO_OFFICER'
+                            || label.indexOf('CENRO OFFICER') !== -1
+                            || label.indexOf(' - OFFICER') !== -1;
+                    });
+                    if (officerOption) {
+                        routeDestinationOffice.value = String(officerOption.value || '');
+                    }
+                }
+                if (isCenroOfficerRole && context.action === 'FORWARD') {
+                    const currentStatus = normalizeLabelKey(context.currentStatus || '');
+                    const isPostSignStage = currentStatus.indexOf('signed') !== -1 || currentStatus.indexOf('completed') !== -1;
+                    if (isPostSignStage) {
+                        const originOfficeId = Number(context.originOfficeId || 0);
+                        let originOption = null;
+                        if (Number.isFinite(originOfficeId) && originOfficeId > 0) {
+                            originOption = Array.from(routeDestinationOffice.options).find(function (option) {
+                                return String(option.value || '') === String(originOfficeId);
+                            }) || null;
+                        }
+                        if (!originOption) {
+                            originOption = Array.from(routeDestinationOffice.options).find(function (option) {
+                                return routeDestinationOptionIsCenroAdminRecord(option);
+                            }) || null;
+                        }
+                        if (originOption) {
+                            routeDestinationOffice.value = String(originOption.value || '');
+                        }
+                    } else {
+                        const sectionOption = Array.from(routeDestinationOffice.options).find(function (option) {
+                            const label = String(option.textContent || '').toUpperCase();
+                            return routeDestinationOptionLevel(option) === 'CENRO_SECTION'
+                                || label.indexOf('CENRO SECTION') !== -1;
+                        });
+                        if (sectionOption) {
+                            routeDestinationOffice.value = String(sectionOption.value || '');
+                        }
+                    }
+                }
+                if (isCenroSectionRole && context.action === 'FORWARD') {
+                    if (normalizedRouteMode === 'cenro_officer_back') {
+                        const officerBackOption = Array.from(routeDestinationOffice.options).find(function (option) {
+                            const label = String(option.textContent || '').toUpperCase();
+                            return routeDestinationOptionLevel(option) === 'CENRO_OFFICER'
+                                || label.indexOf('CENRO OFFICER') !== -1
+                                || label.indexOf(' - OFFICER') !== -1;
+                        });
+                        if (officerBackOption) {
+                            routeDestinationOffice.value = String(officerBackOption.value || '');
+                        }
+                    }
+                    const unitOption = Array.from(routeDestinationOffice.options).find(function (option) {
+                        return routeDestinationOptionIsCenroUnit(option);
+                    });
+                    const adminOption = Array.from(routeDestinationOffice.options).find(function (option) {
+                        return routeDestinationOptionIsCenroAdminRecord(option);
+                    });
+                    if (normalizedRouteMode !== 'cenro_officer_back' && unitOption) {
+                        routeDestinationOffice.value = String(unitOption.value || '');
+                    } else if (normalizedRouteMode !== 'cenro_officer_back' && adminOption) {
+                        routeDestinationOffice.value = String(adminOption.value || '');
+                    }
+                }
+                if (isCenroUnitRole && context.action === 'FORWARD') {
+                    const sectionBackOption = Array.from(routeDestinationOffice.options).find(function (option) {
+                        const label = String(option.textContent || '').toUpperCase();
+                        return routeDestinationOptionLevel(option) === 'CENRO_SECTION'
+                            || label.indexOf('CENRO SECTION') !== -1;
+                    });
+                    if (sectionBackOption) {
+                        routeDestinationOffice.value = String(sectionBackOption.value || '');
+                    }
+                }
+                if (currentRoleKey === 'RECORDS_UNIT' && !isCenroAdminRecordRole && context.action === 'FORWARD') {
                     const oredOption = Array.from(routeDestinationOffice.options).find(function (option) {
                         const label = String(option.textContent || '').toUpperCase();
                         return label.indexOf('ORED') !== -1 || label.indexOf('REGIONAL EXECUTIVE') !== -1;
@@ -4287,7 +4932,7 @@
                         routeDestinationOffice.value = String(oredOption.value || '');
                     }
                 }
-                if (currentRoleKey === 'RECORDS_UNIT' && context.action === 'RETURN') {
+                if (currentRoleKey === 'RECORDS_UNIT' && !isCenroAdminRecordRole && context.action === 'RETURN') {
                     const originOfficeId = Number(context.originOfficeId || 0);
                     if (Number.isFinite(originOfficeId) && originOfficeId > 0) {
                         const originOption = Array.from(routeDestinationOffice.options).find(function (option) {
@@ -4307,7 +4952,7 @@
                         }
                     }
                 }
-                if (currentRoleKey === 'RECORDS_UNIT' && context.action === 'RELEASE') {
+                if (currentRoleKey === 'RECORDS_UNIT' && !isCenroAdminRecordRole && context.action === 'RELEASE') {
                     const originOfficeId = Number(context.originOfficeId || 0);
                     if (Number.isFinite(originOfficeId) && originOfficeId > 0) {
                         const originOption = Array.from(routeDestinationOffice.options).find(function (option) {
@@ -4321,6 +4966,9 @@
                 if (currentRoleKey === 'ORED' && context.action === 'FORWARD') {
                     selectPreferredOredForwardDestination(context);
                 }
+                if (isCenroOfficerRole && context.action === 'REROUTE') {
+                    selectPreferredCenroOfficerRerouteDestination(context);
+                }
                 if (currentRoleKey === 'ORED' && context.action === 'RETURN') {
                     const pacdoOption = Array.from(routeDestinationOffice.options).find(function (option) {
                         return officeNameMatchesRecordsUnit(String(option.textContent || '').toUpperCase());
@@ -4329,7 +4977,17 @@
                         routeDestinationOffice.value = String(pacdoOption.value || '');
                     }
                 }
-                if (currentRoleKey === 'DIVISION_CHIEF' && context.action === 'FORWARD') {
+                if (isCenroSectionRole && context.action === 'FORWARD' && normalizedRouteMode === 'cenro_officer_back') {
+                    const officerOption = Array.from(routeDestinationOffice.options).find(function (option) {
+                        const label = String(option.textContent || '').toUpperCase();
+                        return routeDestinationOptionLevel(option) === 'CENRO_OFFICER'
+                            || label.indexOf('CENRO OFFICER') !== -1
+                            || label.indexOf(' - OFFICER') !== -1;
+                    });
+                    if (officerOption) {
+                        routeDestinationOffice.value = String(officerOption.value || '');
+                    }
+                } else if (currentRoleKey === 'DIVISION_CHIEF' && !isCenroSectionRole && context.action === 'FORWARD') {
                     const preferredOption = Array.from(routeDestinationOffice.options).find(function (option) {
                         const label = String(option.textContent || '').toUpperCase();
                         if (normalizedRouteMode === 'ard_back') {
@@ -4473,7 +5131,9 @@
                             }
                         }
                         if (optionCount > 0) {
+                            autoSelectFirstRouteDestinationOption(activeRouteContext);
                             selectPreferredOredForwardDestination(activeRouteContext);
+                            selectPreferredCenroOfficerRerouteDestination(activeRouteContext);
                         }
                         syncRouteBypassReasonUi(activeRouteContext);
                         syncRouteAttachmentUi(activeRouteContext);
@@ -4511,17 +5171,27 @@
                     const selectedOption = routeDestinationOffice.options[routeDestinationOffice.selectedIndex];
                     const bypassReasonValue = routeBypassReason ? String(routeBypassReason.value || '').trim() : '';
                     const bypassReasonRequired = routeRequiresOredBypassReason(activeRouteContext, selectedOption);
+                    const effectiveRerouteRemarks = remarksValue !== ''
+                        ? remarksValue
+                        : (bypassReasonRequired && bypassReasonValue !== '' ? ('Bypass reason: ' + bypassReasonValue) : '');
                     if (bypassReasonRequired && bypassReasonValue === '') {
-                        showAlertDialog('Bypass reason is required when ORED forwards directly to Division/Section.');
+                        const bypassActorLabel = isCenroOfficerRole
+                            ? 'CENRO Officer'
+                            : 'ORED';
+                        showAlertDialog('Bypass reason is required for ' + bypassActorLabel + ' bypass routing.');
                         if (routeBypassReason) {
                             routeBypassReason.focus();
                         }
                         return;
                     }
-                    if ((currentRoleKey === 'ORED' || isArdRole || currentRoleKey === 'DIVISION_CHIEF') && routeContextAction === 'REROUTE' && remarksValue === '') {
-                        const rerouteActorLabel = currentRoleKey === 'ORED'
-                            ? 'ORED'
-                            : (currentRoleKey === 'DIVISION_CHIEF' ? 'Division' : 'ARD');
+                    if (((currentRoleKey === 'ORED' && !isCenroOfficerRole) || isArdRole || (currentRoleKey === 'DIVISION_CHIEF' && !isCenroSectionRole) || isCenroOfficerRole || isCenroSectionRole) && routeContextAction === 'REROUTE' && effectiveRerouteRemarks === '') {
+                        const rerouteActorLabel = isCenroOfficerRole
+                            ? 'CENRO Officer'
+                            : (currentRoleKey === 'ORED'
+                                ? 'ORED'
+                            : (currentRoleKey === 'DIVISION_CHIEF'
+                                ? (isCenroSectionRole ? 'CENRO Section' : 'Division')
+                                : 'ARD'));
                         showAlertDialog(rerouteActorLabel + ' reroute requires remarks describing the reroute reason.');
                         routeRemarks.focus();
                         return;
@@ -4533,6 +5203,15 @@
                     }
 
                     const destinationOfficeLabel = selectedOption ? String(selectedOption.textContent || '').trim() : 'selected office';
+                    let remarksForSubmit = remarksValue;
+                    if (bypassReasonRequired && bypassReasonValue !== '') {
+                        const bypassPrefix = 'Bypass reason: ' + bypassReasonValue;
+                        if (remarksForSubmit === '') {
+                            remarksForSubmit = bypassPrefix;
+                        } else if (normalizeLabelKey(remarksForSubmit).indexOf('bypass reason:') === -1) {
+                            remarksForSubmit = remarksForSubmit + ' | ' + bypassPrefix;
+                        }
+                    }
                     const submitButton = routeActionSubmit || null;
                     const triggerButton = activeRouteContext.triggerButton || null;
                     const actionText = routeActionLabel(activeRouteContext);
@@ -4572,7 +5251,7 @@
                             return;
                         }
                         const selectedAttachmentOption = routeDestinationOffice.options[routeDestinationOffice.selectedIndex];
-                        const requiresPreparedResponse = allowsPreparedResponseAttachment(activeRouteContext);
+                        const requiresPreparedResponse = allowsPreparedResponseAttachment(activeRouteContext, selectedAttachmentOption);
                         const requiresEndorsementLetter = endorsementLetterRequired(activeRouteContext, selectedAttachmentOption);
                         if (requiresPreparedResponse && attachmentFiles.length < 1) {
                             if (routeExistingPreparedResponseLoading) {
@@ -4586,7 +5265,7 @@
                                 return;
                             }
                             if (Number.isFinite(routeExistingPreparedResponseCount) && routeExistingPreparedResponseCount < 1) {
-                                showAlertDialog('Prepared of response attachment is required. Upload at least one file, or proceed once Division/Section already uploaded one.');
+                                showAlertDialog('Prepared of response attachment is required. Upload at least one file, or proceed once ' + preparedResponseSourceLabel() + ' already uploaded one.');
                                 if (submitButton) {
                                     submitButton.disabled = false;
                                 }
@@ -4621,7 +5300,7 @@
                             preconditionVersion: Number(activeRouteContext.documentVersion || 0),
                             destinationOfficeId: destinationOfficeId,
                             bypassReason: bypassReasonValue,
-                            remarks: remarksValue,
+                            remarks: remarksForSubmit,
                             subject: nextSubjectValue,
                             attachmentFiles: attachmentFiles,
                         }).then(function (result) {
@@ -5700,7 +6379,7 @@
                         && !(enableQueueRerouteAction && action === 'REROUTE')
                         && !queueRowHasReceivedState(currentStatus, pendingOfficeId, rowCurrentOfficeId)
                     ) {
-                        showAlertDialog('ORED must click Receive first before other actions.');
+                        showAlertDialog(executiveRoleLabel + ' must click Receive first before other actions.');
                         return;
                     }
 
@@ -5709,7 +6388,7 @@
                         && currentRoleKey === 'ORED'
                         && !queueRowHasReceivedState(currentStatus, pendingOfficeId, rowCurrentOfficeId)
                     ) {
-                        showAlertDialog('ORED must click Receive first before Approve.');
+                        showAlertDialog(executiveRoleLabel + ' must click Receive first before Approve.');
                         return;
                     }
                     if (
@@ -5717,7 +6396,7 @@
                         && currentRoleKey === 'ORED'
                         && !queueStatusIsApproved(currentStatus)
                     ) {
-                        showAlertDialog('ORED must click Approve first before Sign.');
+                        showAlertDialog(executiveRoleLabel + ' must click Approve first before Sign.');
                         return;
                     }
                     if (
@@ -5743,12 +6422,13 @@
                         && !queueStatusIsApproved(currentStatus)
                         && !(queueStatusIsSignedCompleted(currentStatus) || hasSignedAction)
                     ) {
-                        showAlertDialog('ORED must click Approve first before Forward.');
+                        showAlertDialog(executiveRoleLabel + ' must click Approve first before Forward.');
                         return;
                     }
                     if (
                         action === 'OVERRIDE'
                         && currentRoleKey === 'ORED'
+                        && !isCenroOfficerRole
                         && !(
                             queueStatusIsForwarded(currentStatus)
                             || (
@@ -5824,6 +6504,7 @@
                     if (
                         action === 'APPROVE'
                         && currentRoleKey === 'RECORDS_UNIT'
+                        && !isCenroAdminRecordRole
                         && !queueRowHasReceivedState(currentStatus, pendingOfficeId, rowCurrentOfficeId)
                     ) {
                         showAlertDialog('RECORDS-UNIT must click Receive first before Approve.');
@@ -5832,6 +6513,7 @@
                     if (
                         action === 'FORWARD'
                         && currentRoleKey === 'RECORDS_UNIT'
+                        && !isCenroAdminRecordRole
                         && !queueRowCanManageIntake({
                             created_by_user_id: createdByUserId,
                             status: currentStatus,
@@ -5848,6 +6530,7 @@
                     if (
                         action === 'RELEASE'
                         && currentRoleKey === 'RECORDS_UNIT'
+                        && !isCenroAdminRecordRole
                         && !hasSignedAction
                     ) {
                         showAlertDialog('Release is available only after ORED signs/completes the document and routes it back to RECORDS-UNIT.');
@@ -5856,6 +6539,7 @@
                     if (
                         action === 'RELEASE'
                         && currentRoleKey === 'RECORDS_UNIT'
+                        && !isCenroAdminRecordRole
                         && normalizeLabelKey(currentStatus).indexOf('released') !== -1
                         && Number.isFinite(pendingOfficeId)
                         && pendingOfficeId > 0
@@ -5971,6 +6655,7 @@
                         if (
                             action === 'RELEASE'
                             && currentRoleKey === 'RECORDS_UNIT'
+                            && !isCenroAdminRecordRole
                             && Number.isFinite(originOfficeId)
                             && originOfficeId > 0
                         ) {
@@ -7078,7 +7763,7 @@
                         || status.indexOf('approved') !== -1
                     );
 
-                return (currentRoleKey === 'CENRO' || currentRoleKey === 'PENRO' || currentRoleKey === 'RECORDS_UNIT') && isCorrectionCycle;
+                return (currentRoleKey === 'CENRO' || currentRoleKey === 'PENRO' || currentRoleKey === 'RECORDS_UNIT' || isCenroAdminRecordRole) && isCorrectionCycle;
             }
 
             function finalizeQueueActionText(actions, queueRow) {
@@ -7116,6 +7801,7 @@
                 if (!rowIsInMyCustody) {
                     const routedOutFromCurrentOffice = isRoutedOutRowForCurrentOffice(pendingOfficeId, rowCurrentOfficeId);
                     const isPacdoReleasedAwaitingOriginReceive = currentRoleKey === 'RECORDS_UNIT'
+                        && !isCenroAdminRecordRole
                         && status.indexOf('released') !== -1
                         && queueStatusIsTerminal(status)
                         && routedOutFromCurrentOffice;
@@ -7125,7 +7811,7 @@
                             : ['View Tracking Slip', 'Release', 'Print Package'];
                         return finalizeQueueActionText(pacdoReleasedActions, queueRow);
                     }
-                    if (currentRoleKey === 'ORED' && (queueStatusIsForwarded(status) || routedOutFromCurrentOffice)) {
+                    if (currentRoleKey === 'ORED' && !isCenroOfficerRole && (queueStatusIsForwarded(status) || routedOutFromCurrentOffice)) {
                         const routedOutActions = hideQueueDocumentOnlyActions ? [] : ['View Tracking Slip'];
                         if (enableQueueRerouteAction) {
                             routedOutActions.push('Reroute');
@@ -7145,6 +7831,12 @@
                             queueRow
                         );
                     }
+                    if ((isCenroOfficerRole || isCenroSectionRole) && enableQueueRerouteAction && (queueStatusIsForwarded(status) || routedOutFromCurrentOffice)) {
+                        return finalizeQueueActionText(
+                            hideQueueDocumentOnlyActions ? ['Reroute'] : ['View Tracking Slip', 'Reroute', 'Print Package'],
+                            queueRow
+                        );
+                    }
                     return finalizeQueueActionText(
                         hideQueueDocumentOnlyActions ? [] : ['View Tracking Slip', 'Print Package'],
                         queueRow
@@ -7159,6 +7851,22 @@
                 const isTerminal = queueStatusIsTerminal(status);
                 const actions = hideQueueDocumentOnlyActions ? [] : ['View Tracking Slip'];
                 if (currentRoleKey === 'RECORDS_UNIT') {
+                    if (isCenroAdminRecordRole) {
+                        if (!isReceived && queueRowAllowsReceive(status, pendingOfficeId, rowCurrentOfficeId)) {
+                            actions.push('Receive');
+                        } else if (isSignedForPhase) {
+                            actions.push('Complete');
+                        } else if (!isApproved) {
+                            actions.push('Approve');
+                        } else {
+                            actions.push('Forward');
+                            actions.push('Complete');
+                        }
+                        if (!hideQueueDocumentOnlyActions) {
+                            actions.push('Print Package');
+                        }
+                        return finalizeQueueActionText(actions, queueRow);
+                    }
                     if (!isReceived && queueRowAllowsReceive(status, pendingOfficeId, rowCurrentOfficeId)) {
                         actions.push('Receive');
                     } else if (hasSignedAction) {
@@ -7184,18 +7892,31 @@
                         // After signing, ORED can still undo sign before forwarding.
                         actions.push('Undo Sign');
                         actions.push('Forward');
-                        actions.push('Return');
+                        if (!isCenroOfficerRole) {
+                            actions.push('Return');
+                        }
                     } else if (isSignedForPhase && isForwarded) {
-                        actions.push('Override');
+                        if (!isCenroOfficerRole) {
+                            actions.push('Override');
+                        }
                     } else if (!isApproved) {
                         actions.push('Approve');
-                        actions.push('Return');
+                        if (!isCenroOfficerRole) {
+                            actions.push('Return');
+                        }
                     } else if (!isForwarded) {
                         actions.push('Sign');
                         actions.push('Forward');
-                        actions.push('Return');
+                        if (isCenroOfficerRole && enableQueueRerouteAction) {
+                            actions.push('Reroute');
+                        }
+                        if (!isCenroOfficerRole) {
+                            actions.push('Return');
+                        }
                     } else {
-                        actions.push('Override');
+                        if (!isCenroOfficerRole) {
+                            actions.push('Override');
+                        }
                     }
                     if (!hideQueueDocumentOnlyActions) {
                         actions.push('Print Package');
@@ -7211,7 +7932,14 @@
                         actions.push('Approve');
                     } else {
                         actions.push('Forward');
-                        actions.push('Send Back to ARD');
+                        if (isCenroSectionRole && enableQueueRerouteAction) {
+                            actions.push('Reroute');
+                        }
+                        if (isCenroSectionRole) {
+                            actions.push('Send Back to CENRO Officer');
+                        } else {
+                            actions.push('Send Back to ARD');
+                        }
                     }
                     if (!hideQueueDocumentOnlyActions) {
                         actions.push('Print Package');
@@ -7272,7 +8000,7 @@
                 if (currentRoleKey === 'RECORDS_UNIT') {
                     actions.push('Release');
                 }
-                if (currentRoleKey === 'ORED') {
+                if (currentRoleKey === 'ORED' && !isCenroOfficerRole) {
                     actions.push('Override');
                 }
                 if (!hideRerouteQuickAction) {
@@ -9345,6 +10073,44 @@
                 }
 
                 const draftKey = 'edats_intake_draft_' + String(<?= json_encode($roleFolder) ?>).toLowerCase();
+                let intakeSubmitMode = 'submit';
+
+                function resolveForwardQueuePath(trackingId) {
+                    let basePath = '';
+                    if (statCardNavigationTargets && typeof statCardNavigationTargets === 'object') {
+                        const mappedPath = String(statCardNavigationTargets.forward || statCardNavigationTargets.default || '').trim();
+                        if (mappedPath !== '') {
+                            basePath = mappedPath;
+                        }
+                    }
+                    if (basePath === '') {
+                        basePath = window.location.pathname;
+                    }
+                    try {
+                        const target = new URL(basePath, window.location.origin);
+                        const normalizedTracking = String(trackingId || '').trim();
+                        if (normalizedTracking !== '') {
+                            target.searchParams.set('tracking_id', normalizedTracking);
+                        }
+                        target.searchParams.set('auto_action', 'forward');
+                        return target.toString();
+                    } catch (error) {
+                        return String(basePath || window.location.href);
+                    }
+                }
+
+                if (intakeSubmitButton) {
+                    intakeSubmitButton.addEventListener('click', function () {
+                        intakeSubmitMode = 'submit';
+                    });
+                }
+                if (intakeSubmitForwardButton) {
+                    intakeSubmitForwardButton.addEventListener('click', function () {
+                        intakeSubmitMode = 'forward';
+                        intakeForm.requestSubmit();
+                    });
+                }
+
                 if (intakeSourceType) {
                     intakeSourceType.addEventListener('change', toggleExternalClientField);
                 }
@@ -9400,6 +10166,9 @@
 
                 intakeForm.addEventListener('submit', function (event) {
                     event.preventDefault();
+                    const submitMode = intakeSubmitMode === 'forward' ? 'forward' : 'submit';
+                    const isSubmitAndForward = submitMode === 'forward';
+                    intakeSubmitMode = 'submit';
                     const formData = new FormData(intakeForm);
                     formData.set('csrf_token', csrfToken);
 
@@ -9483,10 +10252,13 @@
                     }
 
                     const submitBtn = intakeSubmitButton || null;
+                    const submitForwardBtn = intakeSubmitForwardButton || null;
                     showConfirmDialog(
-                        'Submit this intake and generate a tracking record now?',
+                        isSubmitAndForward
+                            ? 'Submit this intake and open the forward queue now?'
+                            : 'Submit this intake and generate a tracking record now?',
                         'Confirm Intake Submission',
-                        'Submit'
+                        isSubmitAndForward ? 'Submit & Forward' : 'Submit'
                     ).then(function (confirmed) {
                         if (!confirmed) {
                             return;
@@ -9494,6 +10266,9 @@
 
                         if (submitBtn) {
                             submitBtn.disabled = true;
+                        }
+                        if (submitForwardBtn) {
+                            submitForwardBtn.disabled = true;
                         }
 
                         fetch(createDocumentPath, {
@@ -9525,6 +10300,13 @@
 
                             localStorage.removeItem(draftKey);
                             const trackingId = String(json.tracking_id || '').trim();
+                            if (isSubmitAndForward) {
+                                const forwardQueuePath = resolveForwardQueuePath(trackingId);
+                                showAlertDialog('Intake submitted successfully. Opening forward queue for ' + (trackingId !== '' ? trackingId : 'new record') + '.').then(function () {
+                                    window.location.href = forwardQueuePath;
+                                });
+                                return;
+                            }
                             showAlertDialog('Intake submitted successfully. Tracking ID: ' + (trackingId !== '' ? trackingId : 'Generated')).then(function () {
                                 if (json.tracking_slip_url) {
                                     window.location.href = String(json.tracking_slip_url);
@@ -9538,9 +10320,59 @@
                             if (submitBtn) {
                                 submitBtn.disabled = false;
                             }
+                            if (submitForwardBtn) {
+                                submitForwardBtn.disabled = false;
+                            }
                         });
                     });
                 });
+            }
+
+            function triggerAutoForwardFromQuery() {
+                if (!tableBody) {
+                    return;
+                }
+                let parsed;
+                try {
+                    parsed = new URL(window.location.href);
+                } catch (error) {
+                    return;
+                }
+                const autoAction = normalizeLabelKey(parsed.searchParams.get('auto_action') || '');
+                if (autoAction !== 'forward') {
+                    return;
+                }
+                const trackingId = String(parsed.searchParams.get('tracking_id') || '').trim().toUpperCase();
+                if (trackingId === '') {
+                    return;
+                }
+
+                const rows = Array.from(tableBody.querySelectorAll('tr'));
+                const matchedRow = rows.find(function (row) {
+                    const rowTrackingId = String(row.getAttribute('data-tracking-id') || '').trim().toUpperCase();
+                    return rowTrackingId === trackingId;
+                });
+                if (!matchedRow) {
+                    return;
+                }
+
+                const forwardButton = matchedRow.querySelector('button.quick-action-btn[data-action="forward"]');
+                if (!forwardButton || typeof forwardButton.click !== 'function') {
+                    return;
+                }
+
+                parsed.searchParams.delete('auto_action');
+                try {
+                    const nextQuery = parsed.searchParams.toString();
+                    const nextUrl = parsed.pathname + (nextQuery !== '' ? '?' + nextQuery : '') + parsed.hash;
+                    window.history.replaceState({}, document.title, nextUrl);
+                } catch (error) {
+                    // Ignore URL cleanup errors.
+                }
+
+                window.setTimeout(function () {
+                    forwardButton.click();
+                }, 120);
             }
 
             function isDesktopSidebarResizeAllowed() {
@@ -9728,6 +10560,7 @@
             bindNotificationActions();
             bindQrReceivePanel();
             applyTableFilters();
+            triggerAutoForwardFromQuery();
             bindLiveDashboardRefresh();
             bindScreenshotTools().finally(function () {
                 runAutoScreenshotOnceAfterLoad();

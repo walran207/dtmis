@@ -343,6 +343,9 @@ include $roleBasePath . '/partials/sidebar.php';
                     <div class="intake-actions">
                         <button type="button" id="intakeSaveDraft" class="intake-btn intake-btn-muted">Save Draft</button>
                         <button type="submit" id="intakeSubmit" class="intake-btn intake-btn-primary">Submit Intake</button>
+                        <?php if (!empty($showIntakeForwardButton)): ?>
+                        <button type="button" id="intakeSubmitForward" class="intake-btn intake-btn-primary">Submit &amp; Forward</button>
+                        <?php endif; ?>
                     </div>
                 </form>
             </section>

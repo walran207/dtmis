@@ -55,6 +55,13 @@ if (!function_exists('dashboard_documents_row_version_expr')) {
     }
 }
 
+if (!function_exists('dashboard_section_like_level_sql_list')) {
+    function dashboard_section_like_level_sql_list(): string
+    {
+        return "'SECTION', 'CENRO_SECTION'";
+    }
+}
+
 if (!function_exists('dashboard_format_datetime_label')) {
     function dashboard_format_datetime_label(?string $value): string
     {
@@ -355,7 +362,7 @@ if (!function_exists('dashboard_fetch_queue_rows')) {
                         FROM tracking_slips ts_sec
                         INNER JOIN offices o_sec ON o_sec.id = ts_sec.receiving_office_id
                         WHERE ts_sec.document_id = d.id
-                          AND UPPER(COALESCE(o_sec.level, \'\')) = \'SECTION\'
+                          AND UPPER(COALESCE(o_sec.level, \'\')) IN (' . dashboard_section_like_level_sql_list() . ')
                     ) AS has_section_receive,
                     EXISTS(
                         SELECT 1
@@ -490,7 +497,7 @@ if (!function_exists('dashboard_fetch_origin_tracker_rows')) {
                         FROM tracking_slips ts_sec
                         INNER JOIN offices o_sec ON o_sec.id = ts_sec.receiving_office_id
                         WHERE ts_sec.document_id = d.id
-                          AND UPPER(COALESCE(o_sec.level, \'\')) = \'SECTION\'
+                          AND UPPER(COALESCE(o_sec.level, \'\')) IN (' . dashboard_section_like_level_sql_list() . ')
                     ) AS has_section_receive,
                     EXISTS(
                         SELECT 1
@@ -660,7 +667,7 @@ if (!function_exists('dashboard_fetch_actor_tracker_rows')) {
                         FROM tracking_slips ts_sec
                         INNER JOIN offices o_sec ON o_sec.id = ts_sec.receiving_office_id
                         WHERE ts_sec.document_id = d.id
-                          AND UPPER(COALESCE(o_sec.level, \'\')) = \'SECTION\'
+                          AND UPPER(COALESCE(o_sec.level, \'\')) IN (' . dashboard_section_like_level_sql_list() . ')
                     ) AS has_section_receive,
                     EXISTS(
                         SELECT 1
@@ -805,14 +812,27 @@ if (!function_exists('dashboard_fetch_division_staff_tracker_rows')) {
         $safeLimit = max(5, min($limit, 200));
         $trackedOfficeIds = [$divisionOfficeId];
 
+        $divisionLevelStmt = $pdo->prepare(
+            "SELECT UPPER(COALESCE(level, '')) AS office_level
+             FROM offices
+             WHERE id = :division_office_id
+             LIMIT 1"
+        );
+        $divisionLevelStmt->execute(['division_office_id' => $divisionOfficeId]);
+        $divisionOfficeLevel = strtoupper(trim((string)($divisionLevelStmt->fetchColumn() ?: '')));
+        $childOfficeLevel = $divisionOfficeLevel === 'CENRO_SECTION' ? 'CENRO_UNIT' : 'SECTION';
+
         $sectionStmt = $pdo->prepare(
             "SELECT id
              FROM offices
-             WHERE UPPER(COALESCE(level, '')) = 'SECTION'
+             WHERE UPPER(COALESCE(level, '')) = :child_office_level
                AND parent_office_id = :division_office_id
              ORDER BY id ASC"
         );
-        $sectionStmt->execute(['division_office_id' => $divisionOfficeId]);
+        $sectionStmt->execute([
+            'child_office_level' => $childOfficeLevel,
+            'division_office_id' => $divisionOfficeId,
+        ]);
         $sectionRows = $sectionStmt->fetchAll() ?: [];
         foreach ($sectionRows as $sectionRow) {
             $sectionOfficeId = (int)($sectionRow['id'] ?? 0);
@@ -863,7 +883,7 @@ if (!function_exists('dashboard_fetch_division_staff_tracker_rows')) {
                         FROM tracking_slips ts_sec
                         INNER JOIN offices o_sec ON o_sec.id = ts_sec.receiving_office_id
                         WHERE ts_sec.document_id = d.id
-                          AND UPPER(COALESCE(o_sec.level, \'\')) = \'SECTION\'
+                          AND UPPER(COALESCE(o_sec.level, \'\')) IN (' . dashboard_section_like_level_sql_list() . ')
                     ) AS has_section_receive
                 FROM documents d
                 INNER JOIN (
@@ -1047,7 +1067,7 @@ if (!function_exists('dashboard_fetch_ard_division_tracker_rows')) {
                         FROM tracking_slips ts_sec
                         INNER JOIN offices o_sec ON o_sec.id = ts_sec.receiving_office_id
                         WHERE ts_sec.document_id = d.id
-                          AND UPPER(COALESCE(o_sec.level, \'\')) = \'SECTION\'
+                          AND UPPER(COALESCE(o_sec.level, \'\')) IN (' . dashboard_section_like_level_sql_list() . ')
                     ) AS has_section_receive
                 FROM documents d
                 INNER JOIN (
@@ -1186,6 +1206,61 @@ if (!function_exists('dashboard_fetch_role_metrics')) {
             : 'SUM(CASE WHEN LOWER(COALESCE(ts_latest.action_required, \'\')) LIKE \'%external%\' AND DATE(d.created_at) = CURDATE() THEN 1 ELSE 0 END) AS external_today';
 
         $custodyStartExpr = 'COALESCE(office_ts.office_received_at, d.created_at)';
+        $pendingApprovalExpr = $hasPendingOfficeColumn
+            ? '                    SUM(CASE
+                        WHEN LOWER(COALESCE(d.status, \'\')) NOT IN (\'completed\', \'released\', \'closed\', \'resolved\', \'done\', \'cancelled\', \'canceled\')
+                             AND LOWER(COALESCE(d.status, \'\')) NOT LIKE \'%approved%\'
+                             AND LOWER(COALESCE(d.status, \'\')) NOT LIKE \'%signed%\'
+                             AND LOWER(COALESCE(d.status, \'\')) NOT LIKE \'%verified%\'
+                             AND LOWER(COALESCE(d.status, \'\')) NOT LIKE \'%endorsed%\'
+                             AND LOWER(COALESCE(d.status, \'\')) NOT LIKE \'%checked%\'
+                             AND LOWER(COALESCE(d.status, \'\')) NOT LIKE \'%validated%\'
+                             AND LOWER(COALESCE(d.status, \'\')) NOT LIKE \'%forward%\'
+                             AND LOWER(COALESCE(d.status, \'\')) NOT LIKE \'%route%\'
+                             AND LOWER(COALESCE(d.status, \'\')) NOT LIKE \'assigned to %\'
+                             AND LOWER(COALESCE(d.status, \'\')) NOT LIKE \'%draft%\'
+                             AND LOWER(COALESCE(d.status, \'\')) NOT LIKE \'%created%\'
+                             AND LOWER(COALESCE(d.status, \'\')) NOT LIKE \'%encoded%\'
+                             AND LOWER(COALESCE(d.status, \'\')) NOT LIKE \'%submitted%\'
+                             AND (
+                                 LOWER(COALESCE(d.status, \'\')) LIKE \'%received%\'
+                                 OR LOWER(COALESCE(d.status, \'\')) LIKE \'%recieved%\'
+                                 OR (
+                                     d.current_office_id = :office_id_current_metric
+                                     AND (d.pending_office_id IS NULL OR d.pending_office_id <= 0)
+                                 )
+                             )
+                             AND (
+                                 d.current_office_id = :office_id_current_metric
+                                 OR d.pending_office_id = :office_id_pending_metric
+                             )
+                        THEN 1 ELSE 0
+                    END) AS pending_approval_total
+'
+            : '                    SUM(CASE
+                        WHEN LOWER(COALESCE(d.status, \'\')) NOT IN (\'completed\', \'released\', \'closed\', \'resolved\', \'done\', \'cancelled\', \'canceled\')
+                             AND LOWER(COALESCE(d.status, \'\')) NOT LIKE \'%approved%\'
+                             AND LOWER(COALESCE(d.status, \'\')) NOT LIKE \'%signed%\'
+                             AND LOWER(COALESCE(d.status, \'\')) NOT LIKE \'%verified%\'
+                             AND LOWER(COALESCE(d.status, \'\')) NOT LIKE \'%endorsed%\'
+                             AND LOWER(COALESCE(d.status, \'\')) NOT LIKE \'%checked%\'
+                             AND LOWER(COALESCE(d.status, \'\')) NOT LIKE \'%validated%\'
+                             AND LOWER(COALESCE(d.status, \'\')) NOT LIKE \'%forward%\'
+                             AND LOWER(COALESCE(d.status, \'\')) NOT LIKE \'%route%\'
+                             AND LOWER(COALESCE(d.status, \'\')) NOT LIKE \'assigned to %\'
+                             AND LOWER(COALESCE(d.status, \'\')) NOT LIKE \'%draft%\'
+                             AND LOWER(COALESCE(d.status, \'\')) NOT LIKE \'%created%\'
+                             AND LOWER(COALESCE(d.status, \'\')) NOT LIKE \'%encoded%\'
+                             AND LOWER(COALESCE(d.status, \'\')) NOT LIKE \'%submitted%\'
+                             AND (
+                                 LOWER(COALESCE(d.status, \'\')) LIKE \'%received%\'
+                                 OR LOWER(COALESCE(d.status, \'\')) LIKE \'%recieved%\'
+                                 OR d.current_office_id = :office_id_current_metric
+                             )
+                             AND d.current_office_id = :office_id_current_metric
+                        THEN 1 ELSE 0
+                    END) AS pending_approval_total
+';
         $pendingForwardExpr = $hasPendingOfficeColumn
             ? '                    SUM(CASE
                         WHEN (
@@ -1273,14 +1348,7 @@ if (!function_exists('dashboard_fetch_role_metrics')) {
                         THEN 1 ELSE 0
                     END) AS completed_today,
                     ' . $externalTodayExpr . ',
-                    SUM(CASE
-                        WHEN LOWER(COALESCE(d.status, \'\')) NOT IN (\'completed\', \'released\', \'closed\', \'approved\', \'resolved\', \'done\', \'signed\', \'signed/completed\', \'cancelled\', \'canceled\')
-                             AND (
-                                 LOWER(COALESCE(d.status, \'\')) LIKE \'%approval%\'
-                                 OR LOWER(COALESCE(ts_latest.action_required, \'\')) LIKE \'%approval%\'
-                             )
-                        THEN 1 ELSE 0
-                    END) AS pending_approval_total,
+                    ' . $pendingApprovalExpr . ',
                     SUM(CASE
                         WHEN LOWER(COALESCE(d.status, \'\')) NOT IN (\'completed\', \'released\', \'closed\', \'resolved\', \'done\', \'signed\', \'signed/completed\', \'cancelled\', \'canceled\')
                              AND (
@@ -1428,10 +1496,14 @@ if (!function_exists('dashboard_fetch_route_offices')) {
                         WHEN \'REGIONAL\' THEN 1
                         WHEN \'DIVISION\' THEN 2
                         WHEN \'SECTION\' THEN 3
-                        WHEN \'PROVINCIAL\' THEN 4
-                        WHEN \'COMMUNITY\' THEN 5
-                        WHEN \'PROTECTED AREA\' THEN 6
-                        ELSE 7
+                        WHEN \'CENRO_SECTION\' THEN 4
+                        WHEN \'CENRO_UNIT\' THEN 5
+                        WHEN \'CENRO_OFFICER\' THEN 6
+                        WHEN \'CENRO_ADMIN_RECORD\' THEN 7
+                        WHEN \'PROVINCIAL\' THEN 8
+                        WHEN \'COMMUNITY\' THEN 9
+                        WHEN \'PROTECTED AREA\' THEN 10
+                        ELSE 11
                     END,
                     name ASC
                 LIMIT ' . $safeLimit;
@@ -1525,6 +1597,174 @@ if (!function_exists('dashboard_fetch_regional_office_summary_rows')) {
     }
 }
 
+if (!function_exists('dashboard_collect_office_subtree_ids')) {
+    function dashboard_collect_office_subtree_ids(PDO $pdo, int $rootOfficeId): array
+    {
+        if ($rootOfficeId <= 0) {
+            return [];
+        }
+
+        $queue = [$rootOfficeId];
+        $seen = [];
+        $subtreeIds = [];
+        $childrenStmt = $pdo->prepare(
+            'SELECT id
+             FROM offices
+             WHERE parent_office_id = :parent_office_id'
+        );
+
+        while (!empty($queue)) {
+            $officeId = (int)array_shift($queue);
+            if ($officeId <= 0 || isset($seen[$officeId])) {
+                continue;
+            }
+
+            $seen[$officeId] = true;
+            $subtreeIds[] = $officeId;
+
+            $childrenStmt->execute(['parent_office_id' => $officeId]);
+            $children = $childrenStmt->fetchAll() ?: [];
+            foreach ($children as $child) {
+                $childId = (int)($child['id'] ?? 0);
+                if ($childId > 0 && !isset($seen[$childId])) {
+                    $queue[] = $childId;
+                }
+            }
+        }
+
+        return $subtreeIds;
+    }
+}
+
+if (!function_exists('dashboard_fetch_office_summary_rows_by_office_ids')) {
+    function dashboard_fetch_office_summary_rows_by_office_ids(PDO $pdo, array $officeIds, int $limit = 120): array
+    {
+        $scopedOfficeIds = [];
+        foreach ($officeIds as $officeId) {
+            $normalizedId = (int)$officeId;
+            if ($normalizedId > 0) {
+                $scopedOfficeIds[$normalizedId] = true;
+            }
+        }
+        $scopedOfficeIds = array_keys($scopedOfficeIds);
+        if (empty($scopedOfficeIds)) {
+            return [];
+        }
+
+        $safeLimit = max(5, min($limit, 500));
+        $hasPendingOfficeColumn = dashboard_column_exists($pdo, 'documents', 'pending_office_id');
+        $ownerOfficeExpr = $hasPendingOfficeColumn
+            ? 'CASE WHEN d.pending_office_id IS NOT NULL AND d.pending_office_id > 0 THEN d.pending_office_id ELSE d.current_office_id END'
+            : 'd.current_office_id';
+        $deadlineExpr = 'DATE_ADD(d.created_at, INTERVAL ' . dashboard_documents_arta_days_expr($pdo) . ' DAY)';
+        $terminalStatuses = "'completed','released','closed','approved','resolved','done','signed','signed/completed','cancelled','canceled'";
+
+        $officePlaceholders = [];
+        $params = [];
+        foreach ($scopedOfficeIds as $index => $officeId) {
+            $key = 'office_id_' . $index;
+            $officePlaceholders[] = ':' . $key;
+            $params[$key] = (int)$officeId;
+        }
+
+        $sql = 'SELECT
+                    o.id AS office_id,
+                    o.name AS office_name,
+                    UPPER(COALESCE(o.level, \'\')) AS office_level,
+                    SUM(CASE
+                        WHEN LOWER(COALESCE(d.status, \'\')) NOT IN (' . $terminalStatuses . ')
+                        THEN 1 ELSE 0
+                    END) AS pending_count,
+                    SUM(CASE
+                        WHEN LOWER(COALESCE(d.status, \'\')) NOT IN (' . $terminalStatuses . ')
+                             AND DATEDIFF(' . $deadlineExpr . ', CURDATE()) = 1
+                        THEN 1 ELSE 0
+                    END) AS due_soon_count,
+                    SUM(CASE
+                        WHEN LOWER(COALESCE(d.status, \'\')) NOT IN (' . $terminalStatuses . ')
+                             AND ' . $deadlineExpr . ' < CURDATE()
+                        THEN 1 ELSE 0
+                    END) AS overdue_count,
+                    SUM(CASE
+                        WHEN LOWER(COALESCE(d.status, \'\')) IN (' . $terminalStatuses . ')
+                        THEN 1 ELSE 0
+                    END) AS completed_count
+                FROM documents d
+                LEFT JOIN document_types dt ON dt.id = d.document_type_id
+                INNER JOIN offices o ON o.id = ' . $ownerOfficeExpr . '
+                WHERE o.id IN (' . implode(', ', $officePlaceholders) . ')
+                GROUP BY o.id, o.name, o.level
+                ORDER BY pending_count DESC, overdue_count DESC, due_soon_count DESC, o.name ASC
+                LIMIT ' . $safeLimit;
+
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $rows = $stmt->fetchAll() ?: [];
+        if (empty($rows)) {
+            return [];
+        }
+
+        $summaryRows = [];
+        foreach ($rows as $row) {
+            $summaryRows[] = [
+                'office_id' => (int)($row['office_id'] ?? 0),
+                'office_name' => trim((string)($row['office_name'] ?? 'Unknown Office')),
+                'office_level' => trim((string)($row['office_level'] ?? '')),
+                'pending_count' => max((int)($row['pending_count'] ?? 0), 0),
+                'due_soon_count' => max((int)($row['due_soon_count'] ?? 0), 0),
+                'overdue_count' => max((int)($row['overdue_count'] ?? 0), 0),
+                'completed_count' => max((int)($row['completed_count'] ?? 0), 0),
+            ];
+        }
+
+        return $summaryRows;
+    }
+}
+
+if (!function_exists('dashboard_fetch_cenro_internal_office_summary_rows')) {
+    function dashboard_fetch_cenro_internal_office_summary_rows(PDO $pdo, int $cenroRootOfficeId, int $limit = 120): array
+    {
+        if ($cenroRootOfficeId <= 0) {
+            return [];
+        }
+
+        $subtreeIds = dashboard_collect_office_subtree_ids($pdo, $cenroRootOfficeId);
+        if (empty($subtreeIds)) {
+            return [];
+        }
+
+        $placeholders = [];
+        $params = [];
+        foreach ($subtreeIds as $index => $officeId) {
+            $key = 'subtree_office_id_' . $index;
+            $placeholders[] = ':' . $key;
+            $params[$key] = (int)$officeId;
+        }
+
+        $internalOfficeSql = 'SELECT id
+                              FROM offices
+                              WHERE id IN (' . implode(', ', $placeholders) . ')
+                                AND UPPER(COALESCE(level, \'\')) IN (
+                                    \'CENRO_ADMIN_RECORD\',
+                                    \'CENRO_OFFICER\',
+                                    \'CENRO_SECTION\',
+                                    \'CENRO_UNIT\'
+                                )';
+        $internalStmt = $pdo->prepare($internalOfficeSql);
+        $internalStmt->execute($params);
+        $internalIds = array_map(
+            static fn(array $row): int => (int)($row['id'] ?? 0),
+            $internalStmt->fetchAll() ?: []
+        );
+        $internalIds = array_values(array_filter($internalIds, static fn(int $id): bool => $id > 0));
+        if (empty($internalIds)) {
+            return [];
+        }
+
+        return dashboard_fetch_office_summary_rows_by_office_ids($pdo, $internalIds, $limit);
+    }
+}
+
 if (!function_exists('dashboard_fetch_activity_counters')) {
     function dashboard_fetch_activity_counters(PDO $pdo, int $officeId, int $windowDays = 30): array
     {
@@ -1591,22 +1831,26 @@ if (!function_exists('dashboard_fetch_notifications')) {
 
         $whereClause = $scope['where'];
         $params = $scope['params'];
-        if (in_array($roleKey, ['CENRO', 'PENRO'], true)) {
+        if (in_array($roleKey, ['CENRO', 'PENRO', 'CENRO_ADMIN_RECORD'], true)) {
             // CENRO/PENRO: full lifecycle notifications only for documents originated by their office.
             $whereClause = 'd.originating_office_id = :office_id_origin_notifications';
             $params = [
                 'office_id_origin_notifications' => $officeId,
             ];
-        } elseif (in_array($roleKey, ['RECORDS_UNIT', 'ORED', 'DIVISION_CHIEF', 'SECTION_STAFF', 'ARD_TS', 'ARD_MS'], true)) {
-            // RECORDS-UNIT/ORED/Division/Section: alert only for newly incoming routed documents.
-            $whereClause = "al.destination_office_id = :office_id_destination_notifications
-                            AND UPPER(COALESCE(al.action_type, '')) IN (
-                                'FORWARDED', 'FORWARD', 'REROUTED', 'REROUTE',
-                                'OVERRIDDEN', 'OVERRIDE', 'RETURNED', 'RETURN',
-                                'RELEASED', 'RELEASE'
-                            )";
+        } elseif (in_array($roleKey, ['CENRO_OFFICER', 'CENRO_SECTION', 'CENRO_UNIT', 'RECORDS_UNIT', 'ORED', 'DIVISION_CHIEF', 'SECTION_STAFF', 'ARD_TS', 'ARD_MS'], true)) {
+            // Internal action roles: prioritize incoming routed events; keep origin fallback for legacy office mappings.
+            $whereClause = "(
+                                al.destination_office_id = :office_id_destination_notifications
+                                AND UPPER(COALESCE(al.action_type, '')) IN (
+                                    'FORWARDED', 'FORWARD', 'REROUTED', 'REROUTE',
+                                    'OVERRIDDEN', 'OVERRIDE', 'RETURNED', 'RETURN',
+                                    'RELEASED', 'RELEASE'
+                                )
+                            )
+                            OR d.originating_office_id = :office_id_origin_notifications";
             $params = [
                 'office_id_destination_notifications' => $officeId,
+                'office_id_origin_notifications' => $officeId,
             ];
         }
 
@@ -2088,7 +2332,7 @@ if (!function_exists('dashboard_cenro_run_filtered_query')) {
                         FROM tracking_slips ts_sec
                         INNER JOIN offices o_sec ON o_sec.id = ts_sec.receiving_office_id
                         WHERE ts_sec.document_id = d.id
-                          AND UPPER(COALESCE(o_sec.level, \'\')) = \'SECTION\'
+                          AND UPPER(COALESCE(o_sec.level, \'\')) IN (' . dashboard_section_like_level_sql_list() . ')
                     ) AS has_section_receive
                 FROM documents d
                 LEFT JOIN document_types dt ON dt.id = d.document_type_id

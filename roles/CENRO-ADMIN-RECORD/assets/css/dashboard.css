@@ -1,0 +1,34 @@
+/* Role-specific dashboard overrides */
+.menu-link.is-active {
+    background: var(--role-accent-soft);
+    color: var(--role-accent-text);
+}
+
+.menu-link.is-active .menu-icon {
+    color: var(--role-accent-text);
+}
+
+.table-link {
+    color: var(--role-accent-text);
+}
+
+.quick-action-btn,
+.quick-action-link {
+    border-color: var(--role-accent-soft);
+    color: var(--role-accent-text);
+}
+
+.quick-action-btn:hover,
+.quick-action-link:hover {
+    border-color: var(--role-accent);
+}
+
+.action-modal-btn-primary {
+    background: var(--role-accent);
+    border-color: var(--role-accent);
+}
+
+.action-modal-btn-primary:hover {
+    background: var(--role-accent-text);
+    border-color: var(--role-accent-text);
+}

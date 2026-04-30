@@ -89,6 +89,21 @@ if (!function_exists('app_normalize_role_key')) {
     }
 }
 
+if (!function_exists('app_role_behavior_key')) {
+    function app_role_behavior_key(string $roleName): string
+    {
+        $roleKey = app_normalize_role_key($roleName);
+        $map = [
+            'CENRO_ADMIN_RECORD' => 'RECORDS_UNIT',
+            'CENRO_OFFICER' => 'ORED',
+            'CENRO_SECTION' => 'DIVISION_CHIEF',
+            'CENRO_UNIT' => 'SECTION_STAFF',
+        ];
+
+        return $map[$roleKey] ?? $roleKey;
+    }
+}
+
 if (!function_exists('app_role_folder_map')) {
     function app_role_folder_map(): array
     {
@@ -98,8 +113,12 @@ if (!function_exists('app_role_folder_map')) {
             'ORED' => 'ORED',
             'RECORDS_UNIT' => 'RECORS-UNIT',
             'PACDO' => 'RECORS-UNIT',
+            'CENRO_ADMIN_RECORD' => 'CENRO-ADMIN-RECORD',
             'PENRO' => 'PENRO',
             'CENRO' => 'CENRO',
+            'CENRO_OFFICER' => 'CENRO-OFFICER',
+            'CENRO_SECTION' => 'CENRO-SECTION',
+            'CENRO_UNIT' => 'CENRO-UNIT',
             'PASU' => 'PASU',
             'SECTION' => 'SECTION-STAFF',
             'SECTION_STAFF' => 'SECTION-STAFF',
@@ -174,6 +193,10 @@ if (!function_exists('app_offline_default_role_keys')) {
             'RECORDS_UNIT',
             'PENRO',
             'CENRO',
+            'CENRO_ADMIN_RECORD',
+            'CENRO_OFFICER',
+            'CENRO_SECTION',
+            'CENRO_UNIT',
             'PASU',
             'DIVISION_CHIEF',
             'SECTION_STAFF',
@@ -194,6 +217,7 @@ if (!function_exists('app_offline_default_workflow_action_keys')) {
             'APPROVE',
             'OVERRIDE',
             'RELEASE',
+            'COMPLETE',
             'UNSIGN',
             'PENDING',
             'EDIT',

@@ -91,7 +91,7 @@ function role_status_allows_receive(string $status): bool
 function role_hide_reroute_quick_action(): bool
 {
     global $roleName;
-    $roleKey = app_normalize_role_key((string)($roleName ?? ''));
+    $roleKey = app_role_behavior_key((string)($roleName ?? ''));
     return in_array($roleKey, ['CENRO', 'PASU', 'PENRO', 'RECORDS_UNIT'], true);
 }
 
@@ -173,7 +173,7 @@ function role_queue_can_manage_intake(array $queueRow): bool
     }
 
     $roleKey = app_normalize_role_key((string)($roleName ?? ($_SESSION['role_name'] ?? '')));
-    return in_array($roleKey, ['CENRO', 'PENRO', 'RECORDS_UNIT'], true);
+    return in_array($roleKey, ['CENRO', 'PENRO', 'RECORDS_UNIT', 'CENRO_ADMIN_RECORD'], true);
 }
 
 function role_queue_row_is_intake_draft(array $queueRow, int $currentUserId): bool
@@ -218,7 +218,10 @@ function role_table_default_actions(array $queueRow): string
         return 'Forward | Edit | Delete';
     }
 
-    $roleKey = app_normalize_role_key((string)($roleName ?? ''));
+    $roleKeyRaw = app_normalize_role_key((string)($roleName ?? ''));
+    $roleKey = app_role_behavior_key((string)($roleName ?? ''));
+    $isCenroAdminRecord = $roleKeyRaw === 'CENRO_ADMIN_RECORD';
+    $isCenroOfficer = $roleKeyRaw === 'CENRO_OFFICER';
     $status = strtolower(trim((string)($queueRow['status'] ?? '')));
     $pendingOfficeId = (int)($queueRow['pending_office_id'] ?? 0);
     $rowCurrentOfficeId = (int)($queueRow['current_office_id'] ?? 0);
@@ -239,6 +242,7 @@ function role_table_default_actions(array $queueRow): string
     }
     if ($roleKey === 'ORED') {
         $actions[] = 'Sign';
+        $actions[] = 'Undo Sign';
     }
     if (!in_array($roleKey, ['CENRO', 'PASU'], true) || $hasReceivedCustody) {
         $actions[] = 'Forward';
@@ -246,13 +250,16 @@ function role_table_default_actions(array $queueRow): string
     if (in_array($roleKey, ['ARD_TS', 'ARD_MS'], true)) {
         $actions[] = 'Send Back to ORED';
     }
-    if ($roleKey === 'ORED' || str_contains($status, 'return')) {
+    if (($roleKey === 'ORED' && !$isCenroOfficer) || str_contains($status, 'return')) {
         $actions[] = 'Return';
     }
-    if ($roleKey === 'RECORDS_UNIT') {
+    if ($roleKey === 'RECORDS_UNIT' && !$isCenroAdminRecord) {
         $actions[] = 'Release';
     }
-    if ($roleKey === 'ORED') {
+    if ($isCenroAdminRecord && $hasReceivedCustody) {
+        $actions[] = 'Complete';
+    }
+    if ($roleKey === 'ORED' && !$isCenroOfficer) {
         $actions[] = 'Override';
     }
     if (!role_hide_reroute_quick_action()) {
@@ -822,7 +829,19 @@ function role_assignment_tags_from_office(array $officeContext): array
     $primary = 'Office: ' . $officeName;
     $secondary = '';
 
-    if ($officeLevel === 'SECTION') {
+    if ($officeLevel === 'CENRO_ADMIN_RECORD') {
+        $primary = 'CENRO Admin Records: ' . $officeName;
+        if ($parentName !== '') $secondary = 'CENRO Officer: ' . $parentName;
+    } elseif ($officeLevel === 'CENRO_OFFICER') {
+        $primary = 'CENRO Officer: ' . $officeName;
+        if ($parentName !== '') $secondary = 'CENRO: ' . $parentName;
+    } elseif ($officeLevel === 'CENRO_SECTION') {
+        $primary = 'CENRO Section: ' . $officeName;
+        if ($parentName !== '') $secondary = 'CENRO Officer: ' . $parentName;
+    } elseif ($officeLevel === 'CENRO_UNIT') {
+        $primary = 'CENRO Unit: ' . $officeName;
+        if ($parentName !== '') $secondary = 'CENRO Section: ' . $parentName;
+    } elseif ($officeLevel === 'SECTION') {
         $primary = 'Section: ' . $officeName;
         if ($parentName !== '') $secondary = 'Division: ' . $parentName;
     } elseif ($officeLevel === 'DIVISION') {
@@ -1051,7 +1070,7 @@ function role_find_section_staff_route_offices(PDO $pdo, int $divisionOfficeId =
 function role_find_parent_division_route_office(PDO $pdo, int $sectionOfficeId): ?array
 {
     if ($sectionOfficeId <= 0) return null;
-    $stmt = $pdo->prepare("SELECT parent.id, parent.name, parent.level FROM offices child INNER JOIN offices parent ON parent.id = child.parent_office_id WHERE child.id = :section_office_id AND UPPER(COALESCE(parent.level, '')) = 'DIVISION' LIMIT 1");
+    $stmt = $pdo->prepare("SELECT parent.id, parent.name, parent.level FROM offices child INNER JOIN offices parent ON parent.id = child.parent_office_id WHERE child.id = :section_office_id AND UPPER(COALESCE(parent.level, '')) IN ('DIVISION', 'CENRO_SECTION') LIMIT 1");
     $stmt->execute(['section_office_id' => $sectionOfficeId]);
     $office = $stmt->fetch();
     return $office ? ['id' => (int)($office['id'] ?? 0), 'name' => (string)($office['name'] ?? ''), 'level' => (string)($office['level'] ?? '')] : null;

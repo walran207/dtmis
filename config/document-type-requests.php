@@ -36,14 +36,15 @@ if (!function_exists('dtr_is_requester_role')) {
     function dtr_is_requester_role(string $roleName): bool
     {
         $key = app_normalize_role_key($roleName);
-        return in_array($key, ['CENRO', 'PENRO', 'PASU'], true);
+        return in_array($key, ['CENRO', 'PENRO', 'PASU', 'CENRO_ADMIN_RECORD'], true);
     }
 }
 
 if (!function_exists('dtr_is_reviewer_role')) {
     function dtr_is_reviewer_role(string $roleName): bool
     {
-        return app_normalize_role_key($roleName) === 'RECORDS_UNIT';
+        $key = app_normalize_role_key($roleName);
+        return in_array($key, ['RECORDS_UNIT', 'CENRO_ADMIN_RECORD'], true);
     }
 }
 

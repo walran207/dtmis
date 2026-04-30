@@ -11,10 +11,11 @@ if (empty($_SESSION['user_id'])) {
     app_redirect('auth/login.php');
 }
 
-$roleKey = app_normalize_role_key((string)($_SESSION['role_name'] ?? ''));
-if ($roleKey !== 'ORED') {
+$sessionRoleName = (string)($_SESSION['role_name'] ?? '');
+$roleKey = app_normalize_role_key($sessionRoleName);
+if (!in_array($roleKey, ['ORED', 'CENRO_OFFICER'], true)) {
     http_response_code(403);
-    echo 'Digital signature workspace is available for ORED only.';
+    echo 'Digital signature workspace is available for ORED and CENRO Officer only.';
     exit;
 }
 
@@ -35,7 +36,11 @@ $returnTo = basename($returnToRaw);
 if ($returnTo === '' || !preg_match('/^[A-Za-z0-9._-]+\.php$/', $returnTo)) {
     $returnTo = 'rd-action-desk.php';
 }
-$returnUrl = app_url('ORED/' . $returnTo);
+$roleFolder = app_role_folder_from_role($sessionRoleName) ?? 'ORED';
+$returnUrl = app_url($roleFolder . '/' . $returnTo);
+$returnButtonLabel = $roleKey === 'CENRO_OFFICER'
+    ? 'Back to CENRO OFFICER Action Desk'
+    : 'Back to RD Action Desk';
 $apiUrl = app_url('actions/digital-signature-profile.php');
 $documentDetailsUrl = app_url('actions/document-details.php');
 $documentActionUrl = app_url('actions/document-action.php');
@@ -481,7 +486,7 @@ $offlineSyncLogUrl = app_url('actions/offline-sync-log.php');
                     <button type="button" id="undoSignBtn" class="btn" <?php echo $documentId <= 0 ? 'disabled' : ''; ?>>Undo Sign</button>
                     <button type="button" id="applySignPrintBtn" class="btn" <?php echo $documentId <= 0 ? 'disabled' : ''; ?>>Apply Sign + Print Doc</button>
                     <button type="button" id="printCanvasBtn" class="btn ghost">Print Current Doc</button>
-                    <a class="btn ghost" href="<?php echo e($returnUrl); ?>" target="_top">Back to RD Action Desk</a>
+                    <a class="btn ghost" href="<?php echo e($returnUrl); ?>" target="_top"><?php echo e($returnButtonLabel); ?></a>
                 </div>
             </div>
 
@@ -1049,7 +1054,7 @@ $offlineSyncLogUrl = app_url('actions/offline-sync-log.php');
                             || uploaderRoleKey === 'DIVISION_CHIEF'
                             || uploaderRoleKey === 'SECTION_STAFF'
                             || (signedSource !== '' && !!preparedSourceNames[signedSource])
-                            || (isSigned && uploaderRoleKey === 'ORED');
+                            || (isSigned && (uploaderRoleKey === 'ORED' || uploaderRoleKey === 'CENRO_OFFICER'));
                         return {
                             id: item.id,
                             file_name: item.file_name,
@@ -1467,7 +1472,7 @@ $offlineSyncLogUrl = app_url('actions/offline-sync-log.php');
 
             async function sendSignWorkflowAction(actionName) {
                 if (!Number.isFinite(selectedDocumentId) || selectedDocumentId <= 0) {
-                    showFlash('Missing document context. Open this page from ORED Sign quick action.', 'warn');
+                    showFlash('Missing document context. Open this page from the Sign quick action in your action desk.', 'warn');
                     return null;
                 }
 

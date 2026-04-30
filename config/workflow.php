@@ -173,7 +173,71 @@ function workflow_can_override_role(string $roleName): bool
 function workflow_is_supervisor_role(string $roleName): bool
 {
     $key = app_normalize_role_key($roleName);
-    return in_array($key, ['DIVISION_CHIEF', 'ARD_TS', 'ARD_MS', 'PENRO', 'RECORDS_UNIT', 'ORED'], true);
+    return in_array($key, [
+        'DIVISION_CHIEF',
+        'ARD_TS',
+        'ARD_MS',
+        'PENRO',
+        'RECORDS_UNIT',
+        'ORED',
+        'CENRO_ADMIN_RECORD',
+        'CENRO_OFFICER',
+        'CENRO_SECTION',
+    ], true);
+}
+
+function workflow_office_level_key(?string $level): string
+{
+    return strtoupper(trim((string)$level));
+}
+
+function workflow_is_cenro_section_level(?string $level): bool
+{
+    return workflow_office_level_key($level) === 'CENRO_SECTION';
+}
+
+function workflow_is_cenro_unit_level(?string $level): bool
+{
+    return workflow_office_level_key($level) === 'CENRO_UNIT';
+}
+
+function workflow_is_cenro_officer_level(?string $level): bool
+{
+    return workflow_office_level_key($level) === 'CENRO_OFFICER';
+}
+
+function workflow_is_cenro_admin_record_level(?string $level): bool
+{
+    return workflow_office_level_key($level) === 'CENRO_ADMIN_RECORD';
+}
+
+function workflow_find_cenro_root_office(PDO $pdo, int $startOfficeId): ?array
+{
+    if ($startOfficeId <= 0) {
+        return null;
+    }
+
+    $visited = [];
+    $cursor = $startOfficeId;
+    for ($depth = 0; $depth < 16; $depth += 1) {
+        if ($cursor <= 0 || isset($visited[$cursor])) {
+            break;
+        }
+        $visited[$cursor] = true;
+        $office = workflow_get_office_context($pdo, $cursor);
+        if (!$office) {
+            break;
+        }
+
+        $level = workflow_office_level_key((string)($office['level'] ?? ''));
+        $name = strtoupper(trim((string)($office['name'] ?? '')));
+        if ($level === 'COMMUNITY' && str_contains($name, 'CENRO')) {
+            return $office;
+        }
+        $cursor = (int)($office['parent_office_id'] ?? 0);
+    }
+
+    return null;
 }
 
 function workflow_office_name_key(string $name): string
@@ -376,6 +440,18 @@ function workflow_infer_office_role_id(PDO $pdo, int $officeId): ?int
     }
     if ($level === 'COMMUNITY') {
         return workflow_get_role_id_by_key($pdo, 'CENRO');
+    }
+    if ($level === 'CENRO_ADMIN_RECORD') {
+        return workflow_get_role_id_by_key($pdo, 'CENRO_ADMIN_RECORD');
+    }
+    if ($level === 'CENRO_OFFICER') {
+        return workflow_get_role_id_by_key($pdo, 'CENRO_OFFICER');
+    }
+    if ($level === 'CENRO_SECTION') {
+        return workflow_get_role_id_by_key($pdo, 'CENRO_SECTION');
+    }
+    if ($level === 'CENRO_UNIT') {
+        return workflow_get_role_id_by_key($pdo, 'CENRO_UNIT');
     }
     if ($level === 'PROVINCIAL') {
         return workflow_get_role_id_by_key($pdo, 'PENRO');
@@ -633,6 +709,165 @@ function workflow_assert_section_assignment_scope(
     }
 }
 
+function workflow_assert_cenro_internal_assignment_scope(
+    PDO $pdo,
+    array $actor,
+    int $destinationOfficeId,
+    string $transitionAction,
+    array $documentContext = []
+): void {
+    $actionType = strtoupper(trim($transitionAction));
+    if (!in_array($actionType, ['FORWARD', 'REROUTE', 'RETURN'], true)) {
+        return;
+    }
+
+    $actorRoleKey = app_normalize_role_key((string)($actor['role_name'] ?? ''));
+    if (!in_array($actorRoleKey, ['CENRO_ADMIN_RECORD', 'CENRO_OFFICER', 'CENRO_SECTION', 'CENRO_UNIT'], true)) {
+        return;
+    }
+
+    $actorOfficeId = (int)($actor['office_id'] ?? 0);
+    if ($actorOfficeId <= 0) {
+        throw new RuntimeException('Actor office is required for CENRO internal routing.');
+    }
+
+    $destinationOffice = workflow_get_office_context($pdo, $destinationOfficeId);
+    if (!$destinationOffice) {
+        throw new RuntimeException('Destination office is not valid.');
+    }
+    $destinationLevel = workflow_office_level_key((string)($destinationOffice['level'] ?? ''));
+    $destinationRoleId = workflow_infer_office_role_id($pdo, $destinationOfficeId);
+    $destinationRoleName = '';
+    if ($destinationRoleId !== null) {
+        $roleStmt = $pdo->prepare('SELECT name FROM roles WHERE id = :id LIMIT 1');
+        $roleStmt->execute(['id' => $destinationRoleId]);
+        $destinationRoleName = app_normalize_role_key((string)($roleStmt->fetchColumn() ?: ''));
+    }
+
+    if ($actorRoleKey === 'CENRO_OFFICER') {
+        $currentStatus = strtolower(trim((string)($documentContext['status'] ?? '')));
+        $isPostSignStage = str_contains($currentStatus, 'signed') || str_contains($currentStatus, 'completed');
+        $originatingOfficeId = (int)($documentContext['originating_office_id'] ?? 0);
+        $actorOffice = workflow_get_office_context($pdo, $actorOfficeId);
+        $actorParentOfficeId = (int)($actorOffice['parent_office_id'] ?? 0);
+        $actorRoot = workflow_find_cenro_root_office($pdo, $actorOfficeId);
+        $destinationRoot = workflow_find_cenro_root_office($pdo, $destinationOfficeId);
+        $actorRootId = (int)($actorRoot['id'] ?? 0);
+        $destinationRootId = (int)($destinationRoot['id'] ?? 0);
+        $isSameCenroRoot = $actorRootId > 0 && $destinationRootId > 0 && $actorRootId === $destinationRootId;
+        $isSectionChild = $destinationRoleName === 'CENRO_SECTION'
+            && $destinationLevel === 'CENRO_SECTION'
+            && (int)($destinationOffice['parent_office_id'] ?? 0) === $actorOfficeId;
+        $isUnitSameRoot = $destinationRoleName === 'CENRO_UNIT'
+            && $destinationLevel === 'CENRO_UNIT'
+            && $isSameCenroRoot;
+        $isAdminRecordSameRoot = $destinationRoleName === 'CENRO_ADMIN_RECORD'
+            && $destinationLevel === 'CENRO_ADMIN_RECORD'
+            && (
+                ($actorParentOfficeId > 0 && (int)($destinationOffice['parent_office_id'] ?? 0) === $actorParentOfficeId)
+                || $isSameCenroRoot
+            );
+
+        if ($actionType === 'FORWARD' && $isPostSignStage) {
+            $isOriginAdminRecord = $destinationRoleName === 'CENRO_ADMIN_RECORD'
+                && $destinationLevel === 'CENRO_ADMIN_RECORD'
+                && (
+                    ($originatingOfficeId > 0 && $destinationOfficeId === $originatingOfficeId)
+                    || ($actorParentOfficeId > 0 && (int)($destinationOffice['parent_office_id'] ?? 0) === $actorParentOfficeId)
+                    || $isSameCenroRoot
+                );
+            if (!$isOriginAdminRecord) {
+                throw new RuntimeException('After signing, CENRO Officer can forward only back to the originating CENRO Admin Record office.');
+            }
+            return;
+        }
+
+        if ($actionType === 'REROUTE') {
+            if ($isPostSignStage) {
+                throw new RuntimeException('After signing, CENRO Officer reroute is disabled. Forward directly to originating CENRO Admin Record.');
+            }
+            if (!$isSectionChild) {
+                throw new RuntimeException('CENRO Officer reroute can target only child CENRO Section offices.');
+            }
+            return;
+        }
+
+        if ($actionType === 'FORWARD') {
+            if (!$isSectionChild && !$isUnitSameRoot) {
+                throw new RuntimeException('CENRO Officer can forward only to child CENRO Section, or bypass to same-chain CENRO Unit with reason.');
+            }
+            return;
+        }
+
+        if (!$isSectionChild) {
+            throw new RuntimeException('CENRO Officer can route only to child CENRO Section offices.');
+        }
+        return;
+    }
+
+    if ($actorRoleKey === 'CENRO_SECTION') {
+        $actorOffice = workflow_get_office_context($pdo, $actorOfficeId);
+        $actorParentOfficeId = (int)($actorOffice['parent_office_id'] ?? 0);
+        $isUnitChild = $destinationRoleName === 'CENRO_UNIT'
+            && $destinationLevel === 'CENRO_UNIT'
+            && (int)($destinationOffice['parent_office_id'] ?? 0) === $actorOfficeId;
+        $isAdminSibling = $destinationRoleName === 'CENRO_ADMIN_RECORD'
+            && $destinationLevel === 'CENRO_ADMIN_RECORD'
+            && $actorParentOfficeId > 0
+            && (int)($destinationOffice['parent_office_id'] ?? 0) === $actorParentOfficeId;
+        $isOfficerParent = $actionType === 'FORWARD'
+            && $destinationRoleName === 'CENRO_OFFICER'
+            && $destinationLevel === 'CENRO_OFFICER'
+            && $actorParentOfficeId > 0
+            && $destinationOfficeId === $actorParentOfficeId;
+
+        if ($actionType === 'REROUTE') {
+            if (!$isUnitChild) {
+                throw new RuntimeException('CENRO Section reroute can target only child CENRO Unit offices.');
+            }
+            return;
+        }
+
+        if (!$isUnitChild && !$isAdminSibling && !$isOfficerParent) {
+            throw new RuntimeException('CENRO Section can route only to its child units, back to CENRO Admin Record, or send back to its parent CENRO Officer.');
+        }
+        return;
+    }
+
+    if ($actorRoleKey === 'CENRO_UNIT') {
+        $requiredParentId = workflow_find_parent_office_by_level($pdo, $actorOfficeId, 'CENRO_SECTION');
+        $requiredParentOfficeId = (int)($requiredParentId['id'] ?? 0);
+        if (
+            $destinationRoleName !== 'CENRO_SECTION'
+            || $destinationLevel !== 'CENRO_SECTION'
+            || $requiredParentOfficeId <= 0
+            || $destinationOfficeId !== $requiredParentOfficeId
+        ) {
+            throw new RuntimeException('CENRO Unit can route only back to its parent CENRO Section.');
+        }
+        return;
+    }
+
+    if ($actorRoleKey === 'CENRO_ADMIN_RECORD') {
+        if ($destinationRoleName === 'CENRO_OFFICER' && $destinationLevel === 'CENRO_OFFICER') {
+            $actorRoot = workflow_find_cenro_root_office($pdo, $actorOfficeId);
+            $destinationRoot = workflow_find_cenro_root_office($pdo, $destinationOfficeId);
+            $actorRootId = (int)($actorRoot['id'] ?? 0);
+            $destinationRootId = (int)($destinationRoot['id'] ?? 0);
+            if ($actorRootId <= 0 || $destinationRootId <= 0 || $actorRootId !== $destinationRootId) {
+                throw new RuntimeException('CENRO Admin Record can route only to the officer under the same CENRO office.');
+            }
+            return;
+        }
+
+        if (in_array($destinationRoleName, ['PENRO', 'RECORDS_UNIT'], true)) {
+            return;
+        }
+
+        throw new RuntimeException('CENRO Admin Record can route only to CENRO Officer, PENRO, or PACDO/Records Unit.');
+    }
+}
+
 function workflow_transition_is_allowed(PDO $pdo, string $actionType, ?int $fromRoleId, ?int $toRoleId): bool
 {
     if (!workflow_table_exists($pdo, 'workflow_transitions')) {
@@ -680,16 +915,24 @@ function workflow_transition_policy_fallback_allowed(PDO $pdo, string $actionTyp
     $penroRoleId = workflow_get_role_id_by_key($pdo, 'PENRO');
     $cenroRoleId = workflow_get_role_id_by_key($pdo, 'CENRO');
     $recordsUnitRoleId = workflow_get_role_id_by_key($pdo, 'RECORDS_UNIT');
+    $cenroAdminRecordRoleId = workflow_get_role_id_by_key($pdo, 'CENRO_ADMIN_RECORD');
+    $cenroOfficerRoleId = workflow_get_role_id_by_key($pdo, 'CENRO_OFFICER');
+    $cenroSectionRoleId = workflow_get_role_id_by_key($pdo, 'CENRO_SECTION');
+    $cenroUnitRoleId = workflow_get_role_id_by_key($pdo, 'CENRO_UNIT');
 
     if ($normalizedAction === 'APPROVE' && $toRoleId === null && $fromRoleId !== null) {
         $allowedApproveRoleIds = array_values(array_filter([
+            $cenroAdminRecordRoleId,
             $sectionRoleId,
+            $cenroUnitRoleId,
             $divisionChiefRoleId,
+            $cenroSectionRoleId,
             $ardTsRoleId,
             $ardMsRoleId,
             $penroRoleId,
             $recordsUnitRoleId,
             $oredRoleId,
+            $cenroOfficerRoleId,
         ], static fn($id): bool => $id !== null));
 
         foreach ($allowedApproveRoleIds as $allowedRoleId) {
@@ -702,6 +945,10 @@ function workflow_transition_policy_fallback_allowed(PDO $pdo, string $actionTyp
     if ($normalizedAction === 'PENDING' && $toRoleId === null && $fromRoleId !== null) {
         $allowedPendingRoleIds = array_values(array_filter([
             $cenroRoleId,
+            $cenroAdminRecordRoleId,
+            $cenroOfficerRoleId,
+            $cenroSectionRoleId,
+            $cenroUnitRoleId,
             workflow_get_role_id_by_key($pdo, 'PASU'),
             $penroRoleId,
             $recordsUnitRoleId,
@@ -723,7 +970,23 @@ function workflow_transition_policy_fallback_allowed(PDO $pdo, string $actionTyp
         if (
             ($ardTsRoleId !== null && (int)$toRoleId === (int)$ardTsRoleId)
             || ($ardMsRoleId !== null && (int)$toRoleId === (int)$ardMsRoleId)
+            || ($cenroAdminRecordRoleId !== null && (int)$toRoleId === (int)$cenroAdminRecordRoleId)
+            || ($cenroOfficerRoleId !== null && (int)$toRoleId === (int)$cenroOfficerRoleId)
+            || ($cenroSectionRoleId !== null && (int)$toRoleId === (int)$cenroSectionRoleId)
+            || ($cenroUnitRoleId !== null && (int)$toRoleId === (int)$cenroUnitRoleId)
         ) {
+            return true;
+        }
+    }
+
+    if ($normalizedAction === 'SIGN' && $toRoleId === null && $fromRoleId !== null) {
+        if ($cenroOfficerRoleId !== null && (int)$fromRoleId === (int)$cenroOfficerRoleId) {
+            return true;
+        }
+    }
+
+    if ($normalizedAction === 'COMPLETE' && $toRoleId === null && $fromRoleId !== null) {
+        if ($cenroAdminRecordRoleId !== null && (int)$fromRoleId === (int)$cenroAdminRecordRoleId) {
             return true;
         }
     }
@@ -772,6 +1035,86 @@ function workflow_transition_policy_fallback_allowed(PDO $pdo, string $actionTyp
                 || ($ardMsRoleId !== null && (int)$fromRoleId === (int)$ardMsRoleId && (int)$toRoleId === (int)$oredRoleId)
             );
         if ($ardToOred) {
+            return true;
+        }
+
+        $cenroInternalForward = $cenroAdminRecordRoleId !== null
+            && $cenroOfficerRoleId !== null
+            && (int)$fromRoleId === (int)$cenroAdminRecordRoleId
+            && (int)$toRoleId === (int)$cenroOfficerRoleId;
+        if ($cenroInternalForward) {
+            return true;
+        }
+        if (
+            $cenroOfficerRoleId !== null
+            && $cenroSectionRoleId !== null
+            && (int)$fromRoleId === (int)$cenroOfficerRoleId
+            && (int)$toRoleId === (int)$cenroSectionRoleId
+        ) {
+            return true;
+        }
+        if (
+            $cenroOfficerRoleId !== null
+            && $cenroUnitRoleId !== null
+            && (int)$fromRoleId === (int)$cenroOfficerRoleId
+            && (int)$toRoleId === (int)$cenroUnitRoleId
+        ) {
+            return true;
+        }
+        if (
+            $cenroOfficerRoleId !== null
+            && $cenroAdminRecordRoleId !== null
+            && (int)$fromRoleId === (int)$cenroOfficerRoleId
+            && (int)$toRoleId === (int)$cenroAdminRecordRoleId
+        ) {
+            return true;
+        }
+        if (
+            $cenroSectionRoleId !== null
+            && $cenroUnitRoleId !== null
+            && (int)$fromRoleId === (int)$cenroSectionRoleId
+            && (int)$toRoleId === (int)$cenroUnitRoleId
+        ) {
+            return true;
+        }
+        if (
+            $cenroSectionRoleId !== null
+            && $cenroOfficerRoleId !== null
+            && (int)$fromRoleId === (int)$cenroSectionRoleId
+            && (int)$toRoleId === (int)$cenroOfficerRoleId
+        ) {
+            return true;
+        }
+        if (
+            $cenroUnitRoleId !== null
+            && $cenroSectionRoleId !== null
+            && (int)$fromRoleId === (int)$cenroUnitRoleId
+            && (int)$toRoleId === (int)$cenroSectionRoleId
+        ) {
+            return true;
+        }
+        if (
+            $cenroSectionRoleId !== null
+            && $cenroAdminRecordRoleId !== null
+            && (int)$fromRoleId === (int)$cenroSectionRoleId
+            && (int)$toRoleId === (int)$cenroAdminRecordRoleId
+        ) {
+            return true;
+        }
+        if (
+            $cenroAdminRecordRoleId !== null
+            && $penroRoleId !== null
+            && (int)$fromRoleId === (int)$cenroAdminRecordRoleId
+            && (int)$toRoleId === (int)$penroRoleId
+        ) {
+            return true;
+        }
+        if (
+            $cenroAdminRecordRoleId !== null
+            && $recordsUnitRoleId !== null
+            && (int)$fromRoleId === (int)$cenroAdminRecordRoleId
+            && (int)$toRoleId === (int)$recordsUnitRoleId
+        ) {
             return true;
         }
     }
@@ -866,6 +1209,42 @@ function workflow_transition_policy_fallback_allowed(PDO $pdo, string $actionTyp
             && $sectionRoleId !== null
             && (int)$fromRoleId === (int)$divisionChiefRoleId
             && (int)$toRoleId === (int)$sectionRoleId
+        ) {
+            return true;
+        }
+
+        if (
+            $cenroOfficerRoleId !== null
+            && $cenroSectionRoleId !== null
+            && (int)$fromRoleId === (int)$cenroOfficerRoleId
+            && (int)$toRoleId === (int)$cenroSectionRoleId
+        ) {
+            return true;
+        }
+
+        if (
+            $cenroOfficerRoleId !== null
+            && $cenroUnitRoleId !== null
+            && (int)$fromRoleId === (int)$cenroOfficerRoleId
+            && (int)$toRoleId === (int)$cenroUnitRoleId
+        ) {
+            return true;
+        }
+
+        if (
+            $cenroOfficerRoleId !== null
+            && $cenroAdminRecordRoleId !== null
+            && (int)$fromRoleId === (int)$cenroOfficerRoleId
+            && (int)$toRoleId === (int)$cenroAdminRecordRoleId
+        ) {
+            return true;
+        }
+
+        if (
+            $cenroSectionRoleId !== null
+            && $cenroUnitRoleId !== null
+            && (int)$fromRoleId === (int)$cenroSectionRoleId
+            && (int)$toRoleId === (int)$cenroUnitRoleId
         ) {
             return true;
         }
@@ -1019,6 +1398,67 @@ function workflow_assert_division_reroute_policy(
     $actorOfficeId = (int)($actor['office_id'] ?? 0);
     if ($actorOfficeId <= 0 || $destinationParentOfficeId <= 0 || $destinationParentOfficeId !== $actorOfficeId) {
         throw new RuntimeException('Division reroute can target only sections under your own division.');
+    }
+}
+
+function workflow_assert_cenro_reroute_policy(
+    PDO $pdo,
+    array $actor,
+    int $destinationOfficeId,
+    string $remarks
+): void {
+    $actorRoleKey = app_normalize_role_key((string)($actor['role_name'] ?? ''));
+    if (!in_array($actorRoleKey, ['CENRO_OFFICER', 'CENRO_SECTION'], true)) {
+        return;
+    }
+
+    if (trim($remarks) === '') {
+        $actorLabel = $actorRoleKey === 'CENRO_OFFICER' ? 'CENRO Officer' : 'CENRO Section';
+        throw new RuntimeException($actorLabel . ' reroute requires remarks describing the reroute reason.');
+    }
+
+    $destinationOffice = workflow_get_office_context($pdo, $destinationOfficeId);
+    if (!$destinationOffice) {
+        throw new InvalidArgumentException('Destination office is not valid.');
+    }
+
+    $destinationLevel = workflow_office_level_key((string)($destinationOffice['level'] ?? ''));
+    $destinationRoleId = workflow_infer_office_role_id($pdo, $destinationOfficeId);
+    $destinationRoleName = '';
+    if ($destinationRoleId !== null) {
+        $roleStmt = $pdo->prepare('SELECT name FROM roles WHERE id = :id LIMIT 1');
+        $roleStmt->execute(['id' => $destinationRoleId]);
+        $destinationRoleName = app_normalize_role_key((string)($roleStmt->fetchColumn() ?: ''));
+    }
+
+    $actorOfficeId = (int)($actor['office_id'] ?? 0);
+    if ($actorOfficeId <= 0) {
+        throw new RuntimeException('Actor office is required for CENRO reroute.');
+    }
+
+    if ($actorRoleKey === 'CENRO_SECTION') {
+        $isUnitChild = $destinationRoleName === 'CENRO_UNIT'
+            && $destinationLevel === 'CENRO_UNIT'
+            && (int)($destinationOffice['parent_office_id'] ?? 0) === $actorOfficeId;
+        if (!$isUnitChild) {
+            throw new RuntimeException('CENRO Section reroute can target only child CENRO Unit offices.');
+        }
+        return;
+    }
+
+    $actorOffice = workflow_get_office_context($pdo, $actorOfficeId);
+    $actorParentOfficeId = (int)($actorOffice['parent_office_id'] ?? 0);
+    $actorRoot = workflow_find_cenro_root_office($pdo, $actorOfficeId);
+    $destinationRoot = workflow_find_cenro_root_office($pdo, $destinationOfficeId);
+    $actorRootId = (int)($actorRoot['id'] ?? 0);
+    $destinationRootId = (int)($destinationRoot['id'] ?? 0);
+    $isSameCenroRoot = $actorRootId > 0 && $destinationRootId > 0 && $actorRootId === $destinationRootId;
+
+    $isSectionChild = $destinationRoleName === 'CENRO_SECTION'
+        && $destinationLevel === 'CENRO_SECTION'
+        && (int)($destinationOffice['parent_office_id'] ?? 0) === $actorOfficeId;
+    if (!$isSectionChild) {
+        throw new RuntimeException('CENRO Officer reroute can target only child CENRO Section offices.');
     }
 }
 
@@ -1274,6 +1714,13 @@ function workflow_route_document_internal(
             throw new RuntimeException('Destination office must be different from current office.');
         }
 
+        workflow_assert_cenro_internal_assignment_scope(
+            $pdo,
+            $actor,
+            $destinationOfficeId,
+            $transitionAction,
+            $document
+        );
         workflow_assert_section_assignment_scope(
             $pdo,
             $actor,
@@ -1289,6 +1736,7 @@ function workflow_route_document_internal(
             workflow_assert_ored_reroute_policy($pdo, $actor, $toRoleId, $destinationOfficeId, $finalRemarks);
             workflow_assert_ard_reroute_policy($pdo, $actor, $destinationOfficeId, $finalRemarks);
             workflow_assert_division_reroute_policy($pdo, $actor, $destinationOfficeId, $finalRemarks);
+            workflow_assert_cenro_reroute_policy($pdo, $actor, $destinationOfficeId, $finalRemarks);
             if ($finalRemarks === '') {
                 $finalRemarks = 'Ad-hoc reroute by supervisor.';
             }
@@ -1383,12 +1831,12 @@ function workflow_forward_document(
             }
         }
     }
-    $canForwardCreatedIntakeWithoutApproval = in_array($actorRoleKey, ['PENRO', 'RECORDS_UNIT'], true)
+    $canForwardCreatedIntakeWithoutApproval = in_array($actorRoleKey, ['PENRO', 'RECORDS_UNIT', 'CENRO_ADMIN_RECORD'], true)
         && (int)($documentSnapshot['created_by_user_id'] ?? 0) === $actorUserId
         && str_starts_with($currentStatus, 'created')
         && (int)($documentSnapshot['pending_office_id'] ?? 0) <= 0;
     $canForwardReturnedCorrectionWithoutApproval = false;
-    if (in_array($actorRoleKey, ['PENRO', 'RECORDS_UNIT'], true)) {
+    if (in_array($actorRoleKey, ['PENRO', 'RECORDS_UNIT', 'CENRO_ADMIN_RECORD'], true)) {
         $actorOfficeId = (int)($actor['office_id'] ?? 0);
         $documentCurrentOfficeId = (int)($documentSnapshot['current_office_id'] ?? 0);
         $documentPendingOfficeId = (int)($documentSnapshot['pending_office_id'] ?? 0);
@@ -1416,9 +1864,21 @@ function workflow_forward_document(
     $isPostSignStage = str_contains($currentStatus, 'signed')
         || str_contains($currentStatus, 'completed')
         || ($actorRoleKey === 'ORED' && $canForwardOredToPacdoCorrectionWithoutApproval);
-    $approvalRequiredRoles = ['PENRO', 'RECORDS_UNIT', 'DIVISION_CHIEF', 'SECTION_STAFF', 'ORED', 'ARD_TS', 'ARD_MS'];
+    $approvalRequiredRoles = [
+        'PENRO',
+        'RECORDS_UNIT',
+        'DIVISION_CHIEF',
+        'SECTION_STAFF',
+        'ORED',
+        'ARD_TS',
+        'ARD_MS',
+        'CENRO_ADMIN_RECORD',
+        'CENRO_OFFICER',
+        'CENRO_SECTION',
+        'CENRO_UNIT',
+    ];
     if (in_array($actorRoleKey, $approvalRequiredRoles, true)) {
-        $requiresApprovedStatus = !($actorRoleKey === 'ORED' && $isPostSignStage);
+        $requiresApprovedStatus = !(in_array($actorRoleKey, ['ORED', 'CENRO_OFFICER'], true) && $isPostSignStage);
         if ($canForwardCreatedIntakeWithoutApproval || $canForwardReturnedCorrectionWithoutApproval) {
             $requiresApprovedStatus = false;
         }
@@ -1470,6 +1930,168 @@ function workflow_forward_document(
         $requiredDivisionOfficeId = (int)($requiredDivision['id'] ?? 0);
         if ($requiredDivisionOfficeId > 0 && $destinationOfficeId !== $requiredDivisionOfficeId) {
             throw new RuntimeException('Section Staff can forward only to their originating Division.');
+        }
+    }
+
+    if ($actorRoleKey === 'CENRO_UNIT') {
+        $actorOfficeId = (int)($actor['office_id'] ?? 0);
+        $requiredSection = workflow_find_parent_office_by_level($pdo, $actorOfficeId, 'CENRO_SECTION');
+        if (!$requiredSection) {
+            throw new RuntimeException('Unable to resolve parent CENRO Section destination for this unit.');
+        }
+        $requiredSectionOfficeId = (int)($requiredSection['id'] ?? 0);
+        if ($requiredSectionOfficeId > 0 && $destinationOfficeId !== $requiredSectionOfficeId) {
+            throw new RuntimeException('CENRO Unit can forward only to its parent CENRO Section.');
+        }
+    }
+
+    if ($actorRoleKey === 'CENRO_SECTION') {
+        $destinationOffice = workflow_get_office_context($pdo, $destinationOfficeId);
+        if (!$destinationOffice) {
+            throw new InvalidArgumentException('Destination office is not valid.');
+        }
+        $destinationRoleId = workflow_resolve_destination_role_id($pdo, $destinationUserId, $destinationOfficeId);
+        $destinationRoleKey = '';
+        if ($destinationRoleId !== null) {
+            $roleStmt = $pdo->prepare('SELECT name FROM roles WHERE id = :id LIMIT 1');
+            $roleStmt->execute(['id' => $destinationRoleId]);
+            $destinationRoleKey = app_normalize_role_key((string)($roleStmt->fetchColumn() ?: ''));
+        }
+
+        $isUnitChild = $destinationRoleKey === 'CENRO_UNIT'
+            && workflow_is_cenro_unit_level((string)($destinationOffice['level'] ?? ''))
+            && (int)($destinationOffice['parent_office_id'] ?? 0) === (int)($actor['office_id'] ?? 0);
+
+        $actorOffice = workflow_get_office_context($pdo, (int)($actor['office_id'] ?? 0));
+        $actorParentOfficeId = (int)($actorOffice['parent_office_id'] ?? 0);
+        $isAdminRecordTarget = $destinationRoleKey === 'CENRO_ADMIN_RECORD'
+            && workflow_is_cenro_admin_record_level((string)($destinationOffice['level'] ?? ''))
+            && $actorParentOfficeId > 0
+            && (int)($destinationOffice['parent_office_id'] ?? 0) === $actorParentOfficeId;
+        $isOfficerParent = $destinationRoleKey === 'CENRO_OFFICER'
+            && workflow_is_cenro_officer_level((string)($destinationOffice['level'] ?? ''))
+            && $actorParentOfficeId > 0
+            && $destinationOfficeId === $actorParentOfficeId;
+
+        if (!$isUnitChild && !$isAdminRecordTarget && !$isOfficerParent) {
+            throw new RuntimeException('CENRO Section can forward only to child CENRO Unit, back to CENRO Admin Record, or send back to parent CENRO Officer.');
+        }
+        if ($isOfficerParent) {
+            if ($finalRemarks === '') {
+                $finalRemarks = 'CENRO Section instruction: sent back to CENRO Officer.';
+            }
+            $documentStatus = workflow_build_assigned_status((string)($destinationOffice['name'] ?? 'CENRO Officer'));
+        }
+    }
+
+    if ($actorRoleKey === 'CENRO_OFFICER') {
+        $destinationOffice = workflow_get_office_context($pdo, $destinationOfficeId);
+        if (!$destinationOffice) {
+            throw new InvalidArgumentException('Destination office is not valid.');
+        }
+        $destinationRoleId = workflow_resolve_destination_role_id($pdo, $destinationUserId, $destinationOfficeId);
+        $destinationRoleKey = '';
+        if ($destinationRoleId !== null) {
+            $roleStmt = $pdo->prepare('SELECT name FROM roles WHERE id = :id LIMIT 1');
+            $roleStmt->execute(['id' => $destinationRoleId]);
+            $destinationRoleKey = app_normalize_role_key((string)($roleStmt->fetchColumn() ?: ''));
+        }
+        $originatingOfficeId = (int)($documentSnapshot['originating_office_id'] ?? 0);
+        $actorOfficeId = (int)($actor['office_id'] ?? 0);
+        $actorOffice = workflow_get_office_context($pdo, $actorOfficeId);
+        $actorParentOfficeId = (int)($actorOffice['parent_office_id'] ?? 0);
+        $actorRoot = workflow_find_cenro_root_office($pdo, $actorOfficeId);
+        $destinationRoot = workflow_find_cenro_root_office($pdo, $destinationOfficeId);
+        $actorRootId = (int)($actorRoot['id'] ?? 0);
+        $destinationRootId = (int)($destinationRoot['id'] ?? 0);
+        $isSameCenroRoot = $actorRootId > 0 && $destinationRootId > 0 && $actorRootId === $destinationRootId;
+        if ($isPostSignStage) {
+            $isOriginAdminRecord = $destinationRoleKey === 'CENRO_ADMIN_RECORD'
+                && workflow_is_cenro_admin_record_level((string)($destinationOffice['level'] ?? ''))
+                && (
+                    ($originatingOfficeId > 0 && $destinationOfficeId === $originatingOfficeId)
+                    || ($actorParentOfficeId > 0 && (int)($destinationOffice['parent_office_id'] ?? 0) === $actorParentOfficeId)
+                    || $isSameCenroRoot
+                );
+            if (!$isOriginAdminRecord) {
+                throw new RuntimeException('After signing, CENRO Officer can forward only back to the originating CENRO Admin Record office.');
+            }
+            if ($finalRemarks === '') {
+                $finalRemarks = 'CENRO Officer instruction: returned to originating CENRO Admin Record for final processing.';
+            }
+            $documentStatus = workflow_build_assigned_status((string)($destinationOffice['name'] ?? 'CENRO Admin Record'));
+        } else {
+            $isSectionTarget = $destinationRoleKey === 'CENRO_SECTION'
+                && workflow_is_cenro_section_level((string)($destinationOffice['level'] ?? ''))
+                && (int)($destinationOffice['parent_office_id'] ?? 0) === (int)($actor['office_id'] ?? 0);
+            $isUnitBypassTarget = $destinationRoleKey === 'CENRO_UNIT'
+                && workflow_is_cenro_unit_level((string)($destinationOffice['level'] ?? ''))
+                && $isSameCenroRoot;
+            if (!$isSectionTarget && !$isUnitBypassTarget) {
+                throw new RuntimeException('CENRO Officer can forward only to child CENRO Section, or bypass to same-chain CENRO Unit.');
+            }
+
+            if ($isUnitBypassTarget) {
+                $normalizedBypassReason = trim($bypassReason);
+                if ($normalizedBypassReason === '') {
+                    throw new RuntimeException('Bypass reason is required when CENRO Officer forwards directly to CENRO Unit.');
+                }
+                $bypassPrefix = 'Bypass reason: ' . $normalizedBypassReason;
+                if ($remarks === '') {
+                    $finalRemarks = $bypassPrefix;
+                } elseif (stripos($remarks, 'bypass reason:') === false) {
+                    $finalRemarks = trim($remarks) . ' | ' . $bypassPrefix;
+                } else {
+                    $finalRemarks = $remarks;
+                }
+                $documentStatus = workflow_build_assigned_status((string)($destinationOffice['name'] ?? 'CENRO Unit'));
+            } else {
+                if ($finalRemarks === '') {
+                    $finalRemarks = 'CENRO Officer instruction: assigned to concerned CENRO section.';
+                }
+                $documentStatus = workflow_build_assigned_status((string)($destinationOffice['name'] ?? 'CENRO Section'));
+            }
+        }
+    }
+
+    if ($actorRoleKey === 'CENRO_ADMIN_RECORD') {
+        $destinationOffice = workflow_get_office_context($pdo, $destinationOfficeId);
+        if (!$destinationOffice) {
+            throw new InvalidArgumentException('Destination office is not valid.');
+        }
+        $destinationRoleId = workflow_resolve_destination_role_id($pdo, $destinationUserId, $destinationOfficeId);
+        $destinationRoleKey = '';
+        if ($destinationRoleId !== null) {
+            $roleStmt = $pdo->prepare('SELECT name FROM roles WHERE id = :id LIMIT 1');
+            $roleStmt->execute(['id' => $destinationRoleId]);
+            $destinationRoleKey = app_normalize_role_key((string)($roleStmt->fetchColumn() ?: ''));
+        }
+
+        if ($destinationRoleKey === 'CENRO_OFFICER') {
+            $actorRoot = workflow_find_cenro_root_office($pdo, (int)($actor['office_id'] ?? 0));
+            $destinationRoot = workflow_find_cenro_root_office($pdo, $destinationOfficeId);
+            $actorRootId = (int)($actorRoot['id'] ?? 0);
+            $destinationRootId = (int)($destinationRoot['id'] ?? 0);
+            if ($actorRootId <= 0 || $destinationRootId <= 0 || $actorRootId !== $destinationRootId) {
+                throw new RuntimeException('CENRO Admin Record can forward only to CENRO Officer under the same CENRO office.');
+            }
+            if ($finalRemarks === '') {
+                $finalRemarks = 'CENRO Admin Record instruction: forwarded to CENRO Officer.';
+            }
+            $documentStatus = workflow_build_assigned_status((string)($destinationOffice['name'] ?? 'CENRO Officer'));
+        } elseif ($destinationRoleKey === 'PENRO') {
+            if ($finalRemarks === '') {
+                $finalRemarks = 'CENRO Admin Record endorsement: forwarded to PENRO.';
+            }
+        } elseif ($destinationRoleKey === 'RECORDS_UNIT') {
+            if (!$hasRouteAttachment) {
+                throw new RuntimeException('Endorsement letter attachment is required before forwarding directly to PACDO/RECORDS-UNIT.');
+            }
+            if ($finalRemarks === '') {
+                $finalRemarks = 'CENRO Admin Record endorsement: forwarded directly to PACDO/RECORDS-UNIT.';
+            }
+        } else {
+            throw new RuntimeException('CENRO Admin Record can forward only to CENRO Officer, PENRO, or PACDO/RECORDS-UNIT.');
         }
     }
 
@@ -1623,15 +2245,33 @@ function workflow_update_document_status_internal(
             null
         );
 
-        $update = $pdo->prepare(
-            'UPDATE documents
-             SET status = :status
-             WHERE id = :id'
-        );
-        $update->execute([
-            'status' => $documentStatus,
-            'id' => $documentId,
-        ]);
+        if ($transitionAction === 'COMPLETE') {
+            $update = $pdo->prepare(
+                'UPDATE documents
+                 SET status = :status,
+                     current_office_id = :current_office_id,
+                     current_holder_user_id = :current_holder_user_id,
+                     pending_office_id = NULL,
+                     pending_user_id = NULL
+                 WHERE id = :id'
+            );
+            $update->execute([
+                'status' => $documentStatus,
+                'current_office_id' => (int)($actor['office_id'] ?? 0),
+                'current_holder_user_id' => (int)($actor['id'] ?? 0),
+                'id' => $documentId,
+            ]);
+        } else {
+            $update = $pdo->prepare(
+                'UPDATE documents
+                 SET status = :status
+                 WHERE id = :id'
+            );
+            $update->execute([
+                'status' => $documentStatus,
+                'id' => $documentId,
+            ]);
+        }
 
         workflow_log_action($pdo, [
             'document_id' => $documentId,
@@ -1699,6 +2339,26 @@ function workflow_mark_pending(PDO $pdo, int $documentId, int $actorUserId, stri
         'Pending',
         'Pending',
         'Marked as pending for additional review/action.',
+        $remarks
+    );
+}
+
+function workflow_complete_document(PDO $pdo, int $documentId, int $actorUserId, string $remarks = ''): void
+{
+    $actor = workflow_get_user_context($pdo, $actorUserId);
+    $actorRoleKey = app_normalize_role_key((string)($actor['role_name'] ?? ''));
+    if ($actorRoleKey !== 'CENRO_ADMIN_RECORD') {
+        throw new RuntimeException('Only CENRO Admin Record can complete CENRO internal transactions.');
+    }
+
+    workflow_update_document_status_internal(
+        $pdo,
+        $documentId,
+        $actorUserId,
+        'COMPLETE',
+        'Completed',
+        'Completed',
+        'CENRO internal transaction completed locally.',
         $remarks
     );
 }
@@ -1929,7 +2589,45 @@ function workflow_mark_received(PDO $pdo, int $documentId, int $receivedByUserId
             && $toOfficeId === $originatingOfficeId;
 
         if ($fromOfficeId > 0 && $toOfficeId > 0 && $fromOfficeId === $toOfficeId) {
-            // Self-receive is not a valid custody transition; treat as no-op.
+            $sameOfficePending = (int)($document['pending_office_id'] ?? 0) > 0
+                && (int)($document['pending_office_id'] ?? 0) === $fromOfficeId;
+            if (!$sameOfficePending) {
+                // Self-receive is not a valid custody transition; treat as no-op.
+                $pdo->commit();
+                return;
+            }
+
+            // Recovery path for stale routed records where current_office_id and
+            // pending_office_id accidentally point to the same office.
+            $repairStatus = $isReleasedReturnToOrigin ? 'Completed' : 'Received';
+            $repair = $pdo->prepare(
+                'UPDATE documents
+                 SET status = :status,
+                     current_holder_user_id = :current_holder_user_id,
+                     pending_office_id = NULL,
+                     pending_user_id = NULL
+                 WHERE id = :id'
+            );
+            $repair->execute([
+                'status' => $repairStatus,
+                'current_holder_user_id' => $receivedByUserId,
+                'id' => $documentId,
+            ]);
+
+            $repairActionType = $isReleasedReturnToOrigin ? 'Completed' : 'Received';
+            $repairRemarks = $isReleasedReturnToOrigin
+                ? 'Document transaction completed at originating office.'
+                : 'Document officially received.';
+            workflow_log_action($pdo, [
+                'document_id' => $documentId,
+                'user_id' => $receivedByUserId,
+                'action_type' => $repairActionType,
+                'action_scope' => 'CUSTODY',
+                'destination_office_id' => $toOfficeId,
+                'remarks' => $remarks === '' ? $repairRemarks : $remarks,
+                'is_visible_on_slip' => 1,
+            ]);
+
             $pdo->commit();
             return;
         }

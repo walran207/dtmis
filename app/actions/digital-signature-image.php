@@ -15,10 +15,10 @@ if (empty($_SESSION['user_id'])) {
 }
 
 $roleKey = app_normalize_role_key((string)($_SESSION['role_name'] ?? ''));
-if ($roleKey !== 'ORED') {
+if (!in_array($roleKey, ['ORED', 'CENRO_OFFICER'], true)) {
     http_response_code(403);
     header('Content-Type: text/plain; charset=utf-8');
-    echo 'Digital signature workspace is available for ORED only.';
+    echo 'Digital signature workspace is available for ORED and CENRO Officer only.';
     exit;
 }
 
@@ -105,4 +105,3 @@ try {
     header('Content-Type: text/plain; charset=utf-8');
     echo 'Unable to load signature image.';
 }
-

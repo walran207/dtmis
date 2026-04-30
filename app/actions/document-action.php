@@ -187,6 +187,7 @@ function document_action_is_sensitive_sync_action(string $action): bool
         'APPROVE',
         'OVERRIDE',
         'RELEASE',
+        'COMPLETE',
         'SIGN',
         'UNSIGN',
     ], true);
@@ -522,8 +523,8 @@ function workflow_apply_subject_change_if_requested(
         return null;
     }
 
-    if (!in_array($actorRoleKey, ['DIVISION_CHIEF', 'SECTION_STAFF'], true)) {
-        throw new RuntimeException('Only Division Chief or Section Staff can change subject while routing.');
+    if (!in_array($actorRoleKey, ['DIVISION_CHIEF', 'SECTION_STAFF', 'CENRO_SECTION', 'CENRO_UNIT'], true)) {
+        throw new RuntimeException('Only Division Chief, Section Staff, CENRO Section, or CENRO Unit can change subject while routing.');
     }
     if (strlen($nextSubject) > 255) {
         throw new InvalidArgumentException('Subject is too long.');
@@ -575,23 +576,54 @@ function workflow_build_prepared_response_route_context(
         || str_contains($destinationOfficeName, 'TECHNICAL SERVICES')
         || str_contains($destinationOfficeName, 'MANAGEMENT SERVICES');
 
-    $isDivisionChiefPreparedResponse = $actorRoleKey === 'DIVISION_CHIEF'
+    $isDivisionChiefPreparedResponse = in_array($actorRoleKey, ['DIVISION_CHIEF'], true)
         && $normalizedAction === 'FORWARD'
         && ($isArdDestination || str_contains($destinationOfficeName, 'ORED') || str_contains($destinationOfficeName, 'REGIONAL EXECUTIVE'));
-    $isSectionStaffPreparedResponse = $actorRoleKey === 'SECTION_STAFF'
+    $isSectionStaffPreparedResponse = in_array($actorRoleKey, ['SECTION_STAFF'], true)
         && $normalizedAction === 'FORWARD'
-        && ($destinationOfficeLevel === 'DIVISION' || str_contains($destinationOfficeName, 'DIVISION'));
+        && (
+            $destinationOfficeLevel === 'DIVISION'
+            || str_contains($destinationOfficeName, 'DIVISION')
+            || $destinationOfficeLevel === 'CENRO_SECTION'
+            || str_contains($destinationOfficeName, 'CENRO SECTION')
+        );
+    $isCenroSectionPreparedResponse = $actorRoleKey === 'CENRO_SECTION'
+        && $normalizedAction === 'FORWARD'
+        && (
+            $destinationOfficeLevel === 'CENRO_OFFICER'
+            || str_contains($destinationOfficeName, 'CENRO OFFICER')
+            || str_contains($destinationOfficeName, ' - OFFICER')
+        );
+    $isCenroUnitPreparedResponse = $actorRoleKey === 'CENRO_UNIT'
+        && $normalizedAction === 'FORWARD'
+        && (
+            $destinationOfficeLevel === 'CENRO_SECTION'
+            || str_contains($destinationOfficeName, 'CENRO SECTION')
+        );
 
-    $isPreparedResponseRoute = $isDivisionChiefPreparedResponse || $isSectionStaffPreparedResponse;
+    $isPreparedResponseRoute = $isDivisionChiefPreparedResponse
+        || $isSectionStaffPreparedResponse
+        || $isCenroSectionPreparedResponse
+        || $isCenroUnitPreparedResponse;
 
     return [
         'allowed' => $isPreparedResponseRoute,
         'is_ard_destination' => $isArdDestination,
         'is_division_chief_route' => $isDivisionChiefPreparedResponse,
         'is_section_staff_route' => $isSectionStaffPreparedResponse,
+        'is_cenro_section_route' => $isCenroSectionPreparedResponse,
+        'is_cenro_unit_route' => $isCenroUnitPreparedResponse,
         'target_label' => $isDivisionChiefPreparedResponse
             ? ($isArdDestination ? 'ARD' : 'ORED')
-            : ($isSectionStaffPreparedResponse ? 'Division Chief' : ''),
+            : (
+                $isSectionStaffPreparedResponse
+                    ? 'Division Chief'
+                    : (
+                        $isCenroSectionPreparedResponse
+                            ? 'CENRO Officer'
+                            : ($isCenroUnitPreparedResponse ? 'CENRO Section' : '')
+                    )
+            ),
     ];
 }
 
@@ -614,7 +646,7 @@ function workflow_build_endorsement_route_context(
 
     $isRecordsUnitDestination = workflow_name_matches_records_unit($destinationOfficeName);
 
-    $isCenroPasuToRecordsUnit = in_array($actorRoleKey, ['CENRO', 'PASU'], true) && $isRecordsUnitDestination;
+    $isCenroPasuToRecordsUnit = in_array($actorRoleKey, ['CENRO', 'PASU', 'CENRO_ADMIN_RECORD'], true) && $isRecordsUnitDestination;
     $isPenroToRecordsUnit = $actorRoleKey === 'PENRO' && $isRecordsUnitDestination;
 
     if (!$isCenroPasuToRecordsUnit && !$isPenroToRecordsUnit) {
@@ -627,7 +659,7 @@ function workflow_build_endorsement_route_context(
 
     return [
         'allowed' => true,
-        'required' => $isPenroToRecordsUnit,
+        'required' => $isPenroToRecordsUnit || $actorRoleKey === 'CENRO_ADMIN_RECORD',
         'target_label' => 'PACDO/RECORDS-UNIT',
     ];
 }
@@ -641,7 +673,7 @@ function workflow_document_has_prepared_response_attachment(PDO $pdo, int $docum
         return false;
     }
 
-    $preparedResponseRoleKeys = ['DIVISION_CHIEF', 'SECTION_STAFF'];
+    $preparedResponseRoleKeys = ['DIVISION_CHIEF', 'SECTION_STAFF', 'CENRO_SECTION', 'CENRO_UNIT'];
     $stmt = $pdo->prepare(
         'SELECT r_u.name AS uploaded_by_role
          FROM document_attachments da
@@ -1389,7 +1421,7 @@ function workflow_apply_ored_digital_signature(PDO $pdo, int $documentId, int $a
 
     $actorContext = workflow_get_user_context($pdo, $actorUserId);
     $actorRoleKey = app_normalize_role_key((string)($actorContext['role_name'] ?? ''));
-    if ($actorRoleKey !== 'ORED') {
+    if (!in_array($actorRoleKey, ['ORED', 'CENRO_OFFICER'], true)) {
         return $result;
     }
 
@@ -1426,7 +1458,7 @@ function workflow_apply_ored_digital_signature(PDO $pdo, int $documentId, int $a
     }
 
     $signableExtensions = ['png', 'jpg', 'jpeg', 'bmp'];
-    $preparedResponseRoleKeys = ['DIVISION_CHIEF', 'SECTION_STAFF'];
+    $preparedResponseRoleKeys = ['DIVISION_CHIEF', 'SECTION_STAFF', 'CENRO_SECTION', 'CENRO_UNIT'];
 
     $signerName = digital_signature_resolve_signer_name($pdo, $actorUserId);
     $signatureImagePath = digital_signature_resolve_signature_image_path($actorUserId);
@@ -1522,8 +1554,8 @@ function workflow_undo_ored_sign(PDO $pdo, int $documentId, int $actorUserId, st
 
     $actorContext = workflow_get_user_context($pdo, $actorUserId);
     $actorRoleKey = app_normalize_role_key((string)($actorContext['role_name'] ?? ''));
-    if ($actorRoleKey !== 'ORED') {
-        throw new RuntimeException('Only ORED can undo a sign action.');
+    if (!in_array($actorRoleKey, ['ORED', 'CENRO_OFFICER'], true)) {
+        throw new RuntimeException('Only ORED and CENRO Officer can undo a sign action.');
     }
 
     $document = workflow_get_document_context($pdo, $documentId, true);
@@ -1539,7 +1571,7 @@ function workflow_undo_ored_sign(PDO $pdo, int $documentId, int $actorUserId, st
     $actorOfficeId = (int)($actorContext['office_id'] ?? 0);
     $currentOfficeId = (int)($document['current_office_id'] ?? 0);
     if ($actorOfficeId > 0 && $currentOfficeId > 0 && $actorOfficeId !== $currentOfficeId) {
-        throw new RuntimeException('You can undo sign only while the document is still in ORED.');
+        throw new RuntimeException('You can undo sign only while the document is still in your office.');
     }
 
     $attachmentFilePathsToDelete = [];
@@ -1677,6 +1709,8 @@ try {
         'is_ard_destination' => false,
         'is_division_chief_route' => false,
         'is_section_staff_route' => false,
+        'is_cenro_section_route' => false,
+        'is_cenro_unit_route' => false,
         'target_label' => '',
     ];
     $endorsementRouteContext = [
@@ -1730,8 +1764,8 @@ try {
 
     $routingSubjectChangeRequested = in_array($action, ['FORWARD', 'REROUTE', 'RETURN'], true) && $subject !== '';
     if ($routingSubjectChangeRequested) {
-        if (!in_array($actorRoleKey, ['DIVISION_CHIEF', 'SECTION_STAFF'], true)) {
-            throw new RuntimeException('Only Division Chief or Section Staff can change subject while routing.');
+        if (!in_array($actorRoleKey, ['DIVISION_CHIEF', 'SECTION_STAFF', 'CENRO_SECTION', 'CENRO_UNIT'], true)) {
+            throw new RuntimeException('Only Division Chief, Section Staff, CENRO Section, or CENRO Unit can change subject while routing.');
         }
         if (strlen($subject) > 255) {
             throw new InvalidArgumentException('Subject is too long.');
@@ -1764,7 +1798,7 @@ try {
                     throw new InvalidArgumentException(
                         'Prepared of response attachment is required before forwarding to '
                         . $targetLabel
-                        . '. Upload at least one file, unless Division Chief or Section Staff already uploaded one.'
+                        . '. Upload at least one file, unless an earlier prepared response was already uploaded by Division/Section or CENRO Section/Unit.'
                     );
                 }
             }
@@ -1928,6 +1962,15 @@ try {
 
         case 'PENDING':
             workflow_mark_pending(
+                $pdo,
+                $documentId,
+                $actorUserId,
+                $remarks
+            );
+            break;
+
+        case 'COMPLETE':
+            workflow_complete_document(
                 $pdo,
                 $documentId,
                 $actorUserId,
