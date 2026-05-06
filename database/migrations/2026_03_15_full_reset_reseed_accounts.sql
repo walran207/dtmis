@@ -120,50 +120,6 @@ JOIN roles r ON r.name = 'CENRO'
 WHERE o.level = 'Community'
   AND o.name LIKE 'CENRO %';
 
--- PASU account(s).
-INSERT INTO users (
-    office_id,
-    role_id,
-    first_name,
-    last_name,
-    email,
-    password_hash,
-    is_active
-)
-SELECT
-    o.id,
-    r.id,
-    'PASU',
-    'Superintendent',
-    CONCAT(
-        'pasu.',
-        LOWER(
-            REPLACE(
-                REPLACE(
-                    REPLACE(
-                        REPLACE(
-                            REPLACE(REPLACE(o.name, '.', ''), 'PASU - ', ''),
-                            ' ',
-                            '.'
-                        ),
-                        '-',
-                        '.'
-                    ),
-                    '(',
-                    ''
-                ),
-                ')',
-                ''
-            )
-        ),
-        '@denr.gov.ph'
-    ),
-    '$2y$10$3TWzm8MsR6iVLN3JGe1tkO2NG2H/ehR2zg5LpYCC3rTYHUnNyb1FK',
-    1
-FROM offices o
-JOIN roles r ON r.name = 'PASU'
-WHERE o.level = 'Protected Area';
-
 -- Division Chief accounts per Division office.
 INSERT INTO users (
     office_id,

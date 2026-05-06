@@ -15,7 +15,7 @@ if (empty($_SESSION['user_id'])) {
     app_redirect('auth/login.php');
 }
 
-$officeId = (int)($_SESSION['office_id'] ?? 0);
+$officeId = (int) ($_SESSION['office_id'] ?? 0);
 $roleName = 'ORED';
 $queueRows = [];
 $routeOffices = [];
@@ -51,12 +51,12 @@ try {
     $routeOffices = [];
 }
 
-$pendingReceivedTotal = (int)($metrics['pending_total'] ?? 0);
-$pendingApprovalTotal = (int)($metrics['pending_approval_total'] ?? 0);
+$pendingReceivedTotal = (int) ($metrics['pending_total'] ?? 0);
+$pendingApprovalTotal = (int) ($metrics['pending_approval_total'] ?? 0);
 $pendingSignFromQueue = 0;
 $pendingForwardFromQueue = 0;
 foreach ($queueRows as $queueRow) {
-    $status = strtolower(trim((string)($queueRow['status'] ?? '')));
+    $status = strtolower(trim((string) ($queueRow['status'] ?? '')));
     if ($status === '') {
         continue;
     }
@@ -85,36 +85,37 @@ foreach ($queueRows as $queueRow) {
         $pendingForwardFromQueue++;
     }
 }
-$pendingSignTotal = max((int)($metrics['pending_sign_total'] ?? 0), $pendingSignFromQueue);
-$pendingForwardTotal = max((int)($metrics['pending_forward_total'] ?? 0), $pendingForwardFromQueue);
+$pendingSignTotal = max((int) ($metrics['pending_sign_total'] ?? 0), $pendingSignFromQueue);
+$pendingForwardTotal = max((int) ($metrics['pending_forward_total'] ?? 0), $pendingForwardFromQueue);
 $snapshotBase = max($pendingApprovalTotal, $pendingSignTotal, $pendingForwardTotal, 1);
-$pendingApprovalWidth = (string)(int)round(($pendingApprovalTotal / $snapshotBase) * 100) . '%';
-$pendingSignWidth = (string)(int)round(($pendingSignTotal / $snapshotBase) * 100) . '%';
-$pendingForwardWidth = (string)(int)round(($pendingForwardTotal / $snapshotBase) * 100) . '%';
+$pendingApprovalWidth = (string) (int) round(($pendingApprovalTotal / $snapshotBase) * 100) . '%';
+$pendingSignWidth = (string) (int) round(($pendingSignTotal / $snapshotBase) * 100) . '%';
+$pendingForwardWidth = (string) (int) round(($pendingForwardTotal / $snapshotBase) * 100) . '%';
 
 $tableRows = [];
 foreach ($queueRows as $queueRow) {
     $tableRows[] = [
         'value' => [
-            (string)($queueRow['tracking_id'] ?? '-'),
-            (string)($queueRow['subject'] ?? '-'),
-            (string)($queueRow['document_type'] ?? '-'),
-            (string)($queueRow['date_received'] ?? '-'),
-            (string)($queueRow['time_remaining'] ?? '-'),
-            (string)($queueRow['status'] ?? '-'),
+            (string) ($queueRow['tracking_id'] ?? '-'),
+            (string) ($queueRow['subject'] ?? '-'),
+            (string) ($queueRow['document_type'] ?? '-'),
+            (string) ($queueRow['date_received'] ?? '-'),
+            (string) ($queueRow['time_remaining'] ?? '-'),
+            (string) ($queueRow['status'] ?? '-'),
+            (string) ($queueRow['date_created'] ?? '-'),
             'View Tracking Slip | Receive | Approve | Sign | Undo Sign | Pending | Forward | Return | Override | Print Package',
         ],
         'meta' => [
-            'document_id' => (string)($queueRow['document_id'] ?? 0),
-            'tracking_id' => (string)($queueRow['tracking_id'] ?? ''),
-            'status_raw' => (string)($queueRow['status'] ?? ''),
-            'date_received_raw' => (string)($queueRow['date_received_raw'] ?? ''),
-            'date_created_raw' => (string)($queueRow['date_created_raw'] ?? ''),
-            'has_section_receive' => (int)($queueRow['has_section_receive'] ?? 0) > 0 ? '1' : '0',
-            'has_signed_action' => (int)($queueRow['has_signed_action'] ?? 0) > 0 ? '1' : '0',
-            'origin_office_id' => (string)((int)($queueRow['origin_office_id'] ?? 0)),
-            'current_office_id' => (string)((int)($queueRow['current_office_id'] ?? 0)),
-            'pending_office_id' => (string)((int)($queueRow['pending_office_id'] ?? 0)),
+            'document_id' => (string) ($queueRow['document_id'] ?? 0),
+            'tracking_id' => (string) ($queueRow['tracking_id'] ?? ''),
+            'status_raw' => (string) ($queueRow['status'] ?? ''),
+            'date_received_raw' => (string) ($queueRow['date_received_raw'] ?? ''),
+            'date_created_raw' => (string) ($queueRow['date_created_raw'] ?? ''),
+            'has_section_receive' => (int) ($queueRow['has_section_receive'] ?? 0) > 0 ? '1' : '0',
+            'has_signed_action' => (int) ($queueRow['has_signed_action'] ?? 0) > 0 ? '1' : '0',
+            'origin_office_id' => (string) ((int) ($queueRow['origin_office_id'] ?? 0)),
+            'current_office_id' => (string) ((int) ($queueRow['current_office_id'] ?? 0)),
+            'pending_office_id' => (string) ((int) ($queueRow['pending_office_id'] ?? 0)),
         ],
     ];
 }
@@ -126,7 +127,7 @@ $pageSubtitle = 'Dedicated queue for approval, signature, and forwarding actions
 $activeMenu = 'rd_action_desk';
 $dashboardLivePath = app_url('actions/dashboard-live.php?scope=pending_receive_action');
 $tableTitle = 'RD Action Desk';
-$tableColumns = ['Tracking ID', 'Subject', 'Document Type (+ ARTA)', 'Date Received', 'Time Remaining', 'Status', 'Quick Actions'];
+$tableColumns = ['Tracking ID', 'Subject', 'Document Type (+ ARTA)', 'Date Received', 'Time Remaining', 'Status', 'Date Created', 'Quick Actions'];
 $pageActions = ['View Tracking Slip', 'Print Package', 'Receive', 'Approve', 'Sign', 'Undo Sign', 'Forward', 'Return', 'Override'];
 $stickyActions = [];
 $queueControlsPlacement = 'table_card';
@@ -143,19 +144,19 @@ $dateFilterPlacement = 'table_card';
 $routeOffices = is_array($routeOffices ?? null) ? $routeOffices : [];
 
 $kpiCards = [
-    ['label' => 'Pending Received', 'value' => (string)$pendingReceivedTotal, 'icon' => 'blue'],
-    ['label' => 'Pending Approval', 'value' => (string)$pendingApprovalTotal, 'icon' => 'orange'],
-    ['label' => 'Pending Sign', 'value' => (string)$pendingSignTotal, 'icon' => 'violet'],
-    ['label' => 'Pending forward', 'value' => (string)$pendingForwardTotal, 'icon' => 'green'],
+    ['label' => 'Pending Received', 'value' => (string) $pendingReceivedTotal, 'icon' => 'blue'],
+    ['label' => 'Pending Approval', 'value' => (string) $pendingApprovalTotal, 'icon' => 'orange'],
+    ['label' => 'Pending Sign', 'value' => (string) $pendingSignTotal, 'icon' => 'violet'],
+    ['label' => 'Pending forward', 'value' => (string) $pendingForwardTotal, 'icon' => 'green'],
 ];
 
 $panels = [
     [
         'title' => 'RD Queue Snapshot',
         'rows' => [
-            ['label' => 'Pending Approval', 'value' => (string)$pendingApprovalTotal, 'width' => $pendingApprovalWidth],
-            ['label' => 'Pending Sign', 'value' => (string)$pendingSignTotal, 'width' => $pendingSignWidth],
-            ['label' => 'Pending Forward', 'value' => (string)$pendingForwardTotal, 'width' => $pendingForwardWidth],
+            ['label' => 'Pending Approval', 'value' => (string) $pendingApprovalTotal, 'width' => $pendingApprovalWidth],
+            ['label' => 'Pending Sign', 'value' => (string) $pendingSignTotal, 'width' => $pendingSignWidth],
+            ['label' => 'Pending Forward', 'value' => (string) $pendingForwardTotal, 'width' => $pendingForwardWidth],
         ],
     ],
     [

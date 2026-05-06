@@ -84,6 +84,10 @@ if (!function_exists('app_normalize_role_key')) {
         if ($normalized === 'PACDO' || $normalized === 'RECORDSUNIT') {
             return 'RECORDS_UNIT';
         }
+        // Transitional alias: PENRO section-unit accounts share the PENRO section workspace.
+        if ($normalized === 'PENRO_SECTIONUNIT') {
+            return 'PENRO_SECTION_UNIT';
+        }
 
         return $normalized;
     }
@@ -98,6 +102,14 @@ if (!function_exists('app_role_behavior_key')) {
             'CENRO_OFFICER' => 'ORED',
             'CENRO_SECTION' => 'DIVISION_CHIEF',
             'CENRO_UNIT' => 'SECTION_STAFF',
+            'PAMO_ADMIN' => 'RECORDS_UNIT',
+            'PASU_OFFICER' => 'ORED',
+            'PAMO_UNIT' => 'SECTION_STAFF',
+            'PENRO_ADMIN_RECORD' => 'RECORDS_UNIT',
+            'PENRO_OFFICER' => 'ORED',
+            'PENRO_DIVISION' => 'DIVISION_CHIEF',
+            'PENRO_SECTION' => 'SECTION_STAFF',
+            'PENRO_SECTION_UNIT' => 'SECTION_STAFF',
         ];
 
         return $map[$roleKey] ?? $roleKey;
@@ -114,12 +126,17 @@ if (!function_exists('app_role_folder_map')) {
             'RECORDS_UNIT' => 'RECORS-UNIT',
             'PACDO' => 'RECORS-UNIT',
             'CENRO_ADMIN_RECORD' => 'CENRO-ADMIN-RECORD',
-            'PENRO' => 'PENRO',
-            'CENRO' => 'CENRO',
+            'PENRO_ADMIN_RECORD' => 'PENRO-ADMIN-RECORD',
+            'PAMO_ADMIN' => 'PAMO-ADMIN',
+            'PASU_OFFICER' => 'PASU-OFFICER',
+            'PAMO_UNIT' => 'PAMO-UNIT',
             'CENRO_OFFICER' => 'CENRO-OFFICER',
+            'PENRO_OFFICER' => 'PENRO-OFFICER',
             'CENRO_SECTION' => 'CENRO-SECTION',
+            'PENRO_DIVISION' => 'PENRO-DIVISION',
             'CENRO_UNIT' => 'CENRO-UNIT',
-            'PASU' => 'PASU',
+            'PENRO_SECTION' => 'PENRO-SECTION',
+            'PENRO_SECTION_UNIT' => 'PENRO-SECTION',
             'SECTION' => 'SECTION-STAFF',
             'SECTION_STAFF' => 'SECTION-STAFF',
             'DIVISION' => 'DIVISION-CHIEF',
@@ -191,13 +208,18 @@ if (!function_exists('app_offline_default_role_keys')) {
             'ORED',
             'SUPER_ADMIN',
             'RECORDS_UNIT',
-            'PENRO',
-            'CENRO',
             'CENRO_ADMIN_RECORD',
+            'PENRO_ADMIN_RECORD',
+            'PAMO_ADMIN',
+            'PASU_OFFICER',
             'CENRO_OFFICER',
+            'PENRO_OFFICER',
             'CENRO_SECTION',
+            'PENRO_DIVISION',
             'CENRO_UNIT',
-            'PASU',
+            'PENRO_SECTION',
+            'PENRO_SECTION_UNIT',
+            'PAMO_UNIT',
             'DIVISION_CHIEF',
             'SECTION_STAFF',
             'ARD_TS',

@@ -7,9 +7,12 @@
     var ROLE_ACCENT_STYLE_ID = 'edats-runtime-role-accents-style';
 
     var ROLE_ACCENT_DEFAULTS = {
-        CENRO: '#2f8f83',
+        CENRO_ADMIN_RECORD: '#2f8f83',
+        PENRO_ADMIN_RECORD: '#3f7fb1',
+        PAMO_ADMIN: '#3c8c78',
         PASU: '#4a8f6a',
-        PENRO: '#3f7fb1',
+        PASU_OFFICER: '#3c8c78',
+        PAMO_UNIT: '#3c8c78',
         RECORDS_UNIT: '#9b7a4f',
         PACDO: '#9b7a4f',
         ORED: '#7a6ab3',
@@ -37,9 +40,12 @@
         },
         roleAccents: {
             light: {
-                CENRO: '#2f8f83',
+                CENRO_ADMIN_RECORD: '#2f8f83',
+                PENRO_ADMIN_RECORD: '#3f7fb1',
+                PAMO_ADMIN: '#3c8c78',
                 PASU: '#4a8f6a',
-                PENRO: '#3f7fb1',
+                PASU_OFFICER: '#3c8c78',
+                PAMO_UNIT: '#3c8c78',
                 RECORDS_UNIT: '#9b7a4f',
                 PACDO: '#9b7a4f',
                 ORED: '#7a6ab3',
@@ -50,9 +56,12 @@
                 SUPER_ADMIN: '#2a8f84'
             },
             dark: {
-                CENRO: '#2f8f83',
+                CENRO_ADMIN_RECORD: '#2f8f83',
+                PENRO_ADMIN_RECORD: '#3f7fb1',
+                PAMO_ADMIN: '#3c8c78',
                 PASU: '#4a8f6a',
-                PENRO: '#3f7fb1',
+                PASU_OFFICER: '#3c8c78',
+                PAMO_UNIT: '#3c8c78',
                 RECORDS_UNIT: '#9b7a4f',
                 PACDO: '#9b7a4f',
                 ORED: '#7a6ab3',

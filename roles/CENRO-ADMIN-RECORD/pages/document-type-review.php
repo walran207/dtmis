@@ -28,11 +28,11 @@ try {
 
     if ($dtrTableReady) {
         $actor = dtr_user_context($pdo, (int)$_SESSION['user_id']);
-        if (!dtr_is_reviewer_role((string)($actor['role_name'] ?? ''))) {
+        if (!dtr_is_requester_role((string)($actor['role_name'] ?? ''))) {
             app_redirect_to_role_dashboard((string)($_SESSION['role_name'] ?? ''));
         }
 
-        $stmt = $pdo->query(
+        $stmt = $pdo->prepare(
             'SELECT dtr.*,
                     TRIM(CONCAT(COALESCE(req.first_name, \'\'), \' \', COALESCE(req.last_name, \'\'))) AS requester_name,
                     rl.name AS requester_role,
@@ -41,6 +41,7 @@ try {
              LEFT JOIN users req ON req.id = dtr.requested_by_user_id
              LEFT JOIN roles rl ON rl.id = req.role_id
              LEFT JOIN offices o ON o.id = dtr.requested_by_office_id
+             WHERE dtr.requested_by_user_id = :requested_by_user_id
              ORDER BY
                 CASE dtr.status
                     WHEN \'PENDING\' THEN 0
@@ -51,8 +52,9 @@ try {
                 dtr.id DESC
              LIMIT 600'
         );
+        $stmt->execute(['requested_by_user_id' => (int)$actor['id']]);
         $dtrRequests = $stmt ? ($stmt->fetchAll() ?: []) : [];
-        $dtrSummary = dtr_fetch_summary($pdo, null);
+        $dtrSummary = dtr_fetch_summary($pdo, (int)$actor['id']);
     }
 } catch (Throwable $exception) {
     $dtrTableReady = false;
@@ -86,7 +88,7 @@ $pageTitle = 'Document Type Review | DENR Region XII eDATS';
 $activeMenu = 'document_type_review';
 $brandSubtitle = 'CENRO Admin Record Portal';
 $pageHeading = 'Document Type Review';
-$pageSubtitle = 'Approve, reject, edit, or delete submitted document type requests.';
+$pageSubtitle = 'Request new document types and track RECORDS-UNIT decisions.';
 $searchPlaceholder = 'Search request id or document type';
 $renderStandardContent = false;
 $customSectionInclude = dirname(__DIR__, 3) . '/app/modules/document-type-requests-panel.php';
@@ -99,9 +101,8 @@ $hideHeaderSearch = true;
 $dateFilterPlacement = 'table_card';
 $stickyActions = [];
 $pageActions = [];
-$dtrMode = 'reviewer';
+$dtrMode = 'requester';
 $dtrCsrfToken = (string)($_SESSION['csrf_token'] ?? '');
 
 require dirname(__DIR__, 3) . '/app/templates/role-page-template.php';
-
 

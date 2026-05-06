@@ -23,6 +23,7 @@ $metrics = [
     'pending_total' => 0,
     'pending_approval_total' => 0,
     'pending_forward_total' => 0,
+    'returned_total' => 0,
     'released_total' => 0,
     'completed_total' => 0,
     'at_risk_total' => 0,
@@ -123,6 +124,7 @@ $kpiCards = [
     ['label' => 'Pending Received', 'value' => (string)$metrics['pending_total'], 'icon' => 'blue'],
     ['label' => 'Pending Approval', 'value' => (string)$metrics['pending_approval_total'], 'icon' => 'orange'],
     ['label' => 'Pending Forward', 'value' => (string)$metrics['pending_forward_total'], 'icon' => 'violet'],
+    ['label' => 'Returned', 'value' => (string)$metrics['returned_total'], 'icon' => 'red'],
     ['label' => 'Released', 'value' => (string)$metrics['completed_total'], 'icon' => 'green'],
 ];
 

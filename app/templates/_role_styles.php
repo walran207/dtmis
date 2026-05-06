@@ -1087,6 +1087,34 @@
                 .route-existing-attachments li {
                     line-height: 1.35;
                 }
+                .route-existing-attachment-row {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    gap: 10px;
+                    width: 100%;
+                }
+                .route-existing-attachment-text {
+                    min-width: 0;
+                    flex: 1 1 auto;
+                    overflow-wrap: anywhere;
+                }
+                .route-existing-attachment-delete {
+                    appearance: none;
+                    border: 1px solid rgba(255, 255, 255, 0.16);
+                    background: rgba(255, 255, 255, 0.06);
+                    color: var(--danger, #f28b82);
+                    border-radius: 999px;
+                    padding: 4px 10px;
+                    font-size: 11px;
+                    font-weight: 700;
+                    cursor: pointer;
+                    flex: 0 0 auto;
+                }
+                .route-existing-attachment-delete:disabled {
+                    opacity: 0.6;
+                    cursor: wait;
+                }
                 .route-existing-attachments a {
                     color: var(--queue-link-text);
                     text-decoration: underline;

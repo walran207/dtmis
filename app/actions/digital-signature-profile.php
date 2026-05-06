@@ -18,9 +18,9 @@ if (empty($_SESSION['user_id'])) {
 }
 
 $roleKey = app_normalize_role_key((string)($_SESSION['role_name'] ?? ''));
-if (!in_array($roleKey, ['ORED', 'CENRO_OFFICER'], true)) {
+if (!in_array($roleKey, ['ORED', 'CENRO_OFFICER', 'PENRO_OFFICER', 'PASU_OFFICER'], true)) {
     http_response_code(403);
-    echo json_encode(['ok' => false, 'message' => 'Digital signature workspace is available for ORED and CENRO Officer only.']);
+    echo json_encode(['ok' => false, 'message' => 'Digital signature workspace is available for ORED, CENRO Officer, PENRO Officer, and PASU only.']);
     exit;
 }
 

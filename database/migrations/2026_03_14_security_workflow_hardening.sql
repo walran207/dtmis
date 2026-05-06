@@ -104,19 +104,6 @@ WHERE rf.name = 'CENRO'
   );
 
 INSERT INTO workflow_transitions (action_type, allowed_from_role_id, allowed_to_role_id, description, is_active)
-SELECT 'FORWARD', rf.id, rt.id, 'PASU to PENRO', 1
-FROM roles rf
-JOIN roles rt
-WHERE rf.name = 'PASU'
-  AND rt.name = 'PENRO'
-  AND NOT EXISTS (
-      SELECT 1 FROM workflow_transitions wt
-      WHERE wt.action_type = 'FORWARD'
-        AND wt.allowed_from_role_id = rf.id
-        AND wt.allowed_to_role_id = rt.id
-  );
-
-INSERT INTO workflow_transitions (action_type, allowed_from_role_id, allowed_to_role_id, description, is_active)
 SELECT 'FORWARD', rf.id, rt.id, 'PENRO to PACDO', 1
 FROM roles rf
 JOIN roles rt
@@ -148,19 +135,6 @@ FROM roles rf
 JOIN roles rt
 WHERE rf.name = 'PENRO'
   AND rt.name = 'CENRO'
-  AND NOT EXISTS (
-      SELECT 1 FROM workflow_transitions wt
-      WHERE wt.action_type = 'FORWARD'
-        AND wt.allowed_from_role_id = rf.id
-        AND wt.allowed_to_role_id = rt.id
-  );
-
-INSERT INTO workflow_transitions (action_type, allowed_from_role_id, allowed_to_role_id, description, is_active)
-SELECT 'FORWARD', rf.id, rt.id, 'PENRO route down to PASU', 1
-FROM roles rf
-JOIN roles rt
-WHERE rf.name = 'PENRO'
-  AND rt.name = 'PASU'
   AND NOT EXISTS (
       SELECT 1 FROM workflow_transitions wt
       WHERE wt.action_type = 'FORWARD'
@@ -234,7 +208,7 @@ WHERE rf.name = 'ORED'
 INSERT INTO workflow_transitions (action_type, allowed_from_role_id, allowed_to_role_id, description, is_active)
 SELECT 'RECEIVE', NULL, rt.id, 'Receive into custody', 1
 FROM roles rt
-WHERE rt.name IN ('ORED', 'PACDO', 'PENRO', 'CENRO', 'PASU', 'DIVISION_CHIEF', 'SECTION_STAFF')
+WHERE rt.name IN ('ORED', 'PACDO', 'PENRO', 'CENRO', 'DIVISION_CHIEF', 'SECTION_STAFF')
   AND NOT EXISTS (
       SELECT 1 FROM workflow_transitions wt
       WHERE wt.action_type = 'RECEIVE'

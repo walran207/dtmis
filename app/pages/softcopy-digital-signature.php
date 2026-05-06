@@ -13,9 +13,9 @@ if (empty($_SESSION['user_id'])) {
 
 $sessionRoleName = (string)($_SESSION['role_name'] ?? '');
 $roleKey = app_normalize_role_key($sessionRoleName);
-if (!in_array($roleKey, ['ORED', 'CENRO_OFFICER'], true)) {
+if (!in_array($roleKey, ['ORED', 'CENRO_OFFICER', 'PENRO_OFFICER', 'PASU_OFFICER'], true)) {
     http_response_code(403);
-    echo 'Digital signature workspace is available for ORED and CENRO Officer only.';
+    echo 'Digital signature workspace is available for ORED, CENRO Officer, PENRO Officer, and PASU only.';
     exit;
 }
 
@@ -40,7 +40,11 @@ $roleFolder = app_role_folder_from_role($sessionRoleName) ?? 'ORED';
 $returnUrl = app_url($roleFolder . '/' . $returnTo);
 $returnButtonLabel = $roleKey === 'CENRO_OFFICER'
     ? 'Back to CENRO OFFICER Action Desk'
-    : 'Back to RD Action Desk';
+    : ($roleKey === 'PENRO_OFFICER'
+        ? 'Back to PENRO OFFICER Action Desk'
+        : ($roleKey === 'PASU_OFFICER'
+            ? 'Back to PASU Action Desk'
+            : 'Back to RD Action Desk'));
 $apiUrl = app_url('actions/digital-signature-profile.php');
 $documentDetailsUrl = app_url('actions/document-details.php');
 $documentActionUrl = app_url('actions/document-action.php');
@@ -1054,7 +1058,7 @@ $offlineSyncLogUrl = app_url('actions/offline-sync-log.php');
                             || uploaderRoleKey === 'DIVISION_CHIEF'
                             || uploaderRoleKey === 'SECTION_STAFF'
                             || (signedSource !== '' && !!preparedSourceNames[signedSource])
-                            || (isSigned && (uploaderRoleKey === 'ORED' || uploaderRoleKey === 'CENRO_OFFICER'));
+                            || (isSigned && (uploaderRoleKey === 'ORED' || uploaderRoleKey === 'CENRO_OFFICER' || uploaderRoleKey === 'PENRO_OFFICER' || uploaderRoleKey === 'PASU_OFFICER'));
                         return {
                             id: item.id,
                             file_name: item.file_name,

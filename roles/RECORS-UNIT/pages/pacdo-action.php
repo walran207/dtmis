@@ -15,7 +15,7 @@ if (empty($_SESSION['user_id'])) {
     app_redirect('auth/login.php');
 }
 
-$officeId = (int)($_SESSION['office_id'] ?? 0);
+$officeId = (int) ($_SESSION['office_id'] ?? 0);
 $roleName = 'RECORDS-UNIT';
 $queueRows = [];
 $routeOffices = [];
@@ -43,54 +43,56 @@ try {
 }
 
 $actionBase = max(
-    (int)$metrics['pending_total'],
-    (int)$metrics['pending_approval_total'],
-    (int)$metrics['pending_forward_total'],
-    (int)$metrics['released_total'],
-    (int)$metrics['completed_total'],
+    (int) $metrics['pending_total'],
+    (int) $metrics['pending_approval_total'],
+    (int) $metrics['pending_forward_total'],
+    (int) $metrics['released_total'],
+    (int) $metrics['completed_total'],
     1
 );
 
 $riskBase = max(
-    (int)$metrics['at_risk_total'],
-    (int)$metrics['due_today_total'],
-    (int)$metrics['due_soon_total'],
-    (int)$metrics['overdue_total'],
+    (int) $metrics['at_risk_total'],
+    (int) $metrics['due_today_total'],
+    (int) $metrics['due_soon_total'],
+    (int) $metrics['overdue_total'],
     1
 );
 
-$pendingReceivedWidth = (string)(int)round((((int)$metrics['pending_total']) / $actionBase) * 100) . '%';
-$pendingApprovalWidth = (string)(int)round((((int)$metrics['pending_approval_total']) / $actionBase) * 100) . '%';
-$pendingForwardWidth = (string)(int)round((((int)$metrics['pending_forward_total']) / $actionBase) * 100) . '%';
-$releasedWidth = (string)(int)round((((int)$metrics['released_total']) / $actionBase) * 100) . '%';
-$completedWidth = (string)(int)round((((int)$metrics['completed_total']) / $actionBase) * 100) . '%';
-$atRiskWidth = (string)(int)round((((int)$metrics['at_risk_total']) / $riskBase) * 100) . '%';
-$dueSoonWidth = (string)(int)round(((((int)$metrics['due_today_total']) + ((int)$metrics['due_soon_total'])) / $riskBase) * 100) . '%';
-$overdueWidth = (string)(int)round((((int)$metrics['overdue_total']) / $riskBase) * 100) . '%';
+$pendingReceivedWidth = (string) (int) round((((int) $metrics['pending_total']) / $actionBase) * 100) . '%';
+$pendingApprovalWidth = (string) (int) round((((int) $metrics['pending_approval_total']) / $actionBase) * 100) . '%';
+$pendingForwardWidth = (string) (int) round((((int) $metrics['pending_forward_total']) / $actionBase) * 100) . '%';
+$releasedWidth = (string) (int) round((((int) $metrics['released_total']) / $actionBase) * 100) . '%';
+$completedWidth = (string) (int) round((((int) $metrics['completed_total']) / $actionBase) * 100) . '%';
+$atRiskWidth = (string) (int) round((((int) $metrics['at_risk_total']) / $riskBase) * 100) . '%';
+$dueSoonWidth = (string) (int) round(((((int) $metrics['due_today_total']) + ((int) $metrics['due_soon_total'])) / $riskBase) * 100) . '%';
+$overdueWidth = (string) (int) round((((int) $metrics['overdue_total']) / $riskBase) * 100) . '%';
 
 $tableRows = [];
 foreach ($queueRows as $queueRow) {
     $tableRows[] = [
         'value' => [
-            (string)($queueRow['tracking_id'] ?? '-'),
-            (string)($queueRow['subject'] ?? '-'),
-            (string)($queueRow['document_type'] ?? '-'),
-            (string)($queueRow['date_received'] ?? '-'),
-            (string)($queueRow['time_remaining'] ?? '-'),
-            (string)($queueRow['status'] ?? 'Pending'),
+            (string) ($queueRow['tracking_id'] ?? '-'),
+            (string) ($queueRow['subject'] ?? '-'),
+            (string) ($queueRow['document_type'] ?? '-'),
+            (string) ($queueRow['date_received'] ?? '-'),
+            (string) ($queueRow['time_remaining'] ?? '-'),
+            (string) ($queueRow['date_created'] ?? '-'),
+            (string) ($queueRow['status'] ?? 'Pending'),
+            
             'View Tracking Slip | Receive | Approve | Pending | Forward | Return | Release | Print Package',
         ],
         'meta' => [
-            'document_id' => (string)($queueRow['document_id'] ?? 0),
-            'tracking_id' => (string)($queueRow['tracking_id'] ?? ''),
-            'status_raw' => (string)($queueRow['status'] ?? ''),
-            'date_received_raw' => (string)($queueRow['date_received_raw'] ?? ''),
-            'date_created_raw' => (string)($queueRow['date_created_raw'] ?? ''),
-            'has_section_receive' => (int)($queueRow['has_section_receive'] ?? 0) > 0 ? '1' : '0',
-            'has_signed_action' => (int)($queueRow['has_signed_action'] ?? 0) > 0 ? '1' : '0',
-            'origin_office_id' => (string)((int)($queueRow['origin_office_id'] ?? 0)),
-            'current_office_id' => (string)((int)($queueRow['current_office_id'] ?? 0)),
-            'pending_office_id' => (string)((int)($queueRow['pending_office_id'] ?? 0)),
+            'document_id' => (string) ($queueRow['document_id'] ?? 0),
+            'tracking_id' => (string) ($queueRow['tracking_id'] ?? ''),
+            'status_raw' => (string) ($queueRow['status'] ?? ''),
+            'date_received_raw' => (string) ($queueRow['date_received_raw'] ?? ''),
+            'date_created_raw' => (string) ($queueRow['date_created_raw'] ?? ''),
+            'has_section_receive' => (int) ($queueRow['has_section_receive'] ?? 0) > 0 ? '1' : '0',
+            'has_signed_action' => (int) ($queueRow['has_signed_action'] ?? 0) > 0 ? '1' : '0',
+            'origin_office_id' => (string) ((int) ($queueRow['origin_office_id'] ?? 0)),
+            'current_office_id' => (string) ((int) ($queueRow['current_office_id'] ?? 0)),
+            'pending_office_id' => (string) ((int) ($queueRow['pending_office_id'] ?? 0)),
         ],
     ];
 }
@@ -102,7 +104,7 @@ $pageSubtitle = 'Queue handling and workflow actions for RECORDS-UNIT documents.
 $activeMenu = 'pacdo_action';
 $dashboardLivePath = app_url('actions/dashboard-live.php?scope=pending_receive_action');
 $tableTitle = 'For Clearance Queue (ARTA risk first)';
-$tableColumns = ['Tracking ID', 'Subject', 'Document Type (+ ARTA)', 'Date Received', 'Time Remaining', 'Status', 'Quick Actions'];
+$tableColumns = ['Tracking ID', 'Subject', 'Document Type (+ ARTA)', 'Date Received', 'Time Remaining', 'Date Created', 'Status', 'Quick Actions'];
 $pageActions = ['View Tracking Slip', 'Print Package', 'Receive', 'Approve', 'Pending', 'Forward', 'Return', 'Release'];
 $stickyActions = ['Receive', 'Approve', 'Pending', 'Forward', 'Return / Request Info', 'Release', 'Print Slip', 'Print Package'];
 $queueControlsPlacement = 'table_card';
@@ -119,41 +121,40 @@ $statusFilterOptions = [
 $routeOffices = is_array($routeOffices ?? null) ? $routeOffices : [];
 
 $kpiCards = [
-    ['label' => 'Pending Received', 'value' => (string)$metrics['pending_total'], 'icon' => 'blue'],
-    ['label' => 'Pending Approval', 'value' => (string)$metrics['pending_approval_total'], 'icon' => 'orange'],
-    ['label' => 'Pending Forward', 'value' => (string)$metrics['pending_forward_total'], 'icon' => 'violet'],
-    ['label' => 'Pending Released', 'value' => (string)$metrics['released_total'], 'icon' => 'green'],
+    ['label' => 'Pending Received', 'value' => (string) $metrics['pending_total'], 'icon' => 'blue'],
+    ['label' => 'Pending Approval', 'value' => (string) $metrics['pending_approval_total'], 'icon' => 'orange'],
+    ['label' => 'Pending Forward', 'value' => (string) $metrics['pending_forward_total'], 'icon' => 'violet'],
+    ['label' => 'Pending Released', 'value' => (string) $metrics['released_total'], 'icon' => 'green'],
 ];
 
 $panels = [
     [
         'title' => 'Action Pipeline',
         'rows' => [
-            ['label' => 'Pending Received', 'value' => (string)$metrics['pending_total'], 'width' => $pendingReceivedWidth],
-            ['label' => 'Pending Approval', 'value' => (string)$metrics['pending_approval_total'], 'width' => $pendingApprovalWidth],
-            ['label' => 'Pending Forward', 'value' => (string)$metrics['pending_forward_total'], 'width' => $pendingForwardWidth],
-            ['label' => 'Pending Released', 'value' => (string)$metrics['released_total'], 'width' => $releasedWidth],
+            ['label' => 'Pending Received', 'value' => (string) $metrics['pending_total'], 'width' => $pendingReceivedWidth],
+            ['label' => 'Pending Approval', 'value' => (string) $metrics['pending_approval_total'], 'width' => $pendingApprovalWidth],
+            ['label' => 'Pending Forward', 'value' => (string) $metrics['pending_forward_total'], 'width' => $pendingForwardWidth],
+            ['label' => 'Pending Released', 'value' => (string) $metrics['released_total'], 'width' => $releasedWidth],
         ],
     ],
     [
         'title' => 'Clearance Throughput',
         'rows' => [
-            ['label' => 'For Clearance', 'value' => (string)$metrics['for_clearance_total'], 'width' => $pendingApprovalWidth],
-            ['label' => 'Completed', 'value' => (string)$metrics['completed_total'], 'width' => $completedWidth],
-            ['label' => 'Pending Released', 'value' => (string)$metrics['released_total'], 'width' => $releasedWidth],
+            ['label' => 'For Clearance', 'value' => (string) $metrics['for_clearance_total'], 'width' => $pendingApprovalWidth],
+            ['label' => 'Completed', 'value' => (string) $metrics['completed_total'], 'width' => $completedWidth],
+            ['label' => 'Pending Released', 'value' => (string) $metrics['released_total'], 'width' => $releasedWidth],
         ],
     ],
     [
         'title' => 'ARTA Risk Watch',
         'rows' => [
-            ['label' => 'At-Risk Total', 'value' => (string)$metrics['at_risk_total'], 'width' => $atRiskWidth],
-            ['label' => 'Due Soon / Due Today', 'value' => (string)(((int)$metrics['due_today_total']) + ((int)$metrics['due_soon_total'])), 'width' => $dueSoonWidth],
-            ['label' => 'Overdue', 'value' => (string)$metrics['overdue_total'], 'width' => $overdueWidth],
+            ['label' => 'At-Risk Total', 'value' => (string) $metrics['at_risk_total'], 'width' => $atRiskWidth],
+            ['label' => 'Due Soon / Due Today', 'value' => (string) (((int) $metrics['due_today_total']) + ((int) $metrics['due_soon_total'])), 'width' => $dueSoonWidth],
+            ['label' => 'Overdue', 'value' => (string) $metrics['overdue_total'], 'width' => $overdueWidth],
         ],
     ],
 ];
 
 require dirname(__DIR__, 3) . '/app/templates/role-page-template.php';
-
 
 

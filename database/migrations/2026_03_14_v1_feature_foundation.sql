@@ -63,10 +63,6 @@ SET name = 'DIVISION_CHIEF',
     description = 'Division Chief / Section Chief supervisor'
 WHERE name = 'CHIEF';
 
-INSERT INTO roles (name, description)
-SELECT 'PASU', 'Protected Area Superintendent'
-WHERE NOT EXISTS (SELECT 1 FROM roles WHERE name = 'PASU');
-
 INSERT INTO role_unit_mappings (parent_role_id, child_role_id, office_id, unit_name)
 SELECT p.id, c.id, 3, 'PMD Section Supervision'
 FROM roles p

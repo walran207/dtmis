@@ -5,16 +5,18 @@ body[data-role-key] {
     --role-accent-text-dark: color-mix(in srgb, var(--role-accent) 82%, #eaf0f7);
 }
 
-body[data-role-key="CENRO"] {
+body[data-role-key="CENRO_ADMIN_RECORD"] {
     --role-accent: #2f8f83;
 }
 
-body[data-role-key="PASU"] {
-    --role-accent: #4a8f6a;
+body[data-role-key="PENRO_ADMIN_RECORD"] {
+    --role-accent: #3f7fb1;
 }
 
-body[data-role-key="PENRO"] {
-    --role-accent: #3f7fb1;
+body[data-role-key="PAMO_ADMIN"],
+body[data-role-key="PASU_OFFICER"],
+body[data-role-key="PAMO_UNIT"] {
+    --role-accent: #3c8c78;
 }
 
 body[data-role-key="RECORDS_UNIT"],

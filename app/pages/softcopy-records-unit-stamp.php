@@ -25,8 +25,23 @@ if (!in_array($stampType, ['received', 'released'], true)) {
 }
 
 $stampLabel = $stampType === 'released' ? 'RELEASED' : 'RECEIVED';
+$sessionRoleName = (string)($_SESSION['role_name'] ?? 'RECORDS_UNIT');
+$sessionRoleKey = app_normalize_role_key($sessionRoleName);
+$sessionRoleFolder = app_role_folder_from_role($sessionRoleName) ?? app_role_folder_from_role('RECORDS_UNIT') ?? 'RECORS-UNIT';
+$stampOfficeLine = match ($sessionRoleKey) {
+    'CENRO_ADMIN_RECORD' => 'ADMIN-CENRO ADMIN RECORD',
+    'PENRO_ADMIN_RECORD' => 'ADMIN-PENRO ADMIN RECORD',
+    'PAMO_ADMIN' => 'ADMIN-PAMO ADMIN',
+    default => 'ADMIN-RECORDS-UNIT',
+};
+$stampWorkspaceTitle = match ($sessionRoleKey) {
+    'CENRO_ADMIN_RECORD' => 'CENRO Admin Record',
+    'PENRO_ADMIN_RECORD' => 'PENRO Admin Record',
+    'PAMO_ADMIN' => 'PAMO Admin',
+    default => 'Records Unit',
+};
 $sessionFullName = trim((string)(($_SESSION['first_name'] ?? '') . ' ' . ($_SESSION['last_name'] ?? '')));
-$signerDefault = $sessionFullName !== '' ? $sessionFullName : 'RECORDS-UNIT';
+$signerDefault = $sessionFullName !== '' ? $sessionFullName : $stampOfficeLine;
 $receivedByDefault = $sessionFullName !== '' ? $sessionFullName : 'Fullname';
 $theme = strtolower(trim((string)($_GET['theme'] ?? 'light')));
 if (!in_array($theme, ['light', 'dark'], true)) {
@@ -38,7 +53,7 @@ if (!in_array($theme, ['light', 'dark'], true)) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Records Unit <?php echo e($stampLabel); ?> Stamp<?php echo $trackingId !== '' ? ' | ' . e($trackingId) : ''; ?></title>
+    <title><?php echo e($stampWorkspaceTitle); ?> <?php echo e($stampLabel); ?> Stamp<?php echo $trackingId !== '' ? ' | ' . e($trackingId) : ''; ?></title>
     <style>
         :root {
             --bg: #eff4fa;
@@ -498,7 +513,7 @@ if (!in_array($theme, ['light', 'dark'], true)) {
         <?php if (!$isEmbedded): ?>
         <div class="bar">
             <div class="left">
-                <a class="btn ghost" href="<?php echo e(app_url((string)app_role_folder_from_role('RECORDS_UNIT') . '/action-stamp.php')); ?>">Back to Action Stamp Workspace</a>
+                <a class="btn ghost" href="<?php echo e(app_url($sessionRoleFolder . '/action-stamp.php')); ?>">Back to Action Stamp Workspace</a>
                 <span class="status-pill">Tracking ID: <?php echo e($trackingId !== '' ? $trackingId : 'N/A'); ?></span>
             </div>
         </div>
@@ -560,7 +575,7 @@ if (!in_array($theme, ['light', 'dark'], true)) {
 
             <p class="hint" style="margin-top:6px;">
                 Dynamic stamp: realtime date, editable signature, drag freely, resize directly on image canvas, and print.
-                Incoming PENRO to PACDO defaults to blank canvas; returned ORED-signed workflows auto-select the original image.
+                Signed workflows now auto-select the latest digitally signed image canvas for admin stamping.
             </p>
 
             <div class="stage-wrap">
@@ -571,7 +586,7 @@ if (!in_array($theme, ['light', 'dark'], true)) {
                     <div id="stampBlock" class="stamp-block" aria-label="Drag stamp">
                         <div class="stamp-header">
                             <span class="stamp-top-line">DENR XII</span>
-                            <span class="stamp-top-line">ADMIN-RECORDS-UNIT</span>
+                            <span class="stamp-top-line"><?php echo e($stampOfficeLine); ?></span>
                             <span id="stampMainLine" class="stamp-main-line"><?php echo e($stampLabel); ?></span>
                         </div>
                         <div class="stamp-row">
@@ -644,6 +659,7 @@ if (!in_array($theme, ['light', 'dark'], true)) {
             const resizeHandles = Array.from(document.querySelectorAll('.resize-handle'));
             const stampTrackingId = <?php echo json_encode($trackingId, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
             const documentDetailsPath = <?php echo json_encode(app_url('actions/document-details.php'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+            const sessionRoleKey = <?php echo json_encode($sessionRoleKey, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
             const CANVAS_BLANK_VALUE = '__BLANK__';
 
             if (!stage || !block || !gridLayer) {
@@ -681,7 +697,7 @@ if (!in_array($theme, ['light', 'dark'], true)) {
                 receivedBy: <?php echo json_encode($receivedByDefault, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>,
                 canvasImageOptions: [],
                 canvasSelectionValue: CANVAS_BLANK_VALUE,
-                autoPreferOriginalImage: false,
+                autoCanvasPreference: 'blank',
             };
 
             function clamp(value, min, max) {
@@ -773,7 +789,7 @@ if (!in_array($theme, ['light', 'dark'], true)) {
                 return imageOptions;
             }
 
-            function detectReturnedFromOred(imageOptions) {
+            function detectSignedWorkflowCanvas(imageOptions) {
                 const options = Array.isArray(imageOptions) ? imageOptions : [];
                 return options.some(function (option) {
                     if (!option || typeof option !== 'object') {
@@ -782,17 +798,30 @@ if (!in_array($theme, ['light', 'dark'], true)) {
                     if (option.is_digitally_signed) {
                         return true;
                     }
-                    return normalizeRoleKey(option.uploaded_by_role_key || '') === 'ORED'
+                    const uploaderRoleKey = normalizeRoleKey(option.uploaded_by_role_key || '');
+                    return (uploaderRoleKey === 'ORED'
+                        || uploaderRoleKey === 'CENRO_OFFICER'
+                        || uploaderRoleKey === 'PENRO_OFFICER'
+                        || uploaderRoleKey === 'PASU_OFFICER')
                         && String(option.file_name || '').toLowerCase().indexOf('[digitally signed]') === 0;
                 });
             }
 
-            function selectAutoCanvasImageOption(imageOptions, preferOriginal) {
+            function selectAutoCanvasImageOption(imageOptions, preference) {
                 const options = Array.isArray(imageOptions) ? imageOptions : [];
                 if (options.length === 0) {
                     return null;
                 }
-                if (preferOriginal) {
+                const mode = String(preference || '').toLowerCase();
+                if (mode === 'signed') {
+                    const signedOption = options.find(function (option) {
+                        return !!option.is_digitally_signed;
+                    });
+                    if (signedOption) {
+                        return signedOption;
+                    }
+                }
+                if (mode === 'original') {
                     const originalOption = options.find(function (option) {
                         return !option.is_digitally_signed;
                     });
@@ -859,7 +888,7 @@ if (!in_array($theme, ['light', 'dark'], true)) {
             function applySelectedCanvasValue(selectionValue, shouldFlashSelection) {
                 const selectedValue = normalizeCanvasSelectionValue(selectionValue);
                 const options = Array.isArray(state.canvasImageOptions) ? state.canvasImageOptions : [];
-                const preferOriginal = !!state.autoPreferOriginalImage;
+                const autoPreference = String(state.autoCanvasPreference || 'blank').toLowerCase();
 
                 if (selectedValue === CANVAS_BLANK_VALUE) {
                     applyCanvasImage('', 'Blank paper canvas selected.');
@@ -870,14 +899,13 @@ if (!in_array($theme, ['light', 'dark'], true)) {
                 }
 
                 if (selectedValue === '') {
-                    const autoOption = selectAutoCanvasImageOption(options, preferOriginal);
+                    const autoOption = selectAutoCanvasImageOption(options, autoPreference);
                     if (autoOption) {
                         applyCanvasImage(autoOption.file_url, '');
                         if (shouldFlashSelection) {
-                            flash(preferOriginal
-                                ? 'Auto-selected original image from ORED returned workflow.'
-                                : 'Auto-selected latest image canvas.'
-                            );
+                            flash(autoPreference === 'signed'
+                                ? 'Auto-selected latest digitally signed image canvas.'
+                                : 'Auto-selected latest image canvas.');
                         }
                         return;
                     }
@@ -910,7 +938,7 @@ if (!in_array($theme, ['light', 'dark'], true)) {
                 }
                 if (String(stampTrackingId || '').trim() === '') {
                     state.canvasImageOptions = [];
-                    state.autoPreferOriginalImage = false;
+                    state.autoCanvasPreference = 'blank';
                     state.canvasSelectionValue = CANVAS_BLANK_VALUE;
                     populateCanvasImageSelect([], state.canvasSelectionValue);
                     applyCanvasImage('', 'No tracking ID provided.');
@@ -935,19 +963,24 @@ if (!in_array($theme, ['light', 'dark'], true)) {
                     }
                     const imageOptions = extractCanvasImageOptions(payload.attachments || []);
                     state.canvasImageOptions = imageOptions;
-                    state.autoPreferOriginalImage = detectReturnedFromOred(imageOptions);
-                    state.canvasSelectionValue = state.autoPreferOriginalImage ? '' : CANVAS_BLANK_VALUE;
+                    const hasSignedWorkflowCanvas = detectSignedWorkflowCanvas(imageOptions);
+                    const isAdminRecordRole = sessionRoleKey === 'RECORDS_UNIT'
+                        || sessionRoleKey === 'CENRO_ADMIN_RECORD'
+                        || sessionRoleKey === 'PENRO_ADMIN_RECORD'
+                        || sessionRoleKey === 'PAMO_ADMIN';
+                    state.autoCanvasPreference = (hasSignedWorkflowCanvas && isAdminRecordRole) ? 'signed' : 'blank';
+                    state.canvasSelectionValue = state.autoCanvasPreference === 'signed' ? '' : CANVAS_BLANK_VALUE;
                     populateCanvasImageSelect(imageOptions, state.canvasSelectionValue);
                     applySelectedCanvasValue(state.canvasSelectionValue, false);
-                    if (state.autoPreferOriginalImage) {
-                        flash('Returned ORED-signed workflow detected. Original image canvas auto-selected.');
+                    if (state.autoCanvasPreference === 'signed') {
+                        flash('Signed workflow detected. Latest digitally signed image canvas auto-selected.');
                     } else {
                         flash('Incoming workflow detected. Canvas defaults to blank.');
                     }
                 } catch (error) {
                     applyCanvasImage('', 'Unable to load workflow image canvas right now.');
                     state.canvasImageOptions = [];
-                    state.autoPreferOriginalImage = false;
+                    state.autoCanvasPreference = 'blank';
                     state.canvasSelectionValue = CANVAS_BLANK_VALUE;
                     populateCanvasImageSelect([], state.canvasSelectionValue);
                 }

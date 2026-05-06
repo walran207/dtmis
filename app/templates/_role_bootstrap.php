@@ -70,6 +70,16 @@ $liveFlowTrackerTitle = (string)($liveFlowTrackerTitle ?? 'Horizontal Document F
 $roleKeyForFlowDefault = app_normalize_role_key($roleName);
 if (is_array($liveFlowTrackerSteps ?? null)) {
     $liveFlowTrackerSteps = $liveFlowTrackerSteps;
+} elseif (in_array($roleKeyForFlowDefault, ['PENRO_ADMIN_RECORD', 'PENRO_OFFICER', 'PENRO_DIVISION', 'PENRO_SECTION', 'PENRO_SECTION_UNIT'], true)) {
+    $liveFlowTrackerSteps = [
+        'PENRO Admin Record (Origin Office)',
+        'PENRO Officer',
+        'PENRO Division',
+        'PENRO Section',
+        'PENRO Officer Sign',
+        'PENRO Admin Record (Returned)',
+        'Complete / Forward to CENRO Admin Record/PACDO',
+    ];
 } elseif (in_array($roleKeyForFlowDefault, ['CENRO_ADMIN_RECORD', 'CENRO_OFFICER', 'CENRO_SECTION', 'CENRO_UNIT'], true)) {
     $liveFlowTrackerSteps = [
         'CENRO Admin Record (Origin Office)',
@@ -81,10 +91,19 @@ if (is_array($liveFlowTrackerSteps ?? null)) {
         'Release to Origin Office',
         'Origin Office (Completed)',
     ];
+} elseif (in_array($roleKeyForFlowDefault, ['PAMO_ADMIN', 'PASU_OFFICER', 'PAMO_UNIT'], true)) {
+    $liveFlowTrackerSteps = [
+        'PAMO Admin',
+        'PASU',
+        'PAMO Unit',
+        'PASU Sign',
+        'PAMO Admin (Returned)',
+        'Complete / Forward to CENRO Admin Record or PENRO Admin Record',
+    ];
 } else {
     $liveFlowTrackerSteps = [
-        'CENRO/PASU (Origin Office)',
-        'PENRO',
+        'CENRO Admin Record',
+        'PENRO Admin Record',
         'RECORDS-UNIT',
         'ORED',
         'ARD TS/ARD MS',
@@ -116,6 +135,7 @@ $officeId = (int)($_SESSION['office_id'] ?? 0);
 $roleKeyRaw = app_normalize_role_key($roleName);
 $roleKey = app_role_behavior_key($roleName);
 $isCenroAdminRecordContext = $roleKeyRaw === 'CENRO_ADMIN_RECORD';
+$isPenroAdminRecordContext = $roleKeyRaw === 'PENRO_ADMIN_RECORD';
 $offlinePolicy = app_offline_policy_for_role($roleName);
 $offlineSyncLogUrl = app_url('actions/offline-sync-log.php');
 $isRecordsUnitContext = $roleKey === 'RECORDS_UNIT'
@@ -142,7 +162,7 @@ if ($activeMenu === 'dashboard' && $roleKey !== 'SUPER_ADMIN') {
         ['label' => 'Pending Received', 'value' => '0', 'icon' => 'blue'],
         ['label' => 'Pending Approval', 'value' => '0', 'icon' => 'orange'],
     ];
-    if (in_array($roleKey, ['CENRO', 'PASU', 'PENRO'], true)) {
+    if (in_array($roleKeyRaw, ['CENRO_ADMIN_RECORD', 'PENRO_ADMIN_RECORD', 'PAMO_ADMIN'], true)) {
         $kpiCards[] = ['label' => 'Intake Drafts', 'value' => '0', 'icon' => 'violet'];
         $kpiCards[] = ['label' => 'Pending Forward', 'value' => '0', 'icon' => 'blue'];
         $kpiCards[] = ['label' => $dashboardFinalStageLabel, 'value' => '0', 'icon' => $dashboardFinalStageIcon];
@@ -161,37 +181,46 @@ $statCardNavigationTargets = is_array($statCardNavigationTargets ?? null) ? $sta
 $defaultStatCardNavigationPath = '';
 $roleSpecificStatCardNavigationTargets = [];
 switch ($roleKey) {
-    case 'CENRO':
-        $defaultStatCardNavigationPath = app_url($roleFolder . '/pending-receive.php');
-        $cenroPendingReceivePath = app_url($roleFolder . '/pending-receive.php');
-        $cenroIntakePath = app_url($roleFolder . '/create-intake.php');
-        $roleSpecificStatCardNavigationTargets = [
-            'received' => $cenroPendingReceivePath,
-            'approved' => $cenroPendingReceivePath,
-            'intake_drafts' => $cenroIntakePath,
-        ];
-        break;
-    case 'PASU':
-        $defaultStatCardNavigationPath = app_url($roleFolder . '/pending-receive.php');
-        $pasuActionPath = app_url($roleFolder . '/for-pasu-action.php');
-        $pasuIntakePath = app_url($roleFolder . '/create-intake.php');
-        $roleSpecificStatCardNavigationTargets = [
-            'received' => $pasuActionPath,
-            'approved' => $pasuActionPath,
-            'intake_drafts' => $pasuIntakePath,
-        ];
-        break;
-    case 'PENRO':
-        $defaultStatCardNavigationPath = app_url($roleFolder . '/pending-receive.php');
-        $penroPendingReceivePath = app_url($roleFolder . '/pending-receive.php');
-        $penroIntakePath = app_url($roleFolder . '/create-intake.php');
-        $roleSpecificStatCardNavigationTargets = [
-            'received' => $penroPendingReceivePath,
-            'approved' => $penroPendingReceivePath,
-            'intake_drafts' => $penroIntakePath,
-        ];
-        break;
     case 'RECORDS_UNIT':
+        if (!$isCenroAdminRecordContext && !$isPenroAdminRecordContext && $roleKeyRaw !== 'PAMO_ADMIN') {
+            $defaultStatCardNavigationPath = app_url($roleFolder . '/pacdo-action.php');
+            break;
+        }
+        if ($isCenroAdminRecordContext) {
+            $defaultStatCardNavigationPath = app_url($roleFolder . '/pacdo-action.php');
+            $cenroPendingReceivePath = app_url($roleFolder . '/pacdo-action.php');
+            $cenroIntakePath = app_url($roleFolder . '/create-intake.php');
+            $roleSpecificStatCardNavigationTargets = [
+                'received' => $cenroPendingReceivePath,
+                'approved' => $cenroPendingReceivePath,
+                'intake_drafts' => $cenroIntakePath,
+            ];
+            break;
+        }
+        if ($isPenroAdminRecordContext) {
+            $defaultStatCardNavigationPath = app_url($roleFolder . '/pacdo-action.php');
+            $penroPendingReceivePath = app_url($roleFolder . '/pacdo-action.php');
+            $penroIntakePath = app_url($roleFolder . '/create-intake.php');
+            $roleSpecificStatCardNavigationTargets = [
+                'received' => $penroPendingReceivePath,
+                'approved' => $penroPendingReceivePath,
+                'intake_drafts' => $penroIntakePath,
+            ];
+            break;
+        }
+        if ($roleKeyRaw === 'PAMO_ADMIN') {
+            $defaultStatCardNavigationPath = app_url($roleFolder . '/pacdo-action.php');
+            $pamoPendingReceivePath = app_url($roleFolder . '/pacdo-action.php');
+            $pamoIntakePath = app_url($roleFolder . '/create-intake.php');
+            $roleSpecificStatCardNavigationTargets = [
+                'received' => $pamoPendingReceivePath,
+                'approved' => $pamoPendingReceivePath,
+                'intake_drafts' => $pamoIntakePath,
+            ];
+            break;
+        }
+        $defaultStatCardNavigationPath = app_url($roleFolder . '/pacdo-action.php');
+        break;
     case 'ADMIN_RECORDS_UNIT':
         $defaultStatCardNavigationPath = app_url($roleFolder . '/pacdo-action.php');
         break;
@@ -263,7 +292,9 @@ $statCardNavigationTargets = $normalizedStatCardNavigationTargets;
 $qrStampWorkspaceDiskPath = dirname(__DIR__, 2) . '/roles/' . $roleFolder . '/pages/qr-stamp.php';
 $showQrStampDocumentTool = is_file($qrStampWorkspaceDiskPath);
 $qrStampWorkspacePath = $showQrStampDocumentTool ? app_url($roleFolder . '/qr-stamp.php') : '';
-$actionStampWorkspacePath = ($roleKey === 'RECORDS_UNIT' && !$isCenroAdminRecordContext)
+$hasActionStampWorkspace = in_array($roleKeyRaw, ['RECORDS_UNIT', 'CENRO_ADMIN_RECORD', 'PENRO_ADMIN_RECORD', 'PAMO_ADMIN'], true)
+    && is_file(dirname(__DIR__, 2) . '/roles/' . $roleFolder . '/pages/action-stamp.php');
+$actionStampWorkspacePath = $hasActionStampWorkspace
     ? app_url($roleFolder . '/action-stamp.php')
     : '';
 $digitalSignatureWorkspacePath = $roleKey === 'ORED' ? app_url($roleFolder . '/digital-signature.php') : '';
@@ -277,7 +308,7 @@ $queueControlsPlacement = in_array($queueControlsPlacement, ['sticky', 'table_ca
     : 'sticky';
 $showQrReceiveScanner = isset($showQrReceiveScanner)
     ? (bool)$showQrReceiveScanner
-    : in_array($roleKey, ['RECORDS_UNIT', 'PENRO'], true);
+    : $roleKey === 'RECORDS_UNIT';
 $canAddCustomType = false;
 $renderStandardContent = (bool)($renderStandardContent ?? true);
 $showQueueTable = (bool)($showQueueTable ?? true);
@@ -336,7 +367,7 @@ $pageActions = role_sanitize_page_actions($pageActions, $showQueueFilterControls
 $stickyActions = role_sanitize_sticky_actions($stickyActions, $showQueueFilterControls);
 $showStickyActionsBar = $showStickyStatusFilter || !empty($stickyActions);
 $customSectionInclude = (isset($customSectionInclude) && is_string($customSectionInclude)) ? $customSectionInclude : '';
-$intakeAllowsExternal = in_array($roleKey, ['RECORDS_UNIT', 'CENRO', 'SECTION_STAFF'], true) || $activeMenu === 'create_external_intake';
+$intakeAllowsExternal = in_array($roleKey, ['RECORDS_UNIT', 'SECTION_STAFF'], true) || $activeMenu === 'create_external_intake';
 $showIntakeForwardToField = (bool)($showIntakeForwardToField ?? false);
 $showIntakeActionRequiredField = (bool)($showIntakeActionRequiredField ?? false);
 
@@ -527,109 +558,6 @@ if (!empty($routeOffices) && !in_array($roleKey, ['DIVISION_CHIEF', 'ORED'], tru
     ));
 }
 
-if (in_array($roleKey, ['CENRO', 'PASU'], true) && $pdo instanceof PDO && $officeId > 0) {
-    try {
-        $actorUserId = (int)($_SESSION['user_id'] ?? 0);
-        if ($actorUserId > 0) {
-            $actorContext = workflow_get_user_context($pdo, $actorUserId);
-            $originatingOfficeId = (int)($actorContext['office_id'] ?? $officeId);
-            if ($originatingOfficeId > 0) {
-                $policyDestination = workflow_required_initial_destination_office($pdo, $actorContext, $originatingOfficeId);
-                $policyOfficeId = (int)($policyDestination['office_id'] ?? 0);
-                $resolvedRecordsUnit = role_find_records_unit_route_office($pdo);
-                $recordsUnitOfficeId = (int)($resolvedRecordsUnit['id'] ?? 0);
-                $allowedOfficeIds = [];
-                if ($policyOfficeId > 0) {
-                    $allowedOfficeIds[] = $policyOfficeId;
-                }
-                if ($recordsUnitOfficeId > 0 && $recordsUnitOfficeId !== $policyOfficeId) {
-                    $allowedOfficeIds[] = $recordsUnitOfficeId;
-                }
-
-                if (!empty($allowedOfficeIds)) {
-                    $routeOffices = array_values(array_filter(
-                        $routeOffices,
-                        static fn(array $office): bool => in_array((int)($office['id'] ?? 0), $allowedOfficeIds, true)
-                    ));
-
-                    if ($policyOfficeId > 0) {
-                        $policyExists = false;
-                        foreach ($routeOffices as $office) {
-                            if ((int)($office['id'] ?? 0) === $policyOfficeId) {
-                                $policyExists = true;
-                                break;
-                            }
-                        }
-                        if (!$policyExists) {
-                            $officeStmt = $pdo->prepare(
-                                'SELECT id, name, level
-                                 FROM offices
-                                 WHERE id = :id
-                                 LIMIT 1'
-                            );
-                            $officeStmt->execute(['id' => $policyOfficeId]);
-                            $resolvedPolicyOffice = $officeStmt->fetch();
-                            if ($resolvedPolicyOffice) {
-                                $routeOffices[] = [
-                                    'id' => (int)($resolvedPolicyOffice['id'] ?? 0),
-                                    'name' => (string)($resolvedPolicyOffice['name'] ?? ''),
-                                    'level' => (string)($resolvedPolicyOffice['level'] ?? ''),
-                                ];
-                            }
-                        }
-                    }
-
-                    if ($recordsUnitOfficeId > 0 && $resolvedRecordsUnit !== null) {
-                        $recordsExists = false;
-                        foreach ($routeOffices as $office) {
-                            if ((int)($office['id'] ?? 0) === $recordsUnitOfficeId) {
-                                $recordsExists = true;
-                                break;
-                            }
-                        }
-                        if (!$recordsExists) {
-                            $routeOffices[] = $resolvedRecordsUnit;
-                        }
-                    }
-
-                    $routeFallbackOffices = [];
-                    if ($policyOfficeId > 0) {
-                        foreach ($routeOffices as $office) {
-                            if ((int)($office['id'] ?? 0) === $policyOfficeId) {
-                                $routeFallbackOffices[] = $office;
-                                break;
-                            }
-                        }
-                    }
-                    if ($recordsUnitOfficeId > 0) {
-                        foreach ($routeOffices as $office) {
-                            if ((int)($office['id'] ?? 0) === $recordsUnitOfficeId) {
-                                $alreadyIncluded = false;
-                                foreach ($routeFallbackOffices as $fallbackOffice) {
-                                    if ((int)($fallbackOffice['id'] ?? 0) === $recordsUnitOfficeId) {
-                                        $alreadyIncluded = true;
-                                        break;
-                                    }
-                                }
-                                if (!$alreadyIncluded) {
-                                    $routeFallbackOffices[] = $office;
-                                }
-                                break;
-                            }
-                        }
-                    }
-
-                    if (!empty($routeFallbackOffices)) {
-                        $routeFallbackOffice = $routeFallbackOffices[0];
-                    }
-                }
-            }
-        }
-    } catch (Throwable $exception) {
-        // Keep default routing list if policy lookup fails.
-    }
-}
-
 if ($isCenroAdminRecordContext) {
     $routeFallbackOffices = [];
     if ($pdo instanceof PDO) {
@@ -668,13 +596,15 @@ if ($isCenroAdminRecordContext) {
                 && $cenroRootId > 0
                 && $candidateRootId > 0
                 && $candidateRootId === $cenroRootId;
-            $isPenro = ($candidateRoleName === 'PENRO' || $candidateLevel === 'PROVINCIAL')
-                && (
-                    $actorParentPenroId <= 0
-                    || $candidateId === $actorParentPenroId
-                );
+            $isPenro = $candidateRoleName === 'PENRO_ADMIN_RECORD'
+                && $candidateLevel === 'PENRO_ADMIN_RECORD'
+                && $actorParentPenroId > 0
+                && (int)($candidateContext['parent_office_id'] ?? 0) === $actorParentPenroId;
             $isRecordsUnit = $candidateRoleName === 'RECORDS_UNIT'
-                || role_name_matches_records_unit((string)($candidateContext['name'] ?? ''));
+                || (
+                    $candidateLevel === 'REGIONAL'
+                    && role_name_matches_records_unit((string)($candidateContext['name'] ?? ''))
+                );
 
             if (!$isSameCenroOfficer && !$isPenro && !$isRecordsUnit) {
                 continue;
@@ -688,6 +618,59 @@ if ($isCenroAdminRecordContext) {
             ];
         }
         if (!empty($filtered)) {
+            $appendUniqueOffice = static function (array &$list, ?array $officeToAdd): void {
+                if (!is_array($officeToAdd) || (int)($officeToAdd['id'] ?? 0) <= 0) {
+                    return;
+                }
+                $officeIdToAdd = (int)($officeToAdd['id'] ?? 0);
+                foreach ($list as $existingOffice) {
+                    if ((int)($existingOffice['id'] ?? 0) === $officeIdToAdd) {
+                        return;
+                    }
+                }
+                $list[] = [
+                    'id' => $officeIdToAdd,
+                    'name' => (string)($officeToAdd['name'] ?? ''),
+                    'level' => (string)($officeToAdd['level'] ?? ''),
+                    'parent_office_id' => (int)($officeToAdd['parent_office_id'] ?? 0),
+                ];
+            };
+
+            $cenroOfficerOffice = $cenroRootId > 0
+                ? workflow_find_child_office_by_level($pdo, $cenroRootId, 'CENRO_OFFICER')
+                : null;
+            $penroAdminOffice = $actorParentPenroId > 0
+                ? workflow_find_child_office_by_level($pdo, $actorParentPenroId, 'PENRO_ADMIN_RECORD')
+                : null;
+            $recordsUnitOffice = workflow_find_records_unit_office($pdo);
+
+            $appendUniqueOffice($filtered, $cenroOfficerOffice);
+            $appendUniqueOffice($filtered, $penroAdminOffice);
+            $appendUniqueOffice($filtered, $recordsUnitOffice);
+
+            usort($filtered, static function (array $left, array $right): int {
+                $priority = static function (array $office): int {
+                    $level = strtoupper(trim((string)($office['level'] ?? '')));
+                    if ($level === 'CENRO_OFFICER') {
+                        return 1;
+                    }
+                    if ($level === 'PENRO_ADMIN_RECORD') {
+                        return 2;
+                    }
+                    if ($level === 'REGIONAL') {
+                        return 3;
+                    }
+                    return 4;
+                };
+
+                $priorityCompare = $priority($left) <=> $priority($right);
+                if ($priorityCompare !== 0) {
+                    return $priorityCompare;
+                }
+
+                return strcasecmp((string)($left['name'] ?? ''), (string)($right['name'] ?? ''));
+            });
+
             $routeOffices = $filtered;
             $routeFallbackOffices = $filtered;
             $routeFallbackOffice = $filtered[0];
@@ -727,6 +710,7 @@ if ($isCenroAdminRecordContext) {
                 $candidateRoot = $candidateId > 0 ? workflow_find_cenro_root_office($pdo, $candidateId) : null;
                 $candidateRootId = (int)($candidateRoot['id'] ?? 0);
                 $isBypassUnitSameRoot = $candidateLevel === 'CENRO_UNIT'
+                    && workflow_cenro_internal_is_valid_unit_name((string)($candidateContext['name'] ?? ''))
                     && $actorRootId > 0
                     && $candidateRootId > 0
                     && $candidateRootId === $actorRootId;
@@ -734,8 +718,8 @@ if ($isCenroAdminRecordContext) {
                     continue;
                 }
             } elseif ($roleKeyRaw === 'CENRO_SECTION') {
-                $isChildUnit = $candidateLevel === 'CENRO_UNIT'
-                    && (int)($candidateContext['parent_office_id'] ?? 0) === $actorOfficeId;
+                $isChildUnit = is_array($actorOffice)
+                    && workflow_cenro_internal_section_allows_unit_destination($actorOffice, $candidateContext);
                 $isSiblingAdmin = $candidateLevel === 'CENRO_ADMIN_RECORD'
                     && $actorParentOfficeId > 0
                     && (int)($candidateContext['parent_office_id'] ?? 0) === $actorParentOfficeId;
@@ -762,13 +746,690 @@ if ($isCenroAdminRecordContext) {
             ];
         }
 
+        if ($actorParentPenroId > 0) {
+            $penroAdminOffice = workflow_find_child_office_by_level($pdo, $actorParentPenroId, 'PENRO_ADMIN_RECORD');
+            if (is_array($penroAdminOffice)) {
+                $alreadyIncluded = false;
+                foreach ($filtered as $existingOffice) {
+                    if ((int)($existingOffice['id'] ?? 0) === (int)($penroAdminOffice['id'] ?? 0)) {
+                        $alreadyIncluded = true;
+                        break;
+                    }
+                }
+                if (!$alreadyIncluded) {
+                    $filtered[] = [
+                        'id' => (int)($penroAdminOffice['id'] ?? 0),
+                        'name' => (string)($penroAdminOffice['name'] ?? ''),
+                        'level' => (string)($penroAdminOffice['level'] ?? ''),
+                        'parent_office_id' => (int)($penroAdminOffice['parent_office_id'] ?? 0),
+                    ];
+                }
+            }
+        }
+
+        if (!empty($filtered)) {
+            usort($filtered, static function (array $left, array $right): int {
+                $priority = static function (array $office): int {
+                    $level = strtoupper(trim((string)($office['level'] ?? '')));
+                    if ($level === 'CENRO_OFFICER') {
+                        return 1;
+                    }
+                    if ($level === 'PENRO_ADMIN_RECORD') {
+                        return 2;
+                    }
+                    return 3;
+                };
+
+                return $priority($left) <=> $priority($right);
+            });
+            $routeOffices = $filtered;
+            $routeFallbackOffices = $filtered;
+            $routeFallbackOffice = $filtered[0];
+        }
+    }
+} elseif ($roleKeyRaw === 'PAMO_ADMIN') {
+    $routeFallbackOffices = [];
+    if ($pdo instanceof PDO) {
+        $actorUserId = (int)($_SESSION['user_id'] ?? 0);
+        $actorContext = $actorUserId > 0 ? workflow_get_user_context($pdo, $actorUserId) : null;
+        $actorOfficeId = (int)($actorContext['office_id'] ?? $officeId);
+        $pamoRoot = $actorOfficeId > 0 ? workflow_find_pamo_root_office($pdo, $actorOfficeId) : null;
+        $pamoRootId = (int)($pamoRoot['id'] ?? 0);
+        $pamoRootName = (string)($pamoRoot['name'] ?? '');
+        $pamoScopeKey = workflow_pamo_scope_key($pamoRootName);
+
+        $candidatePool = is_array($routeOffices) ? $routeOffices : [];
+        $targetLevels = $roleKeyRaw === 'PASU_OFFICER'
+            ? ['PAMO_UNIT', 'PAMO_ADMIN']
+            : ['PASU_OFFICER'];
+        if (!empty($targetLevels)) {
+            $targetLevelSql = "'" . implode("','", array_map(static function (string $level): string {
+                return str_replace("'", "''", strtoupper($level));
+            }, $targetLevels)) . "'";
+            $targetOfficeStmt = $pdo->query(
+                'SELECT id, name, level, parent_office_id
+                 FROM offices
+                 WHERE UPPER(COALESCE(level, \'\')) IN (' . $targetLevelSql . ')
+                 ORDER BY name ASC'
+            );
+            $targetOfficeRows = $targetOfficeStmt ? ($targetOfficeStmt->fetchAll() ?: []) : [];
+            foreach ($targetOfficeRows as $officeRow) {
+                $candidatePool[] = [
+                    'id' => (int)($officeRow['id'] ?? 0),
+                    'name' => (string)($officeRow['name'] ?? ''),
+                    'level' => (string)($officeRow['level'] ?? ''),
+                    'parent_office_id' => (int)($officeRow['parent_office_id'] ?? 0),
+                ];
+            }
+        }
+
+        $filtered = [];
+        $seenCandidateIds = [];
+        foreach ($candidatePool as $office) {
+            $candidateId = (int)($office['id'] ?? 0);
+            if ($candidateId <= 0) {
+                continue;
+            }
+            if (isset($seenCandidateIds[$candidateId])) {
+                continue;
+            }
+            $seenCandidateIds[$candidateId] = true;
+            $candidateContext = workflow_get_office_context($pdo, $candidateId);
+            if (!$candidateContext) {
+                continue;
+            }
+            $candidateLevel = strtoupper(trim((string)($candidateContext['level'] ?? '')));
+            $candidateRoleId = workflow_infer_office_role_id($pdo, $candidateId);
+            $candidateRoleName = '';
+            if ($candidateRoleId !== null) {
+                $candidateRoleStmt = $pdo->prepare('SELECT name FROM roles WHERE id = :id LIMIT 1');
+                $candidateRoleStmt->execute(['id' => $candidateRoleId]);
+                $candidateRoleName = app_normalize_role_key((string)($candidateRoleStmt->fetchColumn() ?: ''));
+            }
+
+            $candidateRoot = $candidateId > 0 ? workflow_find_pamo_root_office($pdo, $candidateId) : null;
+            $candidateRootId = (int)($candidateRoot['id'] ?? 0);
+            $isSamePamoOfficer = $candidateLevel === 'PASU_OFFICER'
+                && $pamoRootId > 0
+                && $candidateRootId > 0
+                && $candidateRootId === $pamoRootId;
+            $isCenro = $candidateRoleName === 'CENRO_ADMIN_RECORD'
+                && $candidateLevel === 'CENRO_ADMIN_RECORD'
+                && $pamoScopeKey !== ''
+                && workflow_pamo_scope_allows_cenro_name($pamoRootName, (string)($candidateContext['name'] ?? ''));
+            $isPenro = $candidateRoleName === 'PENRO_ADMIN_RECORD'
+                && $candidateLevel === 'PENRO_ADMIN_RECORD'
+                && $pamoScopeKey !== ''
+                && workflow_pamo_scope_allows_penro_name($pamoRootName, (string)($candidateContext['name'] ?? ''));
+
+            if (!$isSamePamoOfficer && !$isCenro && !$isPenro) {
+                continue;
+            }
+
+            $filtered[] = [
+                'id' => (int)($office['id'] ?? 0),
+                'name' => (string)($office['name'] ?? ''),
+                'level' => (string)($office['level'] ?? ''),
+                'parent_office_id' => (int)($candidateContext['parent_office_id'] ?? 0),
+            ];
+        }
+
+        if ($pamoRootId > 0) {
+            $penroRootsStmt = $pdo->query(
+                "SELECT id
+                 FROM offices
+                 WHERE UPPER(COALESCE(level, '')) = 'PROVINCIAL'
+                 ORDER BY id ASC"
+            );
+            foreach (($penroRootsStmt ? ($penroRootsStmt->fetchAll() ?: []) : []) as $penroRootOffice) {
+                $penroRootOfficeId = (int)($penroRootOffice['id'] ?? 0);
+                if ($penroRootOfficeId <= 0) {
+                    continue;
+                }
+                $penroAdminOffice = workflow_find_child_office_by_level($pdo, $penroRootOfficeId, 'PENRO_ADMIN_RECORD');
+                if (!is_array($penroAdminOffice)) {
+                    continue;
+                }
+                if (
+                    $pamoScopeKey === ''
+                    || !workflow_pamo_scope_allows_penro_name($pamoRootName, (string)($penroAdminOffice['name'] ?? ''))
+                ) {
+                    continue;
+                }
+                $alreadyIncluded = false;
+                foreach ($filtered as $existingOffice) {
+                    if ((int)($existingOffice['id'] ?? 0) === (int)($penroAdminOffice['id'] ?? 0)) {
+                        $alreadyIncluded = true;
+                        break;
+                    }
+                }
+                if (!$alreadyIncluded) {
+                    $filtered[] = [
+                        'id' => (int)($penroAdminOffice['id'] ?? 0),
+                        'name' => (string)($penroAdminOffice['name'] ?? ''),
+                        'level' => (string)($penroAdminOffice['level'] ?? ''),
+                        'parent_office_id' => (int)($penroAdminOffice['parent_office_id'] ?? 0),
+                    ];
+                }
+            }
+
+            $cenroAdminsStmt = $pdo->query(
+                "SELECT id, name, level, parent_office_id
+                 FROM offices
+                 WHERE UPPER(COALESCE(level, '')) = 'CENRO_ADMIN_RECORD'
+                 ORDER BY name ASC, id ASC"
+            );
+            foreach (($cenroAdminsStmt ? ($cenroAdminsStmt->fetchAll() ?: []) : []) as $cenroAdminOffice) {
+                if (
+                    $pamoScopeKey === ''
+                    || !workflow_pamo_scope_allows_cenro_name($pamoRootName, (string)($cenroAdminOffice['name'] ?? ''))
+                ) {
+                    continue;
+                }
+                $alreadyIncluded = false;
+                foreach ($filtered as $existingOffice) {
+                    if ((int)($existingOffice['id'] ?? 0) === (int)($cenroAdminOffice['id'] ?? 0)) {
+                        $alreadyIncluded = true;
+                        break;
+                    }
+                }
+                if (!$alreadyIncluded) {
+                    $filtered[] = [
+                        'id' => (int)($cenroAdminOffice['id'] ?? 0),
+                        'name' => (string)($cenroAdminOffice['name'] ?? ''),
+                        'level' => (string)($cenroAdminOffice['level'] ?? ''),
+                        'parent_office_id' => (int)($cenroAdminOffice['parent_office_id'] ?? 0),
+                    ];
+                }
+            }
+        }
+
         if (!empty($filtered)) {
             $routeOffices = $filtered;
             $routeFallbackOffices = $filtered;
             $routeFallbackOffice = $filtered[0];
         }
     }
-} elseif (in_array($roleKey, ['PENRO', 'RECORDS_UNIT', 'ORED', 'DIVISION_CHIEF', 'SECTION_STAFF', 'ARD_TS', 'ARD_MS'], true)) {
+} elseif ($roleKeyRaw === 'PENRO_ADMIN_RECORD') {
+    $routeFallbackOffices = [];
+    if ($pdo instanceof PDO) {
+        $actorUserId = (int)($_SESSION['user_id'] ?? 0);
+        $actorContext = $actorUserId > 0 ? workflow_get_user_context($pdo, $actorUserId) : null;
+        $actorOfficeId = (int)($actorContext['office_id'] ?? $officeId);
+        $penroRoot = $actorOfficeId > 0 ? workflow_find_penro_root_office($pdo, $actorOfficeId) : null;
+        $penroRootId = (int)($penroRoot['id'] ?? 0);
+        $appendUniqueOffice = static function (array &$list, ?array $officeToAdd): void {
+            if (!is_array($officeToAdd) || (int)($officeToAdd['id'] ?? 0) <= 0) {
+                return;
+            }
+            $officeIdToAdd = (int)($officeToAdd['id'] ?? 0);
+            foreach ($list as $existingOffice) {
+                if ((int)($existingOffice['id'] ?? 0) === $officeIdToAdd) {
+                    return;
+                }
+            }
+            $list[] = [
+                'id' => $officeIdToAdd,
+                'name' => (string)($officeToAdd['name'] ?? ''),
+                'level' => (string)($officeToAdd['level'] ?? ''),
+                'parent_office_id' => (int)($officeToAdd['parent_office_id'] ?? 0),
+            ];
+        };
+
+        $candidatePool = is_array($routeOffices) ? $routeOffices : [];
+        $targetLevels = $roleKeyRaw === 'PASU_OFFICER'
+            ? ['PAMO_UNIT', 'PAMO_ADMIN']
+            : ['PASU_OFFICER'];
+        $targetLevelSql = "'" . implode("','", array_map(static function (string $level): string {
+            return str_replace("'", "''", strtoupper($level));
+        }, $targetLevels)) . "'";
+        $targetOfficeStmt = $pdo->query(
+            'SELECT id, name, level, parent_office_id
+             FROM offices
+             WHERE UPPER(COALESCE(level, \'\')) IN (' . $targetLevelSql . ')
+             ORDER BY name ASC, id ASC'
+        );
+        foreach (($targetOfficeStmt ? ($targetOfficeStmt->fetchAll() ?: []) : []) as $officeRow) {
+            $candidatePool[] = [
+                'id' => (int)($officeRow['id'] ?? 0),
+                'name' => (string)($officeRow['name'] ?? ''),
+                'level' => (string)($officeRow['level'] ?? ''),
+                'parent_office_id' => (int)($officeRow['parent_office_id'] ?? 0),
+            ];
+        }
+
+        $filtered = [];
+        $seenCandidateIds = [];
+        foreach ($candidatePool as $office) {
+            $candidateId = (int)($office['id'] ?? 0);
+            if ($candidateId <= 0) {
+                continue;
+            }
+            if (isset($seenCandidateIds[$candidateId])) {
+                continue;
+            }
+            $seenCandidateIds[$candidateId] = true;
+            $candidateContext = workflow_get_office_context($pdo, $candidateId);
+            if (!$candidateContext) {
+                continue;
+            }
+            $candidateLevel = strtoupper(trim((string)($candidateContext['level'] ?? '')));
+            $candidateRoleId = workflow_infer_office_role_id($pdo, $candidateId);
+            $candidateRoleName = '';
+            if ($candidateRoleId !== null) {
+                $candidateRoleStmt = $pdo->prepare('SELECT name FROM roles WHERE id = :id LIMIT 1');
+                $candidateRoleStmt->execute(['id' => $candidateRoleId]);
+                $candidateRoleName = app_normalize_role_key((string)($candidateRoleStmt->fetchColumn() ?: ''));
+            }
+
+            $candidateRoot = $candidateId > 0 ? workflow_find_penro_root_office($pdo, $candidateId) : null;
+            $candidateRootId = (int)($candidateRoot['id'] ?? 0);
+            $isSamePenroOfficer = $candidateLevel === 'PENRO_OFFICER'
+                && $penroRootId > 0
+                && $candidateRootId > 0
+                && $candidateRootId === $penroRootId;
+            $isCenro = ($candidateRoleName === 'CENRO_ADMIN_RECORD' || $candidateLevel === 'CENRO_ADMIN_RECORD')
+                && $penroRootId > 0
+                && workflow_cenro_belongs_to_penro($pdo, $penroRootId, $candidateId);
+            $isRecordsUnit = $candidateRoleName === 'RECORDS_UNIT'
+                || role_name_matches_records_unit((string)($candidateContext['name'] ?? ''));
+
+            if (!$isSamePenroOfficer && !$isCenro && !$isRecordsUnit) {
+                continue;
+            }
+
+            $filtered[] = [
+                'id' => (int)($office['id'] ?? 0),
+                'name' => (string)($office['name'] ?? ''),
+                'level' => (string)($office['level'] ?? ''),
+                'parent_office_id' => (int)($candidateContext['parent_office_id'] ?? 0),
+            ];
+        }
+
+        if ($penroRootId > 0) {
+            $officerStmt = $pdo->prepare(
+                "SELECT id, name, level, parent_office_id
+                 FROM offices
+                 WHERE parent_office_id = :parent_office_id
+                   AND UPPER(COALESCE(level, '')) = 'PENRO_OFFICER'
+                 ORDER BY name ASC, id ASC"
+            );
+            $officerStmt->execute(['parent_office_id' => $penroRootId]);
+            foreach (($officerStmt->fetchAll() ?: []) as $officerOffice) {
+                $appendUniqueOffice($filtered, $officerOffice);
+            }
+        }
+
+        $cenroStmt = $pdo->query(
+            "SELECT id, name, level, parent_office_id
+             FROM offices
+             WHERE UPPER(COALESCE(level, '')) = 'CENRO_ADMIN_RECORD'
+             ORDER BY name ASC, id ASC"
+        );
+        foreach (($cenroStmt ? ($cenroStmt->fetchAll() ?: []) : []) as $cenroOffice) {
+            $cenroOfficeId = (int)($cenroOffice['id'] ?? 0);
+            if ($penroRootId <= 0 || $cenroOfficeId <= 0 || !workflow_cenro_belongs_to_penro($pdo, $penroRootId, $cenroOfficeId)) {
+                continue;
+            }
+            $appendUniqueOffice($filtered, $cenroOffice);
+        }
+
+        $appendUniqueOffice($filtered, role_find_records_unit_route_office($pdo));
+
+        if (!empty($filtered)) {
+            $routeOffices = $filtered;
+            $routeFallbackOffices = $filtered;
+            $routeFallbackOffice = $filtered[0];
+        }
+    }
+} elseif (in_array($roleKeyRaw, ['PASU_OFFICER', 'PAMO_UNIT'], true)) {
+    $routeFallbackOffices = [];
+    if ($pdo instanceof PDO) {
+        $actorUserId = (int)($_SESSION['user_id'] ?? 0);
+        $actorContext = $actorUserId > 0 ? workflow_get_user_context($pdo, $actorUserId) : null;
+        $actorOfficeId = (int)($actorContext['office_id'] ?? $officeId);
+        $actorOffice = $actorOfficeId > 0 ? workflow_get_office_context($pdo, $actorOfficeId) : null;
+        $actorParentOfficeId = (int)($actorOffice['parent_office_id'] ?? 0);
+        $actorRoot = $actorOfficeId > 0 ? workflow_find_pamo_root_office($pdo, $actorOfficeId) : null;
+        $actorRootId = (int)($actorRoot['id'] ?? 0);
+
+        $candidatePool = is_array($routeOffices) ? $routeOffices : [];
+        $targetLevels = $roleKeyRaw === 'PASU_OFFICER'
+            ? ['PAMO_UNIT', 'PAMO_ADMIN']
+            : ['PASU_OFFICER'];
+        $targetLevelSql = "'" . implode("','", array_map(static function (string $level): string {
+            return str_replace("'", "''", strtoupper($level));
+        }, $targetLevels)) . "'";
+        $targetOfficeStmt = $pdo->query(
+            'SELECT id, name, level, parent_office_id
+             FROM offices
+             WHERE UPPER(COALESCE(level, \'\')) IN (' . $targetLevelSql . ')
+             ORDER BY name ASC, id ASC'
+        );
+        foreach (($targetOfficeStmt ? ($targetOfficeStmt->fetchAll() ?: []) : []) as $officeRow) {
+            $candidatePool[] = [
+                'id' => (int)($officeRow['id'] ?? 0),
+                'name' => (string)($officeRow['name'] ?? ''),
+                'level' => (string)($officeRow['level'] ?? ''),
+                'parent_office_id' => (int)($officeRow['parent_office_id'] ?? 0),
+            ];
+        }
+
+        $filtered = [];
+        $seenCandidateIds = [];
+        foreach ($candidatePool as $office) {
+            $candidateId = (int)($office['id'] ?? 0);
+            if ($candidateId <= 0) {
+                continue;
+            }
+            if (isset($seenCandidateIds[$candidateId])) {
+                continue;
+            }
+            $seenCandidateIds[$candidateId] = true;
+            $candidateContext = workflow_get_office_context($pdo, $candidateId);
+            if (!$candidateContext) {
+                continue;
+            }
+            $candidateLevel = strtoupper(trim((string)($candidateContext['level'] ?? '')));
+            $candidateRoot = $candidateId > 0 ? workflow_find_pamo_root_office($pdo, $candidateId) : null;
+            $candidateRootId = (int)($candidateRoot['id'] ?? 0);
+
+            if ($roleKeyRaw === 'PASU_OFFICER') {
+                $isChildUnit = $candidateLevel === 'PAMO_UNIT'
+                    && (int)($candidateContext['parent_office_id'] ?? 0) === $actorOfficeId;
+                $isSiblingAdmin = $candidateLevel === 'PAMO_ADMIN'
+                    && $actorRootId > 0
+                    && $candidateRootId > 0
+                    && $candidateRootId === $actorRootId;
+                if (!$isChildUnit && !$isSiblingAdmin) {
+                    continue;
+                }
+            } else {
+                if ($candidateLevel !== 'PASU_OFFICER') {
+                    continue;
+                }
+                if ($actorParentOfficeId <= 0 || $candidateId !== $actorParentOfficeId) {
+                    continue;
+                }
+            }
+
+            $filtered[] = [
+                'id' => (int)($office['id'] ?? 0),
+                'name' => (string)($office['name'] ?? ''),
+                'level' => (string)($office['level'] ?? ''),
+                'parent_office_id' => (int)($candidateContext['parent_office_id'] ?? 0),
+            ];
+        }
+
+        if (!empty($filtered)) {
+            $routeOffices = $filtered;
+            $routeFallbackOffices = $filtered;
+            $routeFallbackOffice = $filtered[0];
+        }
+    }
+} elseif (in_array($roleKeyRaw, ['PENRO_OFFICER', 'PENRO_DIVISION', 'PENRO_SECTION', 'PENRO_SECTION_UNIT'], true)) {
+    $routeFallbackOffices = [];
+    if ($pdo instanceof PDO) {
+        $actorUserId = (int)($_SESSION['user_id'] ?? 0);
+        $actorContext = $actorUserId > 0 ? workflow_get_user_context($pdo, $actorUserId) : null;
+        $actorOfficeId = (int)($actorContext['office_id'] ?? $officeId);
+        $actorOffice = $actorOfficeId > 0 ? workflow_get_office_context($pdo, $actorOfficeId) : null;
+        $actorParentOfficeId = (int)($actorOffice['parent_office_id'] ?? 0);
+        $actorRoot = $actorOfficeId > 0 ? workflow_find_penro_root_office($pdo, $actorOfficeId) : null;
+        $actorRootId = (int)($actorRoot['id'] ?? 0);
+
+        $filtered = [];
+        foreach ($routeOffices as $office) {
+            $candidateId = (int)($office['id'] ?? 0);
+            if ($candidateId <= 0) {
+                continue;
+            }
+            $candidateContext = workflow_get_office_context($pdo, $candidateId);
+            if (!$candidateContext) {
+                continue;
+            }
+            $candidateLevel = strtoupper(trim((string)($candidateContext['level'] ?? '')));
+
+            if ($roleKeyRaw === 'PENRO_OFFICER') {
+                $candidateRoot = $candidateId > 0 ? workflow_find_penro_root_office($pdo, $candidateId) : null;
+                $candidateRootId = (int)($candidateRoot['id'] ?? 0);
+                $isChildDivision = $candidateLevel === 'PENRO_DIVISION'
+                    && (int)($candidateContext['parent_office_id'] ?? 0) === $actorOfficeId;
+                $isSiblingAdminRecord = $candidateLevel === 'PENRO_ADMIN_RECORD'
+                    && $actorRootId > 0
+                    && $candidateRootId > 0
+                    && $candidateRootId === $actorRootId;
+                $isBypassSectionSameRoot = $candidateLevel === 'PENRO_SECTION'
+                    && $actorRootId > 0
+                    && $candidateRootId > 0
+                    && $candidateRootId === $actorRootId;
+                if (!$isChildDivision && !$isSiblingAdminRecord && !$isBypassSectionSameRoot) {
+                    continue;
+                }
+            } elseif ($roleKeyRaw === 'PENRO_DIVISION') {
+                $candidateRoot = $candidateId > 0 ? workflow_find_penro_root_office($pdo, $candidateId) : null;
+                $candidateRootId = (int)($candidateRoot['id'] ?? 0);
+                $isChildSection = is_array($actorOffice)
+                    && workflow_penro_internal_division_allows_destination($actorOffice, $candidateContext);
+                $isSameRootAdminRecord = $candidateLevel === 'PENRO_ADMIN_RECORD'
+                    && $actorRootId > 0
+                    && $candidateRootId > 0
+                    && $candidateRootId === $actorRootId;
+                $isParentOfficer = $candidateLevel === 'PENRO_OFFICER'
+                    && $actorParentOfficeId > 0
+                    && $candidateId === $actorParentOfficeId;
+                if (!$isChildSection && !$isSameRootAdminRecord && !$isParentOfficer) {
+                    continue;
+                }
+            } elseif ($roleKeyRaw === 'PENRO_SECTION') {
+                $isAdminFinanceSection = workflow_penro_internal_is_admin_finance_section_office($actorOffice);
+                $isAdminFinanceUnit = workflow_penro_internal_is_admin_finance_unit_office($actorOffice);
+                $isChildUnit = workflow_penro_internal_section_allows_destination($pdo, $actorOffice ?? [], $candidateContext);
+                $parentDestination = is_array($actorOffice)
+                    ? workflow_penro_internal_resolve_section_parent_destination($pdo, $actorOffice)
+                    : null;
+                $parentDestinationId = (int)($parentDestination['id'] ?? 0);
+                $isParentDestination = $parentDestinationId > 0 && $candidateId === $parentDestinationId;
+
+                if ($isAdminFinanceSection) {
+                    if (!$isChildUnit && !$isParentDestination) {
+                        continue;
+                    }
+                } elseif ($isAdminFinanceUnit) {
+                    if (!$isParentDestination) {
+                        continue;
+                    }
+                } else {
+                    if ($candidateLevel !== 'PENRO_DIVISION') {
+                        continue;
+                    }
+                    if ($actorParentOfficeId <= 0 || $candidateId !== $actorParentOfficeId) {
+                        continue;
+                    }
+                }
+            } elseif ($roleKeyRaw === 'PENRO_SECTION_UNIT') {
+                $actorMode = workflow_penro_internal_section_actor_mode($actorOffice);
+                if ($actorMode === 'section') {
+                    $isAdminFinanceSection = workflow_penro_internal_is_admin_finance_section_office($actorOffice);
+                    $isAdminFinanceUnit = workflow_penro_internal_is_admin_finance_unit_office($actorOffice);
+                    $isChildUnit = workflow_penro_internal_section_allows_destination($pdo, $actorOffice ?? [], $candidateContext);
+                    $parentDestination = is_array($actorOffice)
+                        ? workflow_penro_internal_resolve_section_parent_destination($pdo, $actorOffice)
+                        : null;
+                    $parentDestinationId = (int)($parentDestination['id'] ?? 0);
+                    $isParentDestination = $parentDestinationId > 0 && $candidateId === $parentDestinationId;
+
+                    if ($isAdminFinanceSection) {
+                        if (!$isChildUnit && !$isParentDestination) {
+                            continue;
+                        }
+                    } elseif ($isAdminFinanceUnit) {
+                        if (!$isParentDestination) {
+                            continue;
+                        }
+                    } else {
+                        if ($candidateLevel !== 'PENRO_DIVISION') {
+                            continue;
+                        }
+                        if ($actorParentOfficeId <= 0 || $candidateId !== $actorParentOfficeId) {
+                            continue;
+                        }
+                    }
+                } else {
+                    if ($candidateLevel !== 'PENRO_SECTION') {
+                        continue;
+                    }
+                    if ($actorParentOfficeId <= 0 || $candidateId !== $actorParentOfficeId) {
+                        continue;
+                    }
+                }
+            }
+
+            $filtered[] = [
+                'id' => (int)($office['id'] ?? 0),
+                'name' => (string)($office['name'] ?? ''),
+                'level' => (string)($office['level'] ?? ''),
+                'parent_office_id' => (int)($candidateContext['parent_office_id'] ?? 0),
+            ];
+        }
+
+        $appendUniqueOffice = static function (array &$list, ?array $officeToAdd): void {
+            if (!is_array($officeToAdd) || (int)($officeToAdd['id'] ?? 0) <= 0) {
+                return;
+            }
+            $officeIdToAdd = (int)($officeToAdd['id'] ?? 0);
+            foreach ($list as $existingOffice) {
+                if ((int)($existingOffice['id'] ?? 0) === $officeIdToAdd) {
+                    return;
+                }
+            }
+            $list[] = [
+                'id' => $officeIdToAdd,
+                'name' => (string)($officeToAdd['name'] ?? ''),
+                'level' => (string)($officeToAdd['level'] ?? ''),
+                'parent_office_id' => (int)($officeToAdd['parent_office_id'] ?? 0),
+            ];
+        };
+
+        if ($roleKeyRaw === 'PENRO_OFFICER') {
+            $divisionStmt = $pdo->prepare(
+                "SELECT id, name, level, parent_office_id
+                 FROM offices
+                 WHERE parent_office_id = :parent_office_id
+                   AND UPPER(COALESCE(level, '')) = 'PENRO_DIVISION'
+                 ORDER BY name ASC, id ASC"
+            );
+            $divisionStmt->execute(['parent_office_id' => $actorOfficeId]);
+            foreach (($divisionStmt->fetchAll() ?: []) as $divisionOffice) {
+                $appendUniqueOffice($filtered, $divisionOffice);
+            }
+
+            if ($actorParentOfficeId > 0) {
+                $adminRecordStmt = $pdo->prepare(
+                    "SELECT id, name, level, parent_office_id
+                     FROM offices
+                     WHERE parent_office_id = :parent_office_id
+                       AND UPPER(COALESCE(level, '')) = 'PENRO_ADMIN_RECORD'
+                     ORDER BY name ASC, id ASC"
+                );
+                $adminRecordStmt->execute(['parent_office_id' => $actorParentOfficeId]);
+                foreach (($adminRecordStmt->fetchAll() ?: []) as $adminRecordOffice) {
+                    $appendUniqueOffice($filtered, $adminRecordOffice);
+                }
+            }
+        } elseif ($roleKeyRaw === 'PENRO_DIVISION') {
+            $sectionStmt = $pdo->prepare(
+                "SELECT id, name, level, parent_office_id
+                 FROM offices
+                 WHERE parent_office_id = :parent_office_id
+                   AND UPPER(COALESCE(level, '')) = 'PENRO_SECTION'
+                 ORDER BY name ASC, id ASC"
+            );
+            $sectionStmt->execute(['parent_office_id' => $actorOfficeId]);
+            foreach (($sectionStmt->fetchAll() ?: []) as $sectionOffice) {
+                if (is_array($actorOffice) && workflow_penro_internal_division_allows_destination($actorOffice, $sectionOffice)) {
+                    $appendUniqueOffice($filtered, $sectionOffice);
+                }
+            }
+
+            if ($actorParentOfficeId > 0) {
+                $appendUniqueOffice($filtered, workflow_get_office_context($pdo, $actorParentOfficeId));
+            }
+            if ($actorRootId > 0) {
+                $adminRecordStmt = $pdo->prepare(
+                    "SELECT id, name, level, parent_office_id
+                     FROM offices
+                     WHERE parent_office_id = :parent_office_id
+                       AND UPPER(COALESCE(level, '')) = 'PENRO_ADMIN_RECORD'
+                     ORDER BY name ASC, id ASC"
+                );
+                $adminRecordStmt->execute(['parent_office_id' => $actorRootId]);
+                foreach (($adminRecordStmt->fetchAll() ?: []) as $adminRecordOffice) {
+                    $appendUniqueOffice($filtered, $adminRecordOffice);
+                }
+            }
+        } elseif ($roleKeyRaw === 'PENRO_SECTION') {
+            if (is_array($actorOffice) && workflow_penro_internal_is_admin_finance_section_office($actorOffice)) {
+                $sectionStmt = $pdo->prepare(
+                    "SELECT id, name, level, parent_office_id
+                     FROM offices
+                     WHERE parent_office_id = :parent_office_id
+                       AND UPPER(COALESCE(level, '')) = 'PENRO_SECTION'
+                     ORDER BY name ASC, id ASC"
+                );
+                $sectionStmt->execute(['parent_office_id' => $actorParentOfficeId]);
+                foreach (($sectionStmt->fetchAll() ?: []) as $sectionOffice) {
+                    if (workflow_penro_internal_section_allows_destination($pdo, $actorOffice, $sectionOffice)) {
+                        $appendUniqueOffice($filtered, $sectionOffice);
+                    }
+                }
+            } elseif (is_array($actorOffice) && workflow_penro_internal_is_admin_finance_unit_office($actorOffice)) {
+                $appendUniqueOffice($filtered, workflow_penro_internal_resolve_section_parent_destination($pdo, $actorOffice));
+            } elseif ($actorParentOfficeId > 0) {
+                $appendUniqueOffice($filtered, workflow_get_office_context($pdo, $actorParentOfficeId));
+            }
+
+            if (is_array($actorOffice) && workflow_penro_internal_is_admin_finance_section_office($actorOffice)) {
+                $appendUniqueOffice($filtered, workflow_penro_internal_resolve_section_parent_destination($pdo, $actorOffice));
+            }
+        } elseif ($roleKeyRaw === 'PENRO_SECTION_UNIT') {
+            $actorMode = workflow_penro_internal_section_actor_mode($actorOffice);
+            if ($actorMode === 'section') {
+                if (is_array($actorOffice) && workflow_penro_internal_is_admin_finance_section_office($actorOffice)) {
+                    $sectionStmt = $pdo->prepare(
+                        "SELECT id, name, level, parent_office_id
+                         FROM offices
+                         WHERE parent_office_id = :parent_office_id
+                           AND UPPER(COALESCE(level, '')) = 'PENRO_SECTION'
+                         ORDER BY name ASC, id ASC"
+                    );
+                    $sectionStmt->execute(['parent_office_id' => $actorParentOfficeId]);
+                    foreach (($sectionStmt->fetchAll() ?: []) as $sectionOffice) {
+                        if (workflow_penro_internal_section_allows_destination($pdo, $actorOffice, $sectionOffice)) {
+                            $appendUniqueOffice($filtered, $sectionOffice);
+                        }
+                    }
+                } elseif (is_array($actorOffice) && workflow_penro_internal_is_admin_finance_unit_office($actorOffice)) {
+                    $appendUniqueOffice($filtered, workflow_penro_internal_resolve_section_parent_destination($pdo, $actorOffice));
+                } elseif ($actorParentOfficeId > 0) {
+                    $appendUniqueOffice($filtered, workflow_get_office_context($pdo, $actorParentOfficeId));
+                }
+
+                if (is_array($actorOffice) && workflow_penro_internal_is_admin_finance_section_office($actorOffice)) {
+                    $appendUniqueOffice($filtered, workflow_penro_internal_resolve_section_parent_destination($pdo, $actorOffice));
+                }
+            } elseif ($actorParentOfficeId > 0) {
+                $appendUniqueOffice($filtered, workflow_get_office_context($pdo, $actorParentOfficeId));
+            }
+        }
+
+        if (!empty($filtered)) {
+            $routeOffices = $filtered;
+            $routeFallbackOffices = $filtered;
+            $routeFallbackOffice = $filtered[0];
+        }
+    }
+} elseif (in_array($roleKey, ['RECORDS_UNIT', 'ORED', 'DIVISION_CHIEF', 'SECTION_STAFF', 'ARD_TS', 'ARD_MS'], true)) {
     if ($roleKey === 'ORED') {
         foreach ($routeOffices as $office) {
             $level = strtoupper(trim((string)($office['level'] ?? '')));
@@ -958,10 +1619,11 @@ if ($isCenroAdminRecordContext) {
             }
         }
     } else {
-        $targetLabel = $roleKey === 'PENRO' ? 'RECORDS-UNIT' : 'ORED';
+        $routesToRecordsUnit = $isPenroAdminRecordContext;
+        $targetLabel = $routesToRecordsUnit ? 'RECORDS-UNIT' : 'ORED';
         foreach ($routeOffices as $office) {
             $officeName = (string)($office['name'] ?? '');
-            $targetMatched = $roleKey === 'PENRO'
+            $targetMatched = $routesToRecordsUnit
                 ? role_name_matches_records_unit($officeName)
                 : stripos($officeName, $targetLabel) !== false;
             if ($targetMatched) {
@@ -975,7 +1637,7 @@ if ($isCenroAdminRecordContext) {
         }
 
         if ($routeFallbackOffice === null && $pdo instanceof PDO) {
-            $resolvedOffice = $roleKey === 'PENRO'
+            $resolvedOffice = $routesToRecordsUnit
                 ? role_find_records_unit_route_office($pdo)
                 : role_find_ored_route_office($pdo);
             if (is_array($resolvedOffice) && (int)($resolvedOffice['id'] ?? 0) > 0) {

@@ -301,7 +301,7 @@ try {
                 'uploaded_by_role_key' => app_normalize_role_key((string)($row['uploaded_by_role'] ?? '')),
                 'is_prepared_response' => in_array(
                     app_normalize_role_key((string)($row['uploaded_by_role'] ?? '')),
-                    ['DIVISION_CHIEF', 'SECTION_STAFF', 'CENRO_SECTION', 'CENRO_UNIT'],
+                    ['DIVISION_CHIEF', 'SECTION_STAFF', 'CENRO_SECTION', 'CENRO_UNIT', 'PASU_OFFICER', 'PAMO_UNIT', 'PENRO_DIVISION', 'PENRO_SECTION', 'PENRO_SECTION_UNIT'],
                     true
                 ),
                 'preview_type' => attachment_preview_type((string)($row['file_name'] ?? ''), $filePath),

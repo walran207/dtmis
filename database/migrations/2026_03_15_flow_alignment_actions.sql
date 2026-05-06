@@ -68,37 +68,11 @@ WHERE rf.name = 'PENRO'
   );
 
 INSERT INTO workflow_transitions (action_type, allowed_from_role_id, allowed_to_role_id, description, is_active)
-SELECT 'RETURN', rf.id, rt.id, 'PENRO return to PASU', 1
-FROM roles rf
-JOIN roles rt
-WHERE rf.name = 'PENRO'
-  AND rt.name = 'PASU'
-  AND NOT EXISTS (
-      SELECT 1 FROM workflow_transitions wt
-      WHERE wt.action_type = 'RETURN'
-        AND wt.allowed_from_role_id = rf.id
-        AND wt.allowed_to_role_id = rt.id
-  );
-
-INSERT INTO workflow_transitions (action_type, allowed_from_role_id, allowed_to_role_id, description, is_active)
 SELECT 'RETURN', rf.id, rt.id, 'PACDO return directly to CENRO', 1
 FROM roles rf
 JOIN roles rt
 WHERE rf.name = 'PACDO'
   AND rt.name = 'CENRO'
-  AND NOT EXISTS (
-      SELECT 1 FROM workflow_transitions wt
-      WHERE wt.action_type = 'RETURN'
-        AND wt.allowed_from_role_id = rf.id
-        AND wt.allowed_to_role_id = rt.id
-  );
-
-INSERT INTO workflow_transitions (action_type, allowed_from_role_id, allowed_to_role_id, description, is_active)
-SELECT 'RETURN', rf.id, rt.id, 'PACDO return directly to PASU', 1
-FROM roles rf
-JOIN roles rt
-WHERE rf.name = 'PACDO'
-  AND rt.name = 'PASU'
   AND NOT EXISTS (
       SELECT 1 FROM workflow_transitions wt
       WHERE wt.action_type = 'RETURN'
@@ -132,7 +106,7 @@ WHERE r.name = 'ORED'
 INSERT INTO workflow_transitions (action_type, allowed_from_role_id, allowed_to_role_id, description, is_active)
 SELECT 'PENDING', r.id, NULL, CONCAT(r.name, ' can mark pending'), 1
 FROM roles r
-WHERE r.name IN ('ORED', 'PACDO', 'PENRO', 'CENRO', 'PASU', 'DIVISION_CHIEF', 'SECTION_STAFF')
+WHERE r.name IN ('ORED', 'PACDO', 'PENRO', 'CENRO', 'DIVISION_CHIEF', 'SECTION_STAFF')
   AND NOT EXISTS (
       SELECT 1 FROM workflow_transitions wt
       WHERE wt.action_type = 'PENDING'
@@ -160,19 +134,6 @@ FROM roles rf
 JOIN roles rt
 WHERE rf.name = 'PACDO'
   AND rt.name = 'CENRO'
-  AND NOT EXISTS (
-      SELECT 1 FROM workflow_transitions wt
-      WHERE wt.action_type = 'RELEASE'
-        AND wt.allowed_from_role_id = rf.id
-        AND wt.allowed_to_role_id = rt.id
-  );
-
-INSERT INTO workflow_transitions (action_type, allowed_from_role_id, allowed_to_role_id, description, is_active)
-SELECT 'RELEASE', rf.id, rt.id, 'PACDO release to PASU', 1
-FROM roles rf
-JOIN roles rt
-WHERE rf.name = 'PACDO'
-  AND rt.name = 'PASU'
   AND NOT EXISTS (
       SELECT 1 FROM workflow_transitions wt
       WHERE wt.action_type = 'RELEASE'

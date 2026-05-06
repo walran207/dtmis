@@ -56,10 +56,10 @@ if (!function_exists('dashboard_documents_row_version_expr')) {
 }
 
 if (!function_exists('dashboard_section_like_level_sql_list')) {
-    function dashboard_section_like_level_sql_list(): string
-    {
-        return "'SECTION', 'CENRO_SECTION'";
-    }
+function dashboard_section_like_level_sql_list(): string
+{
+    return "'SECTION', 'CENRO_SECTION', 'PENRO_DIVISION', 'PASU_OFFICER'";
+}
 }
 
 if (!function_exists('dashboard_format_datetime_label')) {
@@ -820,7 +820,15 @@ if (!function_exists('dashboard_fetch_division_staff_tracker_rows')) {
         );
         $divisionLevelStmt->execute(['division_office_id' => $divisionOfficeId]);
         $divisionOfficeLevel = strtoupper(trim((string)($divisionLevelStmt->fetchColumn() ?: '')));
-        $childOfficeLevel = $divisionOfficeLevel === 'CENRO_SECTION' ? 'CENRO_UNIT' : 'SECTION';
+        if ($divisionOfficeLevel === 'CENRO_SECTION') {
+            $childOfficeLevel = 'CENRO_UNIT';
+        } elseif ($divisionOfficeLevel === 'PENRO_DIVISION') {
+            $childOfficeLevel = 'PENRO_SECTION';
+        } elseif ($divisionOfficeLevel === 'PASU_OFFICER') {
+            $childOfficeLevel = 'PAMO_UNIT';
+        } else {
+            $childOfficeLevel = 'SECTION';
+        }
 
         $sectionStmt = $pdo->prepare(
             "SELECT id
@@ -1500,10 +1508,17 @@ if (!function_exists('dashboard_fetch_route_offices')) {
                         WHEN \'CENRO_UNIT\' THEN 5
                         WHEN \'CENRO_OFFICER\' THEN 6
                         WHEN \'CENRO_ADMIN_RECORD\' THEN 7
-                        WHEN \'PROVINCIAL\' THEN 8
-                        WHEN \'COMMUNITY\' THEN 9
-                        WHEN \'PROTECTED AREA\' THEN 10
-                        ELSE 11
+                        WHEN \'PAMO_UNIT\' THEN 8
+                        WHEN \'PASU_OFFICER\' THEN 9
+                        WHEN \'PAMO_ADMIN\' THEN 10
+                        WHEN \'PENRO_DIVISION\' THEN 11
+                        WHEN \'PENRO_SECTION\' THEN 12
+                        WHEN \'PENRO_OFFICER\' THEN 13
+                        WHEN \'PENRO_ADMIN_RECORD\' THEN 14
+                        WHEN \'PROVINCIAL\' THEN 15
+                        WHEN \'COMMUNITY\' THEN 16
+                        WHEN \'PROTECTED AREA\' THEN 17
+                        ELSE 18
                     END,
                     name ASC
                 LIMIT ' . $safeLimit;
@@ -1748,7 +1763,14 @@ if (!function_exists('dashboard_fetch_cenro_internal_office_summary_rows')) {
                                     \'CENRO_ADMIN_RECORD\',
                                     \'CENRO_OFFICER\',
                                     \'CENRO_SECTION\',
-                                    \'CENRO_UNIT\'
+                                    \'CENRO_UNIT\',
+                                    \'PAMO_ADMIN\',
+                                    \'PASU_OFFICER\',
+                                    \'PAMO_UNIT\',
+                                    \'PENRO_ADMIN_RECORD\',
+                                    \'PENRO_OFFICER\',
+                                    \'PENRO_DIVISION\',
+                                    \'PENRO_SECTION\'
                                 )';
         $internalStmt = $pdo->prepare($internalOfficeSql);
         $internalStmt->execute($params);
@@ -1831,13 +1853,13 @@ if (!function_exists('dashboard_fetch_notifications')) {
 
         $whereClause = $scope['where'];
         $params = $scope['params'];
-        if (in_array($roleKey, ['CENRO', 'PENRO', 'CENRO_ADMIN_RECORD'], true)) {
-            // CENRO/PENRO: full lifecycle notifications only for documents originated by their office.
+        if (in_array($roleKey, ['CENRO_ADMIN_RECORD', 'PENRO_ADMIN_RECORD', 'PAMO_ADMIN'], true)) {
+            // Admin-record origin offices: full lifecycle notifications only for documents originated by their office.
             $whereClause = 'd.originating_office_id = :office_id_origin_notifications';
             $params = [
                 'office_id_origin_notifications' => $officeId,
             ];
-        } elseif (in_array($roleKey, ['CENRO_OFFICER', 'CENRO_SECTION', 'CENRO_UNIT', 'RECORDS_UNIT', 'ORED', 'DIVISION_CHIEF', 'SECTION_STAFF', 'ARD_TS', 'ARD_MS'], true)) {
+        } elseif (in_array($roleKey, ['CENRO_OFFICER', 'CENRO_SECTION', 'CENRO_UNIT', 'PASU_OFFICER', 'PAMO_UNIT', 'PENRO_OFFICER', 'PENRO_DIVISION', 'PENRO_SECTION', 'RECORDS_UNIT', 'ORED', 'DIVISION_CHIEF', 'SECTION_STAFF', 'ARD_TS', 'ARD_MS'], true)) {
             // Internal action roles: prioritize incoming routed events; keep origin fallback for legacy office mappings.
             $whereClause = "(
                                 al.destination_office_id = :office_id_destination_notifications

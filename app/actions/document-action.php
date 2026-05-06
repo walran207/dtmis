@@ -523,8 +523,8 @@ function workflow_apply_subject_change_if_requested(
         return null;
     }
 
-    if (!in_array($actorRoleKey, ['DIVISION_CHIEF', 'SECTION_STAFF', 'CENRO_SECTION', 'CENRO_UNIT'], true)) {
-        throw new RuntimeException('Only Division Chief, Section Staff, CENRO Section, or CENRO Unit can change subject while routing.');
+    if (!in_array($actorRoleKey, ['DIVISION_CHIEF', 'SECTION_STAFF', 'CENRO_SECTION', 'CENRO_UNIT', 'PASU_OFFICER', 'PAMO_UNIT', 'PENRO_DIVISION', 'PENRO_SECTION', 'PENRO_SECTION_UNIT'], true)) {
+        throw new RuntimeException('Only Division/Section roles can change subject while routing.');
     }
     if (strlen($nextSubject) > 255) {
         throw new InvalidArgumentException('Subject is too long.');
@@ -585,26 +585,47 @@ function workflow_build_prepared_response_route_context(
             $destinationOfficeLevel === 'DIVISION'
             || str_contains($destinationOfficeName, 'DIVISION')
             || $destinationOfficeLevel === 'CENRO_SECTION'
+            || $destinationOfficeLevel === 'PENRO_DIVISION'
             || str_contains($destinationOfficeName, 'CENRO SECTION')
+            || str_contains($destinationOfficeName, 'PENRO DIVISION')
         );
-    $isCenroSectionPreparedResponse = $actorRoleKey === 'CENRO_SECTION'
+    $isCenroSectionPreparedResponse = in_array($actorRoleKey, ['CENRO_SECTION', 'PENRO_DIVISION'], true)
         && $normalizedAction === 'FORWARD'
         && (
             $destinationOfficeLevel === 'CENRO_OFFICER'
+            || $destinationOfficeLevel === 'PENRO_OFFICER'
             || str_contains($destinationOfficeName, 'CENRO OFFICER')
+            || str_contains($destinationOfficeName, 'PENRO OFFICER')
             || str_contains($destinationOfficeName, ' - OFFICER')
         );
-    $isCenroUnitPreparedResponse = $actorRoleKey === 'CENRO_UNIT'
+    $isCenroUnitPreparedResponse = in_array($actorRoleKey, ['CENRO_UNIT', 'PENRO_SECTION', 'PENRO_SECTION_UNIT'], true)
         && $normalizedAction === 'FORWARD'
         && (
             $destinationOfficeLevel === 'CENRO_SECTION'
+            || $destinationOfficeLevel === 'PENRO_DIVISION'
             || str_contains($destinationOfficeName, 'CENRO SECTION')
+            || str_contains($destinationOfficeName, 'PENRO DIVISION')
+        );
+    $isPamoOfficerPreparedResponse = $actorRoleKey === 'PASU_OFFICER'
+        && $normalizedAction === 'FORWARD'
+        && (
+            $destinationOfficeLevel === 'PAMO_ADMIN'
+            || str_contains($destinationOfficeName, 'PAMO ADMIN')
+        );
+    $isPamoUnitPreparedResponse = $actorRoleKey === 'PAMO_UNIT'
+        && $normalizedAction === 'FORWARD'
+        && (
+            $destinationOfficeLevel === 'PASU_OFFICER'
+            || str_contains($destinationOfficeName, 'PAMO OFFICER')
+            || str_contains($destinationOfficeName, ' - OFFICER')
         );
 
     $isPreparedResponseRoute = $isDivisionChiefPreparedResponse
         || $isSectionStaffPreparedResponse
         || $isCenroSectionPreparedResponse
-        || $isCenroUnitPreparedResponse;
+        || $isCenroUnitPreparedResponse
+        || $isPamoOfficerPreparedResponse
+        || $isPamoUnitPreparedResponse;
 
     return [
         'allowed' => $isPreparedResponseRoute,
@@ -620,8 +641,14 @@ function workflow_build_prepared_response_route_context(
                     ? 'Division Chief'
                     : (
                         $isCenroSectionPreparedResponse
-                            ? 'CENRO Officer'
-                            : ($isCenroUnitPreparedResponse ? 'CENRO Section' : '')
+                            ? (in_array($actorRoleKey, ['PENRO_DIVISION'], true) ? 'PENRO Officer' : 'CENRO Officer')
+                            : (
+                                $isCenroUnitPreparedResponse
+                                    ? (in_array($actorRoleKey, ['PENRO_SECTION', 'PENRO_SECTION_UNIT'], true) ? 'PENRO Division' : 'CENRO Section')
+                                    : ($isPamoOfficerPreparedResponse
+                                        ? 'PAMO Admin'
+                                        : ($isPamoUnitPreparedResponse ? 'PASU' : ''))
+                            )
                     )
             ),
     ];
@@ -646,8 +673,8 @@ function workflow_build_endorsement_route_context(
 
     $isRecordsUnitDestination = workflow_name_matches_records_unit($destinationOfficeName);
 
-    $isCenroPasuToRecordsUnit = in_array($actorRoleKey, ['CENRO', 'PASU', 'CENRO_ADMIN_RECORD'], true) && $isRecordsUnitDestination;
-    $isPenroToRecordsUnit = $actorRoleKey === 'PENRO' && $isRecordsUnitDestination;
+    $isCenroPasuToRecordsUnit = in_array($actorRoleKey, ['CENRO_ADMIN_RECORD', 'PENRO_ADMIN_RECORD'], true) && $isRecordsUnitDestination;
+    $isPenroToRecordsUnit = $actorRoleKey === 'PENRO_ADMIN_RECORD' && $isRecordsUnitDestination;
 
     if (!$isCenroPasuToRecordsUnit && !$isPenroToRecordsUnit) {
         return [
@@ -659,7 +686,7 @@ function workflow_build_endorsement_route_context(
 
     return [
         'allowed' => true,
-        'required' => $isPenroToRecordsUnit || $actorRoleKey === 'CENRO_ADMIN_RECORD',
+        'required' => $isPenroToRecordsUnit || in_array($actorRoleKey, ['CENRO_ADMIN_RECORD', 'PENRO_ADMIN_RECORD'], true),
         'target_label' => 'PACDO/RECORDS-UNIT',
     ];
 }
@@ -673,7 +700,7 @@ function workflow_document_has_prepared_response_attachment(PDO $pdo, int $docum
         return false;
     }
 
-    $preparedResponseRoleKeys = ['DIVISION_CHIEF', 'SECTION_STAFF', 'CENRO_SECTION', 'CENRO_UNIT'];
+    $preparedResponseRoleKeys = ['DIVISION_CHIEF', 'SECTION_STAFF', 'CENRO_SECTION', 'CENRO_UNIT', 'PASU_OFFICER', 'PAMO_UNIT', 'PENRO_DIVISION', 'PENRO_SECTION', 'PENRO_SECTION_UNIT'];
     $stmt = $pdo->prepare(
         'SELECT r_u.name AS uploaded_by_role
          FROM document_attachments da
@@ -799,7 +826,7 @@ function intake_assert_manage_permission(PDO $pdo, int $documentId, int $actorUs
     }
 
     $hasReturnAction = intake_document_has_return_action($pdo, $documentId);
-    $isCorrectionCycle = in_array($actorRoleKey, ['CENRO', 'PENRO', 'RECORDS_UNIT'], true)
+    $isCorrectionCycle = in_array($actorRoleKey, ['CENRO_ADMIN_RECORD', 'PENRO_ADMIN_RECORD', 'RECORDS_UNIT'], true)
         && $hasReturnAction
         && $rowIsInActorCustody
         && intake_status_is_correction_stage($status)
@@ -807,7 +834,7 @@ function intake_assert_manage_permission(PDO $pdo, int $documentId, int $actorUs
 
     if (!$isCreatorDraft && !$isCorrectionCycle) {
         throw new RuntimeException(
-            'Only the intake creator (draft) or the receiving CENRO/PENRO/RECORDS-UNIT correction office can edit or delete this document.'
+            'Only the intake creator (draft) or the receiving CENRO Admin Record/PENRO Admin Record/RECORDS-UNIT correction office can edit or delete this document.'
         );
     }
 
@@ -1421,7 +1448,7 @@ function workflow_apply_ored_digital_signature(PDO $pdo, int $documentId, int $a
 
     $actorContext = workflow_get_user_context($pdo, $actorUserId);
     $actorRoleKey = app_normalize_role_key((string)($actorContext['role_name'] ?? ''));
-    if (!in_array($actorRoleKey, ['ORED', 'CENRO_OFFICER'], true)) {
+    if (!in_array($actorRoleKey, ['ORED', 'CENRO_OFFICER', 'PENRO_OFFICER', 'PASU_OFFICER'], true)) {
         return $result;
     }
 
@@ -1458,7 +1485,7 @@ function workflow_apply_ored_digital_signature(PDO $pdo, int $documentId, int $a
     }
 
     $signableExtensions = ['png', 'jpg', 'jpeg', 'bmp'];
-    $preparedResponseRoleKeys = ['DIVISION_CHIEF', 'SECTION_STAFF', 'CENRO_SECTION', 'CENRO_UNIT'];
+    $preparedResponseRoleKeys = ['DIVISION_CHIEF', 'SECTION_STAFF', 'CENRO_SECTION', 'CENRO_UNIT', 'PASU_OFFICER', 'PAMO_UNIT', 'PENRO_DIVISION', 'PENRO_SECTION', 'PENRO_SECTION_UNIT'];
 
     $signerName = digital_signature_resolve_signer_name($pdo, $actorUserId);
     $signatureImagePath = digital_signature_resolve_signature_image_path($actorUserId);
@@ -1554,8 +1581,8 @@ function workflow_undo_ored_sign(PDO $pdo, int $documentId, int $actorUserId, st
 
     $actorContext = workflow_get_user_context($pdo, $actorUserId);
     $actorRoleKey = app_normalize_role_key((string)($actorContext['role_name'] ?? ''));
-    if (!in_array($actorRoleKey, ['ORED', 'CENRO_OFFICER'], true)) {
-        throw new RuntimeException('Only ORED and CENRO Officer can undo a sign action.');
+    if (!in_array($actorRoleKey, ['ORED', 'CENRO_OFFICER', 'PENRO_OFFICER', 'PASU_OFFICER'], true)) {
+        throw new RuntimeException('Only ORED, CENRO Officer, or PENRO Officer can undo a sign action.');
     }
 
     $document = workflow_get_document_context($pdo, $documentId, true);
@@ -1764,8 +1791,8 @@ try {
 
     $routingSubjectChangeRequested = in_array($action, ['FORWARD', 'REROUTE', 'RETURN'], true) && $subject !== '';
     if ($routingSubjectChangeRequested) {
-        if (!in_array($actorRoleKey, ['DIVISION_CHIEF', 'SECTION_STAFF', 'CENRO_SECTION', 'CENRO_UNIT'], true)) {
-            throw new RuntimeException('Only Division Chief, Section Staff, CENRO Section, or CENRO Unit can change subject while routing.');
+        if (!in_array($actorRoleKey, ['DIVISION_CHIEF', 'SECTION_STAFF', 'CENRO_SECTION', 'CENRO_UNIT', 'PASU_OFFICER', 'PAMO_UNIT', 'PENRO_DIVISION', 'PENRO_SECTION', 'PENRO_SECTION_UNIT'], true)) {
+            throw new RuntimeException('Only Division/Section roles can change subject while routing.');
         }
         if (strlen($subject) > 255) {
             throw new InvalidArgumentException('Subject is too long.');
@@ -1798,7 +1825,7 @@ try {
                     throw new InvalidArgumentException(
                         'Prepared of response attachment is required before forwarding to '
                         . $targetLabel
-                        . '. Upload at least one file, unless an earlier prepared response was already uploaded by Division/Section or CENRO Section/Unit.'
+                        . '. Upload at least one file, unless an earlier prepared response was already uploaded by Division/Section or CENRO/PENRO internal section-level roles.'
                     );
                 }
             }

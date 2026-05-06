@@ -10,7 +10,7 @@ $dtrEndpoint = app_url('actions/document-type-request.php');
 
 $dtrModeLabel = $dtrMode === 'reviewer' ? 'RECORDS-UNIT Review' : 'Request Queue';
 $dtrModeHint = $dtrMode === 'reviewer'
-    ? 'Review and decide on PASU, CENRO, and PENRO document type requests.'
+    ? 'Review and decide on CENRO Admin Record, PENRO Admin Record, and PAMO Admin document type requests.'
     : 'Submit new document type requests for RECORDS-UNIT approval.';
 ?>
 <?php if (!empty($dtrStatsCards)): ?>
@@ -20,18 +20,23 @@ $dtrModeHint = $dtrMode === 'reviewer'
         $cardLabelRaw = trim((string)($card['label'] ?? ''));
         $cardLabelKey = strtolower($cardLabelRaw);
         $cardFilter = '';
+        $cardStatKey = 'total';
         if (str_contains($cardLabelKey, 'pending')) {
             $cardFilter = 'pending';
+            $cardStatKey = 'pending';
         } elseif (str_contains($cardLabelKey, 'approved')) {
             $cardFilter = 'approved';
+            $cardStatKey = 'approved';
         } elseif (str_contains($cardLabelKey, 'rejected')) {
             $cardFilter = 'rejected';
+            $cardStatKey = 'rejected';
         }
     ?>
     <article
         class="card stat-card dtr-stat-card"
         data-dtr-card-filter="<?php echo e($cardFilter); ?>"
         data-dtr-card-label="<?php echo e($cardLabelRaw); ?>"
+        data-dtr-stat-key="<?php echo e($cardStatKey); ?>"
         data-disable-stat-card-nav="1"
         data-disable-stat-card-live="1"
     >
@@ -42,7 +47,7 @@ $dtrModeHint = $dtrMode === 'reviewer'
             <?php endif; ?>
         </div>
         <p class="stat-label"><?php echo e((string)($card['label'] ?? '')); ?></p>
-        <p class="stat-value"><?php echo e((string)($card['value'] ?? '0')); ?></p>
+        <p class="stat-value" data-dtr-stat-value="true"><?php echo e((string)($card['value'] ?? '0')); ?></p>
     </article>
     <?php endforeach; ?>
 </section>
@@ -100,7 +105,7 @@ $dtrModeHint = $dtrMode === 'reviewer'
         <div class="dtr-head">
             <div>
                 <h2><?php echo $dtrMode === 'reviewer' ? 'All Requests' : 'My Requests'; ?></h2>
-                <p><?php echo e((string)count($dtrRequests)); ?> request(s) loaded.</p>
+                <p id="dtrLoadedCount"><?php echo e((string)count($dtrRequests)); ?> request(s) loaded.</p>
             </div>
         </div>
 
@@ -130,7 +135,6 @@ $dtrModeHint = $dtrMode === 'reviewer'
                     <tr>
                         <th>ID</th>
                         <th>Document Type</th>
-                        <th>Category</th>
                         <th>Days</th>
                         <th>Status</th>
                         <th>Requester</th>
@@ -142,7 +146,7 @@ $dtrModeHint = $dtrMode === 'reviewer'
                 <tbody>
                     <?php if (empty($dtrRequests)): ?>
                     <tr>
-                        <td colspan="9" class="dtr-empty">No document type requests found yet.</td>
+                        <td colspan="8" class="dtr-empty">No document type requests found yet.</td>
                     </tr>
                     <?php else: ?>
                         <?php foreach ($dtrRequests as $request): ?>
@@ -172,7 +176,6 @@ $dtrModeHint = $dtrMode === 'reviewer'
                             <tr data-dtr-status="<?php echo e(strtolower($status)); ?>">
                                 <td>#<?php echo e((string)$rowPayload['id']); ?></td>
                                 <td><?php echo e((string)($request['requested_name'] ?? '')); ?></td>
-                                <td><?php echo e((string)($request['requested_category'] ?? '')); ?></td>
                                 <td><?php echo e((string)($request['requested_days'] ?? '')); ?></td>
                                 <td><span class="dtr-status <?php echo e($statusClass); ?>"><?php echo e($status); ?></span></td>
                                 <td>
@@ -208,10 +211,30 @@ $dtrModeHint = $dtrMode === 'reviewer'
     </article>
 </section>
 
+<div id="dtrDecisionModal" class="action-modal" hidden>
+    <button type="button" class="action-modal-backdrop" data-dtr-decision-close="true" aria-label="Close review decision dialog"></button>
+    <div class="action-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="dtrDecisionTitle">
+        <div class="action-modal-form app-dialog-body">
+            <h3 id="dtrDecisionTitle" class="action-modal-title">Confirm Action</h3>
+            <p id="dtrDecisionMessage" class="action-modal-meta"></p>
+            <div id="dtrDecisionRemarksWrap" hidden>
+                <label class="action-modal-label" for="dtrDecisionRemarks">Review Remarks</label>
+                <textarea id="dtrDecisionRemarks" class="action-modal-input" rows="4" maxlength="1000" placeholder="Add remarks for this request"></textarea>
+                <p id="dtrDecisionRemarksMeta" class="action-modal-meta">Use remarks to guide the requester on the next steps.</p>
+            </div>
+            <div class="action-modal-actions app-dialog-actions">
+                <button type="button" id="dtrDecisionCancel" class="action-modal-btn action-modal-btn-secondary" data-dtr-decision-close="true">Cancel</button>
+                <button type="button" id="dtrDecisionConfirm" class="action-modal-btn action-modal-btn-primary">Confirm</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
     (function () {
         const mode = <?= json_encode($dtrMode) ?>;
         const endpoint = <?= json_encode($dtrEndpoint) ?>;
+        const feedUrl = endpoint + '?action=REQUEST_LIST';
         const csrfToken = <?= json_encode($dtrCsrfToken) ?>;
         const tableReady = <?= $dtrTableReady ? 'true' : 'false' ?>;
         if (!tableReady) {
@@ -230,11 +253,96 @@ $dtrModeHint = $dtrMode === 'reviewer'
         const requestsTableBody = document.querySelector('.dtr-table tbody');
         const requestsTableWrap = document.querySelector('.dtr-table-wrap');
         const filterEmptyState = document.getElementById('dtrFilterEmpty');
+        const loadedCountLabel = document.getElementById('dtrLoadedCount');
         const statCards = Array.from(document.querySelectorAll('.dtr-stats-grid .dtr-stat-card'));
+        const decisionModal = document.getElementById('dtrDecisionModal');
+        const decisionTitle = document.getElementById('dtrDecisionTitle');
+        const decisionMessage = document.getElementById('dtrDecisionMessage');
+        const decisionRemarksWrap = document.getElementById('dtrDecisionRemarksWrap');
+        const decisionRemarks = document.getElementById('dtrDecisionRemarks');
+        const decisionRemarksMeta = document.getElementById('dtrDecisionRemarksMeta');
+        const decisionConfirm = document.getElementById('dtrDecisionConfirm');
+        const decisionCloseButtons = Array.from(document.querySelectorAll('[data-dtr-decision-close="true"]'));
         let highlightedRowTimerId = 0;
+        let liveRefreshTimerId = 0;
+        let liveRefreshInFlight = false;
+        let currentSnapshotToken = '';
+        let decisionDialogResolver = null;
+        let decisionDialogRequiresRemarks = false;
 
         function normalizeTextKey(value) {
             return String(value || '').toLowerCase().trim();
+        }
+
+        function escapeHtml(value) {
+            return String(value || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function escapeAttribute(value) {
+            return escapeHtml(value);
+        }
+
+        function showAlert(message, title) {
+            if (typeof window.showAlertDialog === 'function') {
+                return window.showAlertDialog(message, title);
+            }
+            window.alert(String(message || ''));
+            return Promise.resolve(true);
+        }
+
+        function statusClass(status) {
+            const normalized = String(status || '').toUpperCase().trim();
+            if (normalized === 'APPROVED') {
+                return 'dtr-status-approved';
+            }
+            if (normalized === 'REJECTED') {
+                return 'dtr-status-rejected';
+            }
+            return 'dtr-status-pending';
+        }
+
+        function buildRowPayload(request) {
+            return {
+                id: Number(request && request.id ? request.id : 0),
+                requested_name: String(request && request.requested_name ? request.requested_name : ''),
+                requested_category: String(request && request.requested_category ? request.requested_category : 'Simple'),
+                requested_days: Number(request && request.requested_days ? request.requested_days : 3),
+                justification: String(request && request.justification ? request.justification : ''),
+                review_remarks: String(request && request.review_remarks ? request.review_remarks : ''),
+                status: String(request && request.status ? request.status : 'PENDING').toUpperCase(),
+            };
+        }
+
+        function setLoadedCount(count) {
+            if (!loadedCountLabel) {
+                return;
+            }
+            loadedCountLabel.textContent = String(count) + ' request(s) loaded.';
+        }
+
+        function renderStats(summary) {
+            if (!summary || typeof summary !== 'object') {
+                return;
+            }
+            const values = {
+                total: Number(summary.total || 0),
+                pending: Number(summary.pending || 0),
+                approved: Number(summary.approved || 0),
+                rejected: Number(summary.rejected || 0),
+            };
+            statCards.forEach(function (card) {
+                const statKey = normalizeTextKey(card.getAttribute('data-dtr-stat-key'));
+                const valueNode = card.querySelector('[data-dtr-stat-value="true"]');
+                if (!valueNode || !Object.prototype.hasOwnProperty.call(values, statKey)) {
+                    return;
+                }
+                valueNode.textContent = String(values[statKey]);
+            });
         }
 
         function resolveCardFilterValue(card) {
@@ -431,6 +539,213 @@ $dtrModeHint = $dtrMode === 'reviewer'
             }
         }
 
+        function closeDecisionDialog(result) {
+            if (!decisionModal) {
+                return;
+            }
+            decisionModal.classList.remove('is-open');
+            decisionModal.hidden = true;
+            document.body.classList.remove('modal-open');
+            if (typeof decisionDialogResolver === 'function') {
+                const resolver = decisionDialogResolver;
+                decisionDialogResolver = null;
+                resolver(result);
+            }
+        }
+
+        function openDecisionDialog(options) {
+            const settings = options && typeof options === 'object' ? options : {};
+            const title = String(settings.title || 'Confirm Action').trim();
+            const message = String(settings.message || '').trim();
+            const confirmLabel = String(settings.confirmLabel || 'Confirm').trim();
+            const remarksVisible = !!settings.showRemarks;
+            const remarksRequired = !!settings.remarksRequired;
+            const remarksValue = String(settings.remarksValue || '');
+            const remarksLabel = String(settings.remarksLabel || 'Review Remarks').trim();
+            const remarksHelp = String(settings.remarksHelp || '').trim();
+
+            if (!decisionModal || !decisionTitle || !decisionMessage || !decisionConfirm) {
+                if (remarksVisible && remarksRequired) {
+                    const fallbackRemarks = window.prompt(message + '\n\nEnter review remarks:');
+                    if (fallbackRemarks === null || String(fallbackRemarks).trim() === '') {
+                        return Promise.resolve({ confirmed: false, remarks: '' });
+                    }
+                    return Promise.resolve({ confirmed: true, remarks: String(fallbackRemarks).trim() });
+                }
+                if (typeof window.showConfirmDialog === 'function') {
+                    return window.showConfirmDialog(message, title, confirmLabel).then(function (confirmed) {
+                        return { confirmed: !!confirmed, remarks: remarksValue };
+                    });
+                }
+                return Promise.resolve({
+                    confirmed: window.confirm(message),
+                    remarks: remarksValue,
+                });
+            }
+
+            decisionTitle.textContent = title === '' ? 'Confirm Action' : title;
+            decisionMessage.textContent = message;
+            decisionConfirm.textContent = confirmLabel === '' ? 'Confirm' : confirmLabel;
+            if (decisionRemarksWrap) {
+                decisionRemarksWrap.hidden = !remarksVisible;
+            }
+            const remarksLabelNode = decisionRemarksWrap ? decisionRemarksWrap.querySelector('label[for="dtrDecisionRemarks"]') : null;
+            if (remarksLabelNode) {
+                remarksLabelNode.textContent = remarksLabel === '' ? 'Review Remarks' : remarksLabel;
+            }
+            if (decisionRemarks) {
+                decisionRemarks.value = remarksValue;
+                decisionRemarks.placeholder = remarksRequired
+                    ? 'Required remarks for this action'
+                    : 'Optional remarks for this action';
+            }
+            if (decisionRemarksMeta) {
+                decisionRemarksMeta.textContent = remarksHelp !== ''
+                    ? remarksHelp
+                    : (remarksRequired
+                        ? 'Review remarks are required before continuing.'
+                        : 'Remarks are optional for this action.');
+            }
+            decisionDialogRequiresRemarks = remarksVisible && remarksRequired;
+            decisionModal.hidden = false;
+            decisionModal.classList.add('is-open');
+            document.body.classList.add('modal-open');
+            window.setTimeout(function () {
+                if (remarksVisible && decisionRemarks) {
+                    decisionRemarks.focus();
+                    return;
+                }
+                decisionConfirm.focus();
+            }, 0);
+
+            return new Promise(function (resolve) {
+                decisionDialogResolver = resolve;
+            });
+        }
+
+        function bindDecisionDialog() {
+            if (!decisionModal || !decisionConfirm) {
+                return;
+            }
+
+            decisionConfirm.addEventListener('click', async function () {
+                const remarksValue = decisionRemarks ? String(decisionRemarks.value || '').trim() : '';
+                if (decisionDialogRequiresRemarks && remarksValue === '') {
+                    await showAlert('Review remarks are required before continuing.', 'Remarks Required');
+                    if (decisionRemarks) {
+                        decisionRemarks.focus();
+                    }
+                    return;
+                }
+                closeDecisionDialog({
+                    confirmed: true,
+                    remarks: remarksValue,
+                });
+            });
+
+            decisionCloseButtons.forEach(function (button) {
+                button.addEventListener('click', function () {
+                    closeDecisionDialog({ confirmed: false, remarks: '' });
+                });
+            });
+
+            document.addEventListener('keydown', function (event) {
+                if (event.key === 'Escape' && decisionModal && !decisionModal.hidden) {
+                    closeDecisionDialog({ confirmed: false, remarks: '' });
+                }
+            });
+        }
+
+        function buildTableRow(request) {
+            const payload = buildRowPayload(request);
+            const payloadJson = escapeAttribute(JSON.stringify(payload));
+            const normalizedStatus = String(payload.status || 'PENDING').toUpperCase();
+            const requesterName = String(request && request.requester_name ? request.requester_name : '').trim();
+            const requesterRole = String(request && request.requester_role ? request.requester_role : '').trim();
+            const requesterOffice = String(request && request.requester_office_name ? request.requester_office_name : '-').trim();
+            const canManagePending = normalizedStatus === 'PENDING';
+            let actionButtons = '<button type="button" class="dtr-btn dtr-btn-secondary" data-dtr-select="' + payloadJson + '">Select</button>';
+
+            if (mode === 'reviewer' && canManagePending) {
+                actionButtons += '<button type="button" class="dtr-btn dtr-btn-primary" data-dtr-quick="REQUEST_APPROVE" data-dtr-select="' + payloadJson + '">Approve</button>';
+                actionButtons += '<button type="button" class="dtr-btn dtr-btn-secondary" data-dtr-quick="REQUEST_REJECT" data-dtr-select="' + payloadJson + '">Reject</button>';
+                actionButtons += '<button type="button" class="dtr-btn dtr-btn-danger" data-dtr-quick="REQUEST_DELETE" data-dtr-select="' + payloadJson + '">Delete</button>';
+            } else if (mode !== 'reviewer' && canManagePending) {
+                actionButtons += '<button type="button" class="dtr-btn dtr-btn-danger" data-dtr-quick="REQUEST_DELETE" data-dtr-select="' + payloadJson + '">Delete</button>';
+            }
+
+            let remarksMarkup = '<div>' + escapeHtml(String(request && request.justification ? request.justification : '-')) + '</div>';
+            if (String(request && request.review_remarks ? request.review_remarks : '').trim() !== '') {
+                remarksMarkup += '<div class="dtr-muted">RECORDS-UNIT: ' + escapeHtml(String(request.review_remarks)) + '</div>';
+            }
+
+            return ''
+                + '<tr data-dtr-status="' + escapeAttribute(normalizedStatus.toLowerCase()) + '" data-dtr-request-id="' + escapeAttribute(String(payload.id || 0)) + '">'
+                + '<td>#' + escapeHtml(String(payload.id || 0)) + '</td>'
+                + '<td>' + escapeHtml(payload.requested_name) + '</td>'
+                + '<td>' + escapeHtml(String(payload.requested_days || 0)) + '</td>'
+                + '<td><span class="dtr-status ' + escapeAttribute(statusClass(normalizedStatus)) + '">' + escapeHtml(normalizedStatus) + '</span></td>'
+                + '<td>' + escapeHtml(requesterName !== '' ? requesterName : '-') + '<div class="dtr-muted">' + escapeHtml(requesterRole) + '</div></td>'
+                + '<td>' + escapeHtml(requesterOffice) + '</td>'
+                + '<td>' + remarksMarkup + '</td>'
+                + '<td><div class="dtr-row-actions">' + actionButtons + '</div></td>'
+                + '</tr>';
+        }
+
+        function renderRequestsTable(requests) {
+            if (!requestsTableBody) {
+                return;
+            }
+
+            if (!Array.isArray(requests) || requests.length === 0) {
+                requestsTableBody.innerHTML = '<tr><td colspan="8" class="dtr-empty">No document type requests found yet.</td></tr>';
+                setLoadedCount(0);
+                applyRequestTableFilters();
+                return;
+            }
+
+            requestsTableBody.innerHTML = requests.map(buildTableRow).join('');
+            setLoadedCount(requests.length);
+            applyRequestTableFilters();
+        }
+
+        function findPayloadById(requests, requestId) {
+            const numericId = Number(requestId || 0);
+            if (!Array.isArray(requests) || !Number.isFinite(numericId) || numericId <= 0) {
+                return null;
+            }
+            const match = requests.find(function (request) {
+                return Number(request && request.id ? request.id : 0) === numericId;
+            });
+            return match ? buildRowPayload(match) : null;
+        }
+
+        async function confirmDeleteRequest(payload, options) {
+            const settings = options && typeof options === 'object' ? options : {};
+            const requestName = String(
+                (payload && payload.requested_name)
+                || (requestedNameInput ? requestedNameInput.value : '')
+                || 'this document type request'
+            ).trim();
+            const status = String((payload && payload.status) || '').trim();
+            const ownerLabel = settings.ownerLabel ? String(settings.ownerLabel).trim() : 'request';
+            const messageParts = [
+                'Delete "' + requestName + '"?',
+                'This will permanently remove the ' + ownerLabel + ' record.'
+            ];
+            if (status !== '') {
+                messageParts.push('Current status: ' + status + '.');
+            }
+            messageParts.push('This action cannot be undone.');
+            const message = messageParts.join(' ');
+
+            if (typeof window.showConfirmDialog === 'function') {
+                return !!(await window.showConfirmDialog(message, 'Delete Request', 'Delete'));
+            }
+
+            return window.confirm(message);
+        }
+
         async function postAction(payload) {
             const formData = new FormData();
             formData.set('csrf_token', csrfToken);
@@ -455,9 +770,122 @@ $dtrModeHint = $dtrMode === 'reviewer'
             return json;
         }
 
+        async function refreshLiveData(options) {
+            const settings = options && typeof options === 'object' ? options : {};
+            if (liveRefreshInFlight) {
+                return;
+            }
+
+            liveRefreshInFlight = true;
+            const selectedRequestId = Object.prototype.hasOwnProperty.call(settings, 'selectedRequestId')
+                ? String(settings.selectedRequestId || '').trim()
+                : (requestIdInput ? String(requestIdInput.value || '').trim() : '');
+            const silentErrors = !!settings.silentErrors;
+
+            try {
+                const response = await fetch(feedUrl + '&_ts=' + Date.now(), {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json',
+                    },
+                });
+                const json = await response.json().catch(function () {
+                    return { ok: false, message: 'Unexpected server response.' };
+                });
+                if (!response.ok || !json.ok) {
+                    throw new Error(json.message || 'Unable to load document type requests.');
+                }
+
+                const snapshotToken = String(json.snapshot_token || '').trim();
+                const requests = Array.isArray(json.requests) ? json.requests : [];
+                const summary = json.summary && typeof json.summary === 'object' ? json.summary : {
+                    total: 0,
+                    pending: 0,
+                    approved: 0,
+                    rejected: 0,
+                };
+
+                if (snapshotToken !== '' && snapshotToken === currentSnapshotToken) {
+                    return;
+                }
+
+                currentSnapshotToken = snapshotToken;
+                renderStats(summary);
+                renderRequestsTable(requests);
+
+                if (selectedRequestId !== '') {
+                    const selectedPayload = findPayloadById(requests, selectedRequestId);
+                    if (selectedPayload) {
+                        populateForm(selectedPayload);
+                    } else {
+                        resetForm();
+                    }
+                }
+            } catch (error) {
+                if (!silentErrors) {
+                    await showAlert(error.message || 'Unable to load live document type requests.', 'Live Update Failed');
+                }
+            } finally {
+                liveRefreshInFlight = false;
+            }
+        }
+
+        function startLiveRefreshLoop() {
+            if (liveRefreshTimerId > 0) {
+                window.clearInterval(liveRefreshTimerId);
+            }
+            liveRefreshTimerId = window.setInterval(function () {
+                if (document.hidden) {
+                    return;
+                }
+                refreshLiveData({ silentErrors: true });
+            }, mode === 'reviewer' ? 15000 : 20000);
+        }
+
+        async function collectReviewerDecision(action, payload) {
+            const requestName = String(payload && payload.requested_name ? payload.requested_name : 'this request').trim() || 'this request';
+            if (action === 'REQUEST_UPDATE') {
+                return openDecisionDialog({
+                    title: 'Save Request Changes',
+                    message: 'Save changes to "' + requestName + '" before RECORDS-UNIT decides on it?',
+                    confirmLabel: 'Save Changes',
+                });
+            }
+            if (action === 'REQUEST_APPROVE') {
+                return openDecisionDialog({
+                    title: 'Approve Request',
+                    message: 'Approve "' + requestName + '" and add or update it in the document type master list?',
+                    confirmLabel: 'Approve',
+                    showRemarks: true,
+                    remarksRequired: false,
+                    remarksValue: String(payload && payload.review_remarks ? payload.review_remarks : ''),
+                    remarksHelp: 'Optional. Add approval notes if the requester needs context.',
+                });
+            }
+            if (action === 'REQUEST_REJECT') {
+                return openDecisionDialog({
+                    title: 'Reject Request',
+                    message: 'Reject "' + requestName + '"? Add clear review remarks so the requester knows what to fix.',
+                    confirmLabel: 'Reject',
+                    showRemarks: true,
+                    remarksRequired: true,
+                    remarksValue: String(payload && payload.review_remarks ? payload.review_remarks : ''),
+                    remarksHelp: 'Required. Explain why the request is being rejected or what needs correction.',
+                });
+            }
+            if (action === 'REQUEST_DELETE') {
+                return openDecisionDialog({
+                    title: 'Delete Request',
+                    message: 'Delete "' + requestName + '"? This permanently removes the request record and cannot be undone.',
+                    confirmLabel: 'Delete',
+                });
+            }
+            return { confirmed: true, remarks: '' };
+        }
+
         async function runReviewerAction(action) {
             if (!requestIdInput || String(requestIdInput.value || '').trim() === '') {
-                window.alert('Select a request first.');
+                await showAlert('Select a request first.', 'No Request Selected');
                 return;
             }
             const requestId = String(requestIdInput.value || '').trim();
@@ -469,23 +897,27 @@ $dtrModeHint = $dtrMode === 'reviewer'
                 review_remarks: reviewRemarksInput ? reviewRemarksInput.value : '',
             };
 
-            if (action === 'REQUEST_REJECT' && String(payload.review_remarks || '').trim() === '') {
-                const remarks = window.prompt('Enter rejection remarks:');
-                if (remarks === null) {
-                    return;
-                }
-                payload.review_remarks = remarks;
+            const decision = await collectReviewerDecision(action, payload);
+            if (!decision || !decision.confirmed) {
+                return;
             }
 
+            if (Object.prototype.hasOwnProperty.call(decision, 'remarks')) {
+                payload.review_remarks = String(decision.remarks || '').trim();
+                if (reviewRemarksInput) {
+                    reviewRemarksInput.value = payload.review_remarks;
+                }
+            }
+
+            const result = await postAction(payload);
             if (action === 'REQUEST_DELETE') {
-                const okDelete = window.confirm('Delete this request record?');
-                if (!okDelete) {
-                    return;
-                }
+                resetForm();
             }
-
-            await postAction(payload);
-            window.location.reload();
+            await refreshLiveData({
+                selectedRequestId: action === 'REQUEST_DELETE' ? '' : requestId,
+                silentErrors: false,
+            });
+            await showAlert(result.message || 'Request action completed.', 'Action Complete');
         }
 
         if (clearButton) {
@@ -507,12 +939,63 @@ $dtrModeHint = $dtrMode === 'reviewer'
         if (statusFilterSelect) {
             statusFilterSelect.addEventListener('change', applyRequestTableFilters);
         }
-        window.requestAnimationFrame(bindStatCardQuickFilters);
-        applyRequestTableFilters();
 
-        document.querySelectorAll('[data-dtr-select]').forEach(function (button) {
-            button.addEventListener('click', function () {
-                const payload = parsePayload(button.getAttribute('data-dtr-select'));
+        if (requestsTableBody) {
+            requestsTableBody.addEventListener('click', async function (event) {
+                const quickButton = event.target.closest('[data-dtr-quick]');
+                if (quickButton) {
+                    const action = String(quickButton.getAttribute('data-dtr-quick') || '').trim();
+                    const payload = parsePayload(quickButton.getAttribute('data-dtr-select'));
+                    if (!action || !payload) {
+                        return;
+                    }
+
+                    populateForm(payload);
+                    if (mode === 'reviewer') {
+                        try {
+                            setBusy(quickButton, true);
+                            await runReviewerAction(action);
+                        } catch (error) {
+                            await showAlert(error.message || 'Unable to process request.', 'Action Failed');
+                        } finally {
+                            setBusy(quickButton, false);
+                        }
+                        return;
+                    }
+
+                    if (action === 'REQUEST_DELETE') {
+                        const okDelete = await confirmDeleteRequest(payload, {
+                            ownerLabel: 'request',
+                        });
+                        if (!okDelete) {
+                            return;
+                        }
+                        try {
+                            setBusy(quickButton, true);
+                            const result = await postAction({
+                                action: 'REQUEST_DELETE',
+                                request_id: String(payload.id || ''),
+                            });
+                            resetForm();
+                            await refreshLiveData({
+                                selectedRequestId: '',
+                                silentErrors: false,
+                            });
+                            await showAlert(result.message || 'Request deleted.', 'Delete Complete');
+                        } catch (error) {
+                            await showAlert(error.message || 'Unable to delete request.', 'Delete Failed');
+                        } finally {
+                            setBusy(quickButton, false);
+                        }
+                    }
+                    return;
+                }
+
+                const selectButton = event.target.closest('[data-dtr-select]');
+                if (!selectButton) {
+                    return;
+                }
+                const payload = parsePayload(selectButton.getAttribute('data-dtr-select'));
                 if (!payload) {
                     return;
                 }
@@ -521,49 +1004,7 @@ $dtrModeHint = $dtrMode === 'reviewer'
                     requestedNameInput.focus();
                 }
             });
-        });
-
-        document.querySelectorAll('[data-dtr-quick]').forEach(function (button) {
-            button.addEventListener('click', async function () {
-                const action = String(button.getAttribute('data-dtr-quick') || '').trim();
-                const payload = parsePayload(button.getAttribute('data-dtr-select'));
-                if (!action || !payload) {
-                    return;
-                }
-
-                populateForm(payload);
-                if (mode === 'reviewer') {
-                    try {
-                        setBusy(button, true);
-                        await runReviewerAction(action);
-                    } catch (error) {
-                        window.alert(error.message || 'Unable to process action.');
-                    } finally {
-                        setBusy(button, false);
-                    }
-                    return;
-                }
-
-                if (action === 'REQUEST_DELETE') {
-                    const okDelete = window.confirm('Delete this pending request?');
-                    if (!okDelete) {
-                        return;
-                    }
-                    try {
-                        setBusy(button, true);
-                        await postAction({
-                            action: 'REQUEST_DELETE',
-                            request_id: String(payload.id || ''),
-                        });
-                        window.location.reload();
-                    } catch (error) {
-                        window.alert(error.message || 'Unable to delete request.');
-                    } finally {
-                        setBusy(button, false);
-                    }
-                }
-            });
-        });
+        }
 
         if (mode !== 'reviewer' && form) {
             form.addEventListener('submit', async function (event) {
@@ -579,10 +1020,17 @@ $dtrModeHint = $dtrMode === 'reviewer'
 
                 try {
                     setBusy(submitButton, true);
-                    await postAction(payload);
-                    window.location.reload();
+                    const result = await postAction(payload);
+                    if (action === 'REQUEST_CREATE') {
+                        resetForm();
+                    }
+                    await refreshLiveData({
+                        selectedRequestId: action === 'REQUEST_UPDATE' ? requestId : '',
+                        silentErrors: false,
+                    });
+                    await showAlert(result.message || 'Request submitted.', 'Request Saved');
                 } catch (error) {
-                    window.alert(error.message || 'Unable to submit request.');
+                    await showAlert(error.message || 'Unable to submit request.', 'Save Failed');
                 } finally {
                     setBusy(submitButton, false);
                 }
@@ -600,13 +1048,25 @@ $dtrModeHint = $dtrMode === 'reviewer'
                         setBusy(button, true);
                         await runReviewerAction(action);
                     } catch (error) {
-                        window.alert(error.message || 'Unable to process request.');
+                        await showAlert(error.message || 'Unable to process request.', 'Action Failed');
                     } finally {
                         setBusy(button, false);
                     }
                 });
             });
         }
+
+        document.addEventListener('visibilitychange', function () {
+            if (!document.hidden) {
+                refreshLiveData({ silentErrors: true });
+            }
+        });
+
+        window.requestAnimationFrame(bindStatCardQuickFilters);
+        bindDecisionDialog();
+        applyRequestTableFilters();
+        startLiveRefreshLoop();
+        refreshLiveData({ silentErrors: true });
     })();
 </script>
 

@@ -98,7 +98,6 @@ JOIN (
     UNION ALL SELECT 'Regulation and Permitting Section (RPS)', 'Survey and Mapping Unit'
     UNION ALL SELECT 'Regulation and Permitting Section (RPS)', 'Patents and Deeds Unit'
     UNION ALL SELECT 'Regulation and Permitting Section (RPS)', 'Permitting and Licensing Unit'
-    UNION ALL SELECT 'Planning and Support Unit (PSU)', 'PSU Operations Unit'
 ) u
     ON UPPER(COALESCE(s.name, '')) = UPPER(u.section_name)
 WHERE UPPER(COALESCE(s.level, '')) = 'CENRO_SECTION'
@@ -227,9 +226,9 @@ WHERE UPPER(rf.name) = 'CENRO_SECTION'
   );
 
 INSERT INTO workflow_transitions (action_type, allowed_from_role_id, allowed_to_role_id, description, is_active)
-SELECT 'FORWARD', rf.id, rt.id, 'CENRO Admin Record to PENRO', 1
+SELECT 'FORWARD', rf.id, rt.id, 'CENRO Admin Record to PENRO Admin Record', 1
 FROM roles rf
-JOIN roles rt ON UPPER(rt.name) = 'PENRO'
+JOIN roles rt ON UPPER(rt.name) = 'PENRO_ADMIN_RECORD'
 WHERE UPPER(rf.name) = 'CENRO_ADMIN_RECORD'
   AND NOT EXISTS (
       SELECT 1 FROM workflow_transitions wt
@@ -310,4 +309,3 @@ WHERE UPPER(r.name) = 'CENRO_OFFICER'
   );
 
 COMMIT;
-

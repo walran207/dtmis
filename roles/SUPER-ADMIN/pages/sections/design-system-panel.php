@@ -44,9 +44,9 @@ $themeBlocks = [
 ];
 
 $roleAccentRoles = [
-    'CENRO' => 'CENRO',
-    'PASU' => 'PASU',
-    'PENRO' => 'PENRO',
+    'CENRO_ADMIN_RECORD' => 'CENRO Admin Record',
+    'PASU_OFFICER' => 'PASU',
+    'PENRO_ADMIN_RECORD' => 'PENRO Admin Record',
     'RECORDS_UNIT' => 'RECORDS-UNIT',
     'ORED' => 'ORED',
     'DIVISION_CHIEF' => 'Division Chief',
@@ -276,9 +276,9 @@ $roleAccentRoles = [
         breakpoints: { mobile: 479, tablet: 767, tabletLandscape: 991 },
         roleAccents: {
             light: {
-                CENRO: '#2f8f83',
-                PASU: '#4a8f6a',
-                PENRO: '#3f7fb1',
+                CENRO_ADMIN_RECORD: '#2f8f83',
+                PASU_OFFICER: '#3c8c78',
+                PENRO_ADMIN_RECORD: '#3f7fb1',
                 RECORDS_UNIT: '#9b7a4f',
                 PACDO: '#9b7a4f',
                 ORED: '#7a6ab3',
@@ -289,9 +289,9 @@ $roleAccentRoles = [
                 SUPER_ADMIN: '#2a8f84'
             },
             dark: {
-                CENRO: '#2f8f83',
-                PASU: '#4a8f6a',
-                PENRO: '#3f7fb1',
+                CENRO_ADMIN_RECORD: '#2f8f83',
+                PASU_OFFICER: '#3c8c78',
+                PENRO_ADMIN_RECORD: '#3f7fb1',
                 RECORDS_UNIT: '#9b7a4f',
                 PACDO: '#9b7a4f',
                 ORED: '#7a6ab3',

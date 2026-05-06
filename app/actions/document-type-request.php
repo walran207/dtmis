@@ -17,20 +17,29 @@ if (empty($_SESSION['user_id'])) {
     exit;
 }
 
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+$requestMethod = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET'));
+$requestData = $requestMethod === 'GET' ? $_GET : $_POST;
+$action = strtoupper(trim((string)($requestData['action'] ?? '')));
+
+if ($requestMethod === 'GET') {
+    if ($action !== 'REQUEST_LIST') {
+        http_response_code(405);
+        echo json_encode(['ok' => false, 'message' => 'Method not allowed.']);
+        exit;
+    }
+} elseif ($requestMethod === 'POST') {
+    $csrf = (string)($_POST['csrf_token'] ?? '');
+    if (empty($_SESSION['csrf_token']) || !hash_equals((string)$_SESSION['csrf_token'], $csrf)) {
+        http_response_code(419);
+        echo json_encode(['ok' => false, 'message' => 'Invalid CSRF token.']);
+        exit;
+    }
+} else {
     http_response_code(405);
     echo json_encode(['ok' => false, 'message' => 'Method not allowed.']);
     exit;
 }
 
-$csrf = (string)($_POST['csrf_token'] ?? '');
-if (empty($_SESSION['csrf_token']) || !hash_equals((string)$_SESSION['csrf_token'], $csrf)) {
-    http_response_code(419);
-    echo json_encode(['ok' => false, 'message' => 'Invalid CSRF token.']);
-    exit;
-}
-
-$action = strtoupper(trim((string)($_POST['action'] ?? '')));
 $requestId = (int)($_POST['request_id'] ?? 0);
 $requestedName = trim((string)($_POST['requested_name'] ?? ''));
 $requestedCategoryRaw = trim((string)($_POST['requested_category'] ?? ''));
@@ -49,6 +58,14 @@ try {
     $isRequester = dtr_is_requester_role($actorRole);
     $isReviewer = dtr_is_reviewer_role($actorRole);
 
+    if ($requestMethod === 'GET' && $action === 'REQUEST_LIST') {
+        echo json_encode([
+            'ok' => true,
+            'message' => 'Live request data loaded.',
+        ] + dtr_build_live_payload($pdo, $actor));
+        exit;
+    }
+
     $hasRequestedCategoryInput = $requestedCategoryRaw !== '';
     $hasRequestedDaysInput = $requestedDaysRaw > 0;
     $defaults = dtr_category_defaults($hasRequestedCategoryInput ? $requestedCategoryRaw : 'Simple');
@@ -64,7 +81,7 @@ try {
     switch ($action) {
         case 'REQUEST_CREATE':
             if (!$isRequester) {
-                throw new RuntimeException('Only PASU, CENRO, and PENRO can create document type requests.');
+                throw new RuntimeException('Only CENRO Admin Record, PENRO Admin Record, and PAMO Admin can create document type requests.');
             }
 
             $insert = $pdo->prepare(

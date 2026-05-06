@@ -1,4 +1,12 @@
 <?php
+$recordsStampRoleName = (string)($_SESSION['role_name'] ?? 'RECORDS_UNIT');
+$recordsStampRoleKey = app_normalize_role_key($recordsStampRoleName);
+$recordsStampWorkspaceLabel = match ($recordsStampRoleKey) {
+    'CENRO_ADMIN_RECORD' => 'CENRO Admin Record',
+    'PENRO_ADMIN_RECORD' => 'PENRO Admin Record',
+    'PAMO_ADMIN' => 'PAMO Admin',
+    default => 'Records Unit',
+};
 $recordsStampTrackingId = trim((string)($_GET['tracking_id'] ?? ''));
 $recordsStampType = strtolower(trim((string)($_GET['stamp_type'] ?? 'received')));
 if (!in_array($recordsStampType, ['received', 'released'], true)) {
@@ -21,9 +29,9 @@ if ($recordsStampTheme !== '') {
 }
 $recordsStampFrameUrl = app_url('softcopy-records-unit-stamp.php') . '?' . http_build_query($recordsStampFrameQuery);
 ?>
-<section class="card records-stamp-card" aria-label="RECORDS-UNIT stamp workspace">
+<section class="card records-stamp-card" aria-label="<?php echo e($recordsStampWorkspaceLabel); ?> stamp workspace">
     <div class="records-stamp-head">
-        <h2>RECORDS-UNIT Stamp Workspace</h2>
+        <h2><?php echo e($recordsStampWorkspaceLabel); ?> Stamp Workspace</h2>
         <p>Open dynamic RECEIVED/RELEASED stamp layout, edit date/time/signature, drag/resize, then print.</p>
     </div>
 
@@ -50,7 +58,7 @@ $recordsStampFrameUrl = app_url('softcopy-records-unit-stamp.php') . '?' . http_
             class="records-stamp-frame"
             src="<?php echo e($recordsStampFrameUrl); ?>"
             data-base-src="<?php echo e($recordsStampFrameUrl); ?>"
-            title="RECORDS-UNIT stamp workspace"
+            title="<?php echo e($recordsStampWorkspaceLabel); ?> stamp workspace"
             loading="lazy"
             referrerpolicy="same-origin"
         ></iframe>
