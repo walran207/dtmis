@@ -254,14 +254,14 @@ function role_table_default_actions(array $queueRow): string
     if (in_array($roleKey, ['ARD_TS', 'ARD_MS'], true)) {
         $actions[] = 'Send Back to ORED';
     }
-    if (($roleKey === 'ORED' && !$isCenroOfficer) || str_contains($status, 'return')) {
+    if ($roleKey === 'ORED' || str_contains($status, 'return')) {
         $actions[] = 'Return';
     }
     if ($roleKey === 'RECORDS_UNIT' && !$isInternalAdminRecord) {
         $actions[] = 'Release';
     }
     if ($isInternalAdminRecord && $hasReceivedCustody) {
-        $actions[] = 'Complete';
+        $actions[] = 'Release';
     }
     if ($roleKey === 'ORED' && !$isCenroOfficer) {
         $actions[] = 'Override';

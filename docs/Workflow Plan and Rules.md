@@ -1,7 +1,7 @@
 ## eDATS Workflow Plan v2 (Improved and Decision-Complete)
 
 ### Summary
-This workflow enforces a strict upward routing path for intake, controlled review at ORED/Division, and a release-back cycle to the originating office for completion.
+This workflow enforces a strict upward routing path for intake, controlled review at ORED/Division, and a release-back cycle to the originating office for completion, while allowing internal admin workflows to either complete locally or release a finished document to another office for a new workflow leg.
 
 1. `CENRO/PASU -> PENRO -> PACDO -> ORED`
 2. `ORED -> Division Chief -> (optional) Section Staff -> Division Chief -> ORED`
@@ -22,8 +22,8 @@ This workflow enforces a strict upward routing path for intake, controlled revie
    1. ORED signs only after final review is clear.
    2. Signed document is routed to PACDO.
    3. PACDO prints tracking slip/package and performs `Release` to the originating office only.
-   4. Originating office receives released document.
-   5. Status becomes `Completed`.
+   4. Internal admin roles (`CENRO Admin Record`, `PENRO Admin Record`, `PAMO Admin`) may either complete locally at the originating office or `Release` a finished document to another allowed office.
+   5. Originating office receive on release-to-origin completes the workflow. A non-origin office receive on internal release-send reopens the document as active `Received`.
 
 ### Action Visibility and Sequencing Rules (UI + Policy)
 1. `Receive` is visible only when the document is pending for the current office/user.
@@ -32,7 +32,7 @@ This workflow enforces a strict upward routing path for intake, controlled revie
 4. Approval-required roles are: `PENRO`, `PACDO`, `Division Chief`, `ORED`.
 5. For non-approval roles (`CENRO`, `PASU`, `Section Staff`), `Forward` is allowed after `Receive` (or initial creation where applicable).
 6. `Sign` is only for `ORED` during final stage before release.
-7. `Release` is only for `PACDO` and destination must be the originating office.
+7. `Release` for `PACDO` must target the originating office. Internal admin release may either complete locally or send the released document to another allowed office.
 
 ### Edit/Delete Policy (Strict Lock)
 1. `Edit` and `Delete` are allowed only for the document creator.

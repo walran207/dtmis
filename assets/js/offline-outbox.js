@@ -49,6 +49,8 @@
     var SESSION_INVALID_STATUSES = { 401: true, 419: true };
     var REAUTH_REQUIRED_STATUS = 428;
     var AUTH_PAGE_PATTERN = /\/auth\/(?:login|register|forgot-password|logout)\.php$/i;
+    var EXPLICIT_OFFLINE_CLEAR_QUERY_KEY = 'offline_clear';
+    var SERVICE_WORKER_CACHE_PREFIXES = ['edats-shell'];
     var SENSITIVE_LOCAL_STORAGE_PREFIXES = [
         'edats_intake_draft_',
         'edats_notif_read_until_'
@@ -467,6 +469,35 @@
         return AUTH_PAGE_PATTERN.test(String(window.location.pathname || ''));
     }
 
+    function shouldClearSensitiveDataOnAuthBoot() {
+        if (!isAuthPagePath()) {
+            return false;
+        }
+
+        try {
+            var url = new URL(window.location.href);
+            return url.searchParams.get(EXPLICIT_OFFLINE_CLEAR_QUERY_KEY) === '1';
+        } catch (error) {
+            return /(?:\?|&)offline_clear=1(?:&|$)/.test(String(window.location.search || ''));
+        }
+    }
+
+    function clearAuthBootFlagFromUrl() {
+        try {
+            var url = new URL(window.location.href);
+            if (url.searchParams.get(EXPLICIT_OFFLINE_CLEAR_QUERY_KEY) !== '1') {
+                return;
+            }
+            url.searchParams.delete(EXPLICIT_OFFLINE_CLEAR_QUERY_KEY);
+            var normalizedPath = url.pathname + (url.search ? url.search : '') + (url.hash ? url.hash : '');
+            if (window.history && typeof window.history.replaceState === 'function') {
+                window.history.replaceState({}, document.title, normalizedPath);
+            }
+        } catch (error) {
+            // Ignore URL rewrite failures.
+        }
+    }
+
     function clearSensitiveLocalStorage() {
         if (typeof window.localStorage === 'undefined') {
             return;
@@ -508,13 +539,49 @@
         }
     }
 
+    async function clearServiceWorkerCaches() {
+        if (typeof window.caches === 'undefined' || !window.caches || typeof window.caches.keys !== 'function') {
+            return;
+        }
+
+        try {
+            var cacheKeys = await window.caches.keys();
+            var deletions = [];
+            for (var i = 0; i < cacheKeys.length; i += 1) {
+                var cacheName = String(cacheKeys[i] || '');
+                if (cacheName === '') {
+                    continue;
+                }
+                var shouldDelete = false;
+                for (var j = 0; j < SERVICE_WORKER_CACHE_PREFIXES.length; j += 1) {
+                    if (cacheName.indexOf(SERVICE_WORKER_CACHE_PREFIXES[j]) === 0) {
+                        shouldDelete = true;
+                        break;
+                    }
+                }
+                if (shouldDelete) {
+                    deletions.push(window.caches.delete(cacheName));
+                }
+            }
+            if (deletions.length > 0) {
+                await Promise.allSettled(deletions);
+            }
+        } catch (error) {
+            // Ignore CacheStorage cleanup errors.
+        }
+    }
+
     async function clearSensitiveOfflineData(reason, options) {
         var opts = options || {};
+        var includeOutbox = opts.includeOutbox !== false;
         var includeReadCache = opts.includeReadCache !== false;
         var includeLocalStorage = opts.includeLocalStorage !== false;
+        var includeServiceWorkerCache = opts.includeServiceWorkerCache !== false;
         var publishAfter = opts.publishAfter !== false;
 
-        await clearOutboxByFilter(function () { return true; });
+        if (includeOutbox) {
+            await clearOutboxByFilter(function () { return true; });
+        }
 
         if (includeReadCache && window.edatsOfflineReadCache && typeof window.edatsOfflineReadCache.clear === 'function') {
             try {
@@ -526,6 +593,10 @@
 
         if (includeLocalStorage) {
             clearSensitiveLocalStorage();
+        }
+
+        if (includeServiceWorkerCache) {
+            await clearServiceWorkerCaches();
         }
 
         if (publishAfter) {
@@ -558,6 +629,37 @@
         }
     }
 
+    async function blockQueuedOperationsForReauth(reason, statusCode) {
+        var rows = await allOps();
+        var scope = scopeKey();
+        var normalizedStatusCode = Number(statusCode || 0);
+        var message = 'Session expired while syncing. Sign in again, then tap Sync now to resume queued work.';
+        if (String(reason || '').trim() !== '') {
+            message = message + ' (' + String(reason).trim() + ')';
+        }
+
+        for (var i = 0; i < rows.length; i += 1) {
+            var row = rows[i] || {};
+            if (String(row.scopeKey || '') !== scope) {
+                continue;
+            }
+
+            var status = String(row.status || '').toLowerCase();
+            if (status === 'synced') {
+                continue;
+            }
+
+            row.status = 'blocked_reauth';
+            row.updatedAt = now();
+            row.nextRetryAt = now();
+            row.lastError = message;
+            if (normalizedStatusCode > 0) {
+                row.lastHttpStatus = normalizedStatusCode;
+            }
+            await putOp(row);
+        }
+    }
+
     async function markSessionInvalid(reason, statusCode) {
         if (sessionInvalidated) {
             return;
@@ -568,9 +670,12 @@
             http_status: Number(statusCode || 0),
             message: String(reason || 'session-invalid')
         });
+        await blockQueuedOperationsForReauth(reason || 'session-invalid', Number(statusCode || 0));
         await clearSensitiveOfflineData(reason || 'session-invalid', {
+            includeOutbox: false,
             includeReadCache: true,
             includeLocalStorage: true,
+            includeServiceWorkerCache: true,
             publishAfter: true
         });
         notifySessionInvalid(reason || 'session-invalid', statusCode || 0, 'offline-outbox');
@@ -1448,12 +1553,15 @@
     window.setInterval(function () { sync(false); }, HEARTBEAT_MS);
 
     async function boot() {
-        if (isAuthPagePath()) {
-            await clearSensitiveOfflineData('auth-page-entry', {
+        if (shouldClearSensitiveDataOnAuthBoot()) {
+            await clearSensitiveOfflineData('auth-page-explicit-logout', {
+                includeOutbox: true,
                 includeReadCache: true,
                 includeLocalStorage: true,
+                includeServiceWorkerCache: true,
                 publishAfter: false
             });
+            clearAuthBootFlagFromUrl();
         }
         await publish();
         if (navigator.onLine && !sessionInvalidated) {

@@ -63,6 +63,7 @@
     var basePath = getConfiguredBasePath();
     var pwaInstallPrompt = null;
     var installPromptRoot = null;
+    var statusNoticeRoot = null;
     var INSTALL_DISMISS_KEY = 'edats_pwa_install_prompt_dismissed';
 
     function removeInstallPrompt() {
@@ -71,6 +72,64 @@
         }
         installPromptRoot.remove();
         installPromptRoot = null;
+    }
+
+    function removeStatusNotice() {
+        if (!statusNoticeRoot) {
+            return;
+        }
+        statusNoticeRoot.remove();
+        statusNoticeRoot = null;
+    }
+
+    function showStatusNotice(title, message, tone) {
+        if (typeof document === 'undefined' || !document.body) {
+            return;
+        }
+
+        removeStatusNotice();
+
+        statusNoticeRoot = document.createElement('aside');
+        statusNoticeRoot.id = 'edatsPwaStatusNotice';
+        statusNoticeRoot.setAttribute('role', 'status');
+        statusNoticeRoot.setAttribute('aria-live', 'polite');
+        statusNoticeRoot.style.position = 'fixed';
+        statusNoticeRoot.style.left = '20px';
+        statusNoticeRoot.style.bottom = '20px';
+        statusNoticeRoot.style.zIndex = '9999';
+        statusNoticeRoot.style.width = 'min(420px, calc(100vw - 24px))';
+        statusNoticeRoot.style.borderRadius = '14px';
+        statusNoticeRoot.style.boxShadow = '0 16px 38px rgba(20, 41, 71, 0.18)';
+        statusNoticeRoot.style.padding = '14px';
+        statusNoticeRoot.style.fontFamily = '"Segoe UI", Arial, sans-serif';
+        statusNoticeRoot.style.border = '1px solid #f1c895';
+        statusNoticeRoot.style.background = '#fff5e8';
+        statusNoticeRoot.style.color = '#5f3d16';
+
+        if (tone === 'error') {
+            statusNoticeRoot.style.border = '1px solid #e4b9b9';
+            statusNoticeRoot.style.background = '#fff1f1';
+            statusNoticeRoot.style.color = '#6a1e1e';
+        }
+
+        statusNoticeRoot.innerHTML = ''
+            + '<div style="display:flex;gap:10px;align-items:flex-start;">'
+            + '  <div style="flex:1 1 auto;">'
+            + '    <p style="margin:0 0 6px;font-size:14px;font-weight:700;">' + String(title || 'Offline warning') + '</p>'
+            + '    <p style="margin:0;font-size:13px;line-height:1.45;">' + String(message || '') + '</p>'
+            + '  </div>'
+            + '  <button type="button" aria-label="Dismiss offline warning" '
+            + 'style="border:0;background:transparent;color:inherit;font-size:18px;line-height:1;cursor:pointer;padding:0 2px;">&times;</button>'
+            + '</div>';
+
+        var dismissButton = statusNoticeRoot.querySelector('button');
+        if (dismissButton) {
+            dismissButton.addEventListener('click', function () {
+                removeStatusNotice();
+            });
+        }
+
+        document.body.appendChild(statusNoticeRoot);
     }
 
     function canShowInstallPrompt() {
@@ -183,6 +242,24 @@
     });
 
     if (!('serviceWorker' in navigator)) {
+        window.addEventListener('load', function () {
+            showStatusNotice(
+                'Offline mode unavailable',
+                'This browser does not support service workers, so offline pages and queued sync are disabled.',
+                'warning'
+            );
+        });
+        return;
+    }
+
+    if (!window.isSecureContext) {
+        window.addEventListener('load', function () {
+            showStatusNotice(
+                'Offline mode unavailable',
+                'Service worker registration is blocked on this connection. Open eDATS using HTTPS or localhost to enable offline support.',
+                'warning'
+            );
+        });
         return;
     }
 
@@ -190,8 +267,18 @@
         var serviceWorkerPath = toScopedPath(basePath, 'service-worker.js');
         navigator.serviceWorker
             .register(serviceWorkerPath, { scope: scopePath(basePath) })
-            .catch(function () {
-                // Keep silent for end users. PWA is enhancement-only.
+            .then(function () {
+                removeStatusNotice();
+            })
+            .catch(function (error) {
+                var reason = error && error.message
+                    ? String(error.message)
+                    : 'The browser refused to register the offline worker.';
+                showStatusNotice(
+                    'Offline mode unavailable',
+                    reason + ' Open eDATS using HTTPS or localhost to enable offline support.',
+                    'error'
+                );
             });
     });
 })();

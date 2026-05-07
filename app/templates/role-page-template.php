@@ -864,19 +864,29 @@ include $roleBasePath . '/partials/sidebar.php';
             <form id="routeActionForm" class="action-modal-form" enctype="multipart/form-data">
                 <h3 id="routeActionTitle" class="action-modal-title">Route Document</h3>
                 <p id="routeActionMeta" class="action-modal-meta"></p>
-                <label class="action-modal-label" for="routeDestinationOffice">Destination Office</label>
-                <p class="action-modal-meta">Required for routing actions. Remarks are optional.</p>
-                <div id="routeDestinationTypeFilterWrap" class="route-destination-filter" hidden>
-                    <p class="action-modal-meta">Choose path: <strong>ARD first</strong> is recommended. Direct Division or Section is a bypass and requires reason.</p>
-                    <div class="route-destination-filter-actions" role="group" aria-label="Destination type filter">
-                        <button type="button" class="route-destination-filter-btn is-active" data-route-destination-filter="ard">ARD (Recommended)</button>
-                        <button type="button" class="route-destination-filter-btn" data-route-destination-filter="division">Division (Bypass)</button>
-                        <button type="button" class="route-destination-filter-btn" data-route-destination-filter="section">Section (Bypass)</button>
-                    </div>
+                <div id="routeReleaseModeWrap" hidden>
+                    <label class="action-modal-label" for="routeReleaseMode">Release Mode</label>
+                    <p id="routeReleaseModeMeta" class="action-modal-meta">Choose whether to complete the document here or send the released document to another office.</p>
+                    <select id="routeReleaseMode" class="action-modal-input">
+                        <option value="complete_local">Complete in this office</option>
+                        <option value="send_to_office">Release and send to office</option>
+                    </select>
                 </div>
-                <select id="routeDestinationOffice" class="action-modal-input" required>
-                    <option value="">Select destination office</option>
-                </select>
+                <div id="routeDestinationWrap">
+                    <label class="action-modal-label" for="routeDestinationOffice">Destination Office</label>
+                    <p id="routeDestinationMeta" class="action-modal-meta">Required for routing actions. Remarks are optional.</p>
+                    <div id="routeDestinationTypeFilterWrap" class="route-destination-filter" hidden>
+                        <p class="action-modal-meta">Choose path: <strong>ARD first</strong> is recommended. Direct Division or Section is a bypass and requires reason.</p>
+                        <div class="route-destination-filter-actions" role="group" aria-label="Destination type filter">
+                            <button type="button" class="route-destination-filter-btn is-active" data-route-destination-filter="ard">ARD (Recommended)</button>
+                            <button type="button" class="route-destination-filter-btn" data-route-destination-filter="division">Division (Bypass)</button>
+                            <button type="button" class="route-destination-filter-btn" data-route-destination-filter="section">Section (Bypass)</button>
+                        </div>
+                    </div>
+                    <select id="routeDestinationOffice" class="action-modal-input" required>
+                        <option value="">Select destination office</option>
+                    </select>
+                </div>
                 <div id="routeBypassReasonWrap" hidden>
                     <label class="action-modal-label" for="routeBypassReason">Bypass Reason</label>
                     <p class="action-modal-meta">Required when ORED forwards directly to Division/Section instead of ARD.</p>

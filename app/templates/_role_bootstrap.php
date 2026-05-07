@@ -78,7 +78,7 @@ if (is_array($liveFlowTrackerSteps ?? null)) {
         'PENRO Section',
         'PENRO Officer Sign',
         'PENRO Admin Record (Returned)',
-        'Complete / Forward to CENRO Admin Record/PACDO',
+        'Complete / Release to Next Office',
     ];
 } elseif (in_array($roleKeyForFlowDefault, ['CENRO_ADMIN_RECORD', 'CENRO_OFFICER', 'CENRO_SECTION', 'CENRO_UNIT'], true)) {
     $liveFlowTrackerSteps = [
@@ -88,8 +88,8 @@ if (is_array($liveFlowTrackerSteps ?? null)) {
         'CENRO Unit',
         'CENRO Officer Sign',
         'CENRO Admin Record (Returned)',
-        'Release to Origin Office',
-        'Origin Office (Completed)',
+        'Release / Complete or Send',
+        'Origin Office or Next Office',
     ];
 } elseif (in_array($roleKeyForFlowDefault, ['PAMO_ADMIN', 'PASU_OFFICER', 'PAMO_UNIT'], true)) {
     $liveFlowTrackerSteps = [
@@ -98,7 +98,7 @@ if (is_array($liveFlowTrackerSteps ?? null)) {
         'PAMO Unit',
         'PASU Sign',
         'PAMO Admin (Returned)',
-        'Complete / Forward to CENRO Admin Record or PENRO Admin Record',
+        'Complete / Release to Next Office',
     ];
 } else {
     $liveFlowTrackerSteps = [
@@ -684,6 +684,10 @@ if ($isCenroAdminRecordContext) {
         $actorOfficeId = (int)($actorContext['office_id'] ?? $officeId);
         $actorOffice = $actorOfficeId > 0 ? workflow_get_office_context($pdo, $actorOfficeId) : null;
         $actorParentOfficeId = (int)($actorOffice['parent_office_id'] ?? 0);
+        $actorParentPenro = $actorOfficeId > 0
+            ? workflow_find_parent_office_by_level($pdo, $actorOfficeId, 'PROVINCIAL')
+            : null;
+        $actorParentPenroId = (int)($actorParentPenro['id'] ?? 0);
         $actorRoot = $actorOfficeId > 0 ? workflow_find_cenro_root_office($pdo, $actorOfficeId) : null;
         $actorRootId = (int)($actorRoot['id'] ?? 0);
 
@@ -746,27 +750,6 @@ if ($isCenroAdminRecordContext) {
             ];
         }
 
-        if ($actorParentPenroId > 0) {
-            $penroAdminOffice = workflow_find_child_office_by_level($pdo, $actorParentPenroId, 'PENRO_ADMIN_RECORD');
-            if (is_array($penroAdminOffice)) {
-                $alreadyIncluded = false;
-                foreach ($filtered as $existingOffice) {
-                    if ((int)($existingOffice['id'] ?? 0) === (int)($penroAdminOffice['id'] ?? 0)) {
-                        $alreadyIncluded = true;
-                        break;
-                    }
-                }
-                if (!$alreadyIncluded) {
-                    $filtered[] = [
-                        'id' => (int)($penroAdminOffice['id'] ?? 0),
-                        'name' => (string)($penroAdminOffice['name'] ?? ''),
-                        'level' => (string)($penroAdminOffice['level'] ?? ''),
-                        'parent_office_id' => (int)($penroAdminOffice['parent_office_id'] ?? 0),
-                    ];
-                }
-            }
-        }
-
         if (!empty($filtered)) {
             usort($filtered, static function (array $left, array $right): int {
                 $priority = static function (array $office): int {
@@ -774,10 +757,7 @@ if ($isCenroAdminRecordContext) {
                     if ($level === 'CENRO_OFFICER') {
                         return 1;
                     }
-                    if ($level === 'PENRO_ADMIN_RECORD') {
-                        return 2;
-                    }
-                    return 3;
+                    return 2;
                 };
 
                 return $priority($left) <=> $priority($right);

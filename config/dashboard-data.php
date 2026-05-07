@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/workflow.php';
+
 if (!function_exists('dashboard_column_exists')) {
     function dashboard_column_exists(PDO $pdo, string $table, string $column): bool
     {
@@ -60,6 +62,109 @@ function dashboard_section_like_level_sql_list(): string
 {
     return "'SECTION', 'CENRO_SECTION', 'PENRO_DIVISION', 'PASU_OFFICER'";
 }
+}
+
+if (!function_exists('dashboard_internal_admin_local_signed_action')) {
+    function dashboard_internal_admin_local_signed_action(PDO $pdo, int $documentId, int $officeId): ?bool
+    {
+        static $resultCache = [];
+        static $officeCache = [];
+        static $rootCache = [];
+
+        if ($documentId <= 0 || $officeId <= 0) {
+            return null;
+        }
+
+        $cacheKey = $documentId . ':' . $officeId;
+        if (array_key_exists($cacheKey, $resultCache)) {
+            return $resultCache[$cacheKey];
+        }
+
+        $officeCacheKey = (string)$officeId;
+        if (!array_key_exists($officeCacheKey, $officeCache)) {
+            $officeCache[$officeCacheKey] = workflow_get_office_context($pdo, $officeId);
+        }
+        $office = $officeCache[$officeCacheKey];
+        if (!is_array($office)) {
+            $resultCache[$cacheKey] = null;
+            return null;
+        }
+
+        $officeLevel = strtoupper(trim((string)($office['level'] ?? '')));
+        $expectedRoleKey = '';
+        $rootResolver = null;
+
+        if ($officeLevel === 'CENRO_ADMIN_RECORD') {
+            $expectedRoleKey = 'CENRO_OFFICER';
+            $rootResolver = static function (int $signedOfficeId) use ($pdo, &$rootCache): int {
+                $rootCacheKey = 'cenro:' . $signedOfficeId;
+                if (!array_key_exists($rootCacheKey, $rootCache)) {
+                    $root = workflow_find_cenro_root_office($pdo, $signedOfficeId);
+                    $rootCache[$rootCacheKey] = (int)($root['id'] ?? 0);
+                }
+                return (int)$rootCache[$rootCacheKey];
+            };
+        } elseif ($officeLevel === 'PENRO_ADMIN_RECORD') {
+            $expectedRoleKey = 'PENRO_OFFICER';
+            $rootResolver = static function (int $signedOfficeId) use ($pdo, &$rootCache): int {
+                $rootCacheKey = 'penro:' . $signedOfficeId;
+                if (!array_key_exists($rootCacheKey, $rootCache)) {
+                    $root = workflow_find_penro_root_office($pdo, $signedOfficeId);
+                    $rootCache[$rootCacheKey] = (int)($root['id'] ?? 0);
+                }
+                return (int)$rootCache[$rootCacheKey];
+            };
+        } elseif ($officeLevel === 'PAMO_ADMIN') {
+            $expectedRoleKey = 'PASU_OFFICER';
+            $rootResolver = static function (int $signedOfficeId) use ($pdo, &$rootCache): int {
+                $rootCacheKey = 'pamo:' . $signedOfficeId;
+                if (!array_key_exists($rootCacheKey, $rootCache)) {
+                    $root = workflow_find_pamo_root_office($pdo, $signedOfficeId);
+                    $rootCache[$rootCacheKey] = (int)($root['id'] ?? 0);
+                }
+                return (int)$rootCache[$rootCacheKey];
+            };
+        } else {
+            $resultCache[$cacheKey] = null;
+            return null;
+        }
+
+        $viewerRootId = $rootResolver($officeId);
+        if ($viewerRootId <= 0 || $expectedRoleKey === '') {
+            $resultCache[$cacheKey] = false;
+            return false;
+        }
+
+        $stmt = $pdo->prepare(
+            'SELECT DISTINCT u.office_id
+             FROM activity_logs al
+             INNER JOIN users u ON u.id = al.user_id
+             INNER JOIN roles r ON r.id = u.role_id
+             INNER JOIN offices o ON o.id = u.office_id
+             WHERE al.document_id = :document_id
+               AND LOWER(COALESCE(al.action_type, \'\')) = \'signed\'
+               AND UPPER(COALESCE(r.name, \'\')) = :role_name'
+        );
+        $stmt->execute([
+            'document_id' => $documentId,
+            'role_name' => $expectedRoleKey,
+        ]);
+        $signedOfficeIds = $stmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
+
+        foreach ($signedOfficeIds as $signedOfficeIdRaw) {
+            $signedOfficeId = (int)$signedOfficeIdRaw;
+            if ($signedOfficeId <= 0) {
+                continue;
+            }
+            if ($rootResolver($signedOfficeId) === $viewerRootId) {
+                $resultCache[$cacheKey] = true;
+                return true;
+            }
+        }
+
+        $resultCache[$cacheKey] = false;
+        return false;
+    }
 }
 
 if (!function_exists('dashboard_format_datetime_label')) {
@@ -400,6 +505,12 @@ if (!function_exists('dashboard_fetch_queue_rows')) {
             return [];
         }
 
+        $contextOfficeId = (int)($params['office_id_custody']
+            ?? $params['office_id_current']
+            ?? $params['office_id_current_action']
+            ?? $params['office_id_origin']
+            ?? 0);
+
         $mapped = [];
         foreach ($rows as $row) {
             $trackingId = trim((string)($row['tracking_id'] ?? ''));
@@ -431,9 +542,15 @@ if (!function_exists('dashboard_fetch_queue_rows')) {
             $resolvedRemarks = $returnRemarks !== ''
                 ? $returnRemarks
                 : $lastRemarks;
+            $documentId = (int)($row['id'] ?? 0);
+            $effectiveHasSignedAction = (int)($row['has_signed_action'] ?? 0) > 0 ? 1 : 0;
+            $localSignedAction = dashboard_internal_admin_local_signed_action($pdo, $documentId, $contextOfficeId);
+            if ($localSignedAction !== null) {
+                $effectiveHasSignedAction = $localSignedAction ? 1 : 0;
+            }
 
             $mapped[] = [
-                'document_id' => (int)($row['id'] ?? 0),
+                'document_id' => $documentId,
                 'row_version' => max(1, (int)($row['row_version'] ?? 1)),
                 'tracking_id' => $trackingId,
                 'subject' => $subject,
@@ -443,7 +560,7 @@ if (!function_exists('dashboard_fetch_queue_rows')) {
                 'origin_office_id' => (int)($row['originating_office_id'] ?? 0),
                 'current_office_id' => (int)($row['current_office_id'] ?? 0),
                 'pending_office_id' => (int)($row['pending_office_id'] ?? 0),
-                'has_signed_action' => (int)($row['has_signed_action'] ?? 0) > 0 ? 1 : 0,
+                'has_signed_action' => $effectiveHasSignedAction,
                 'document_type' => $documentTypeLabel,
                 'arta_category' => $artaCategory !== '' ? $artaCategory : 'Simple',
                 'last_remarks' => $resolvedRemarks,
@@ -921,6 +1038,12 @@ if (!function_exists('dashboard_fetch_division_staff_tracker_rows')) {
             return [];
         }
 
+        $contextOfficeId = (int)($params['office_id_custody']
+            ?? $params['office_id_current']
+            ?? $params['office_id_current_action']
+            ?? $params['office_id_origin']
+            ?? 0);
+
         $mapped = [];
         foreach ($rows as $row) {
             $trackingId = trim((string)($row['tracking_id'] ?? ''));
@@ -1104,6 +1227,12 @@ if (!function_exists('dashboard_fetch_ard_division_tracker_rows')) {
         if (!$rows) {
             return [];
         }
+
+        $contextOfficeId = (int)($params['office_id_custody']
+            ?? $params['office_id_current']
+            ?? $params['office_id_current_action']
+            ?? $params['office_id_origin']
+            ?? 0);
 
         $mapped = [];
         foreach ($rows as $row) {
@@ -2385,6 +2514,12 @@ if (!function_exists('dashboard_cenro_run_filtered_query')) {
             return [];
         }
 
+        $contextOfficeId = (int)($params['office_id_custody']
+            ?? $params['office_id_current']
+            ?? $params['office_id_current_action']
+            ?? $params['office_id_origin']
+            ?? 0);
+
         $mapped = [];
         foreach ($rows as $row) {
             $trackingId = trim((string)($row['tracking_id'] ?? ''));
@@ -2398,9 +2533,15 @@ if (!function_exists('dashboard_cenro_run_filtered_query')) {
             $documentTypeLabel = $artaCategory !== ''
                 ? $documentType . ' (' . $artaCategory . ')'
                 : $documentType;
+            $documentId = (int)($row['id'] ?? 0);
+            $effectiveHasSignedAction = (int)($row['has_signed_action'] ?? 0) > 0 ? 1 : 0;
+            $localSignedAction = dashboard_internal_admin_local_signed_action($pdo, $documentId, $contextOfficeId);
+            if ($localSignedAction !== null) {
+                $effectiveHasSignedAction = $localSignedAction ? 1 : 0;
+            }
 
             $mapped[] = [
-                'document_id'       => (int)($row['id'] ?? 0),
+                'document_id'       => $documentId,
                 'row_version'       => max(1, (int)($row['row_version'] ?? 1)),
                 'tracking_id'       => $trackingId,
                 'subject'           => $subject,
@@ -2410,7 +2551,7 @@ if (!function_exists('dashboard_cenro_run_filtered_query')) {
                 'current_office_id' => (int)($row['current_office_id'] ?? 0),
                 'pending_office_id' => (int)($row['pending_office_id'] ?? 0),
                 'last_remarks'      => trim((string)($row['last_remarks'] ?? '')),
-                'has_signed_action' => (int)($row['has_signed_action'] ?? 0) > 0 ? 1 : 0,
+                'has_signed_action' => $effectiveHasSignedAction,
                 'document_type'     => $documentTypeLabel,
                 'arta_category'     => $artaCategory !== '' ? $artaCategory : 'Simple',
                 'current_holder'    => trim((string)($row['current_holder'] ?? '-')),

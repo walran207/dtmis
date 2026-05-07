@@ -146,6 +146,11 @@
             const routeActionForm = document.getElementById('routeActionForm');
             const routeActionTitle = document.getElementById('routeActionTitle');
             const routeActionMeta = document.getElementById('routeActionMeta');
+            const routeReleaseModeWrap = document.getElementById('routeReleaseModeWrap');
+            const routeReleaseModeMeta = document.getElementById('routeReleaseModeMeta');
+            const routeReleaseMode = document.getElementById('routeReleaseMode');
+            const routeDestinationWrap = document.getElementById('routeDestinationWrap');
+            const routeDestinationMeta = document.getElementById('routeDestinationMeta');
             const routeDestinationTypeFilterWrap = document.getElementById('routeDestinationTypeFilterWrap');
             const routeDestinationFilterButtons = routeDestinationTypeFilterWrap
                 ? Array.from(routeDestinationTypeFilterWrap.querySelectorAll('[data-route-destination-filter]'))
@@ -2982,7 +2987,9 @@
                     'sign': 'Open digital signature workspace for signing and printing.',
                     'complete': 'Mark transaction as released at CENRO Admin Record.',
                     'undo sign': 'Undo your ORED sign and revert the document back to Approved stage.',
-                    'release': 'Release document back to the originating office.',
+                    'release': (isCenroAdminRecordRole || isPenroAdminRecordRole || isPamoAdminRole)
+                        ? 'Complete the document in this office or release it to another office.'
+                        : 'Release document back to the originating office.',
                     'edit': 'Edit source, subject, document type, complexity, days, attachments, and remarks.',
                     'delete': 'Delete this intake document.',
                 };
@@ -3060,7 +3067,13 @@
                     && enableQueueRerouteAction
                     && (currentRoleKey === 'ORED' || currentRoleKey === 'DIVISION_CHIEF' || isArdRole || isCenroOfficerRole || isCenroSectionRole)
                     && (isForwarded || routedOutFromCurrentOffice);
-                if (currentRoleKey === 'RECORDS_UNIT' && !isCenroAdminRecordRole && !canManageIntakeRow) {
+                if (
+                    currentRoleKey === 'RECORDS_UNIT'
+                    && !isCenroAdminRecordRole
+                    && !isPenroAdminRecordRole
+                    && !isPamoAdminRole
+                    && !canManageIntakeRow
+                ) {
                     if (!isReceived && !isReleasedAwaitingOriginReceive) {
                         if (actionKey !== 'receive') {
                             return null;
@@ -3083,20 +3096,20 @@
                         return null;
                     }
                 }
-                if (isCenroAdminRecordRole && !canManageIntakeRow) {
+                if ((isCenroAdminRecordRole || isPenroAdminRecordRole || isPamoAdminRole) && !canManageIntakeRow) {
                     if (!isReceived) {
                         if (actionKey !== 'receive') {
                             return null;
                         }
                     } else if (isSignedForPhase) {
-                        if (actionKey !== 'complete') {
+                        if (actionKey !== 'release') {
                             return null;
                         }
                     } else if (!isApproved) {
                         if (actionKey !== 'approve') {
                             return null;
                         }
-                    } else if (actionKey !== 'forward' && actionKey !== 'complete') {
+                    } else if (actionKey !== 'forward' && actionKey !== 'release') {
                         return null;
                     }
                 }
@@ -3107,7 +3120,7 @@
                         }
                     } else if (isSignedForPhase && !isForwarded) {
                         if (isCenroOfficerRole) {
-                            if (actionKey !== 'forward') {
+                            if (actionKey !== 'forward' && actionKey !== 'undo sign' && actionKey !== 'return') {
                                 return null;
                             }
                         } else if (actionKey !== 'forward' && actionKey !== 'undo sign' && actionKey !== 'return') {
@@ -3119,7 +3132,7 @@
                         }
                     } else if (!isApproved) {
                         if (isCenroOfficerRole) {
-                            if (actionKey !== 'approve') {
+                            if (actionKey !== 'approve' && actionKey !== 'return') {
                                 return null;
                             }
                         } else if (actionKey !== 'approve' && actionKey !== 'return') {
@@ -3127,7 +3140,7 @@
                         }
                     } else if (!isForwarded) {
                         if (isCenroOfficerRole) {
-                            if (actionKey !== 'sign' && actionKey !== 'forward' && actionKey !== 'reroute') {
+                            if (actionKey !== 'sign' && actionKey !== 'forward' && actionKey !== 'reroute' && actionKey !== 'return') {
                                 return null;
                             }
                         } else if (actionKey !== 'sign' && actionKey !== 'forward' && actionKey !== 'return') {
@@ -3197,7 +3210,14 @@
                     if (isPenroAdminRecordRole && !penroIntakeDirectForward && !canManageIntakeRow && !queueStatusIsApproved(normalizedStatus)) {
                         return null;
                     }
-                    if (currentRoleKey === 'RECORDS_UNIT' && !isCenroAdminRecordRole && !canManageIntakeRow && !isApproved) {
+                    if (
+                        currentRoleKey === 'RECORDS_UNIT'
+                        && !isCenroAdminRecordRole
+                        && !isPenroAdminRecordRole
+                        && !isPamoAdminRole
+                        && !canManageIntakeRow
+                        && !isApproved
+                    ) {
                         return null;
                     }
                 }
@@ -3241,8 +3261,14 @@
                     ? displayLabelMap[actionKey]
                     : (actionKey.charAt(0).toUpperCase() + actionKey.slice(1));
                 let buttonTooltip = String(tooltipMap[actionKey] || 'Run this document action.');
-                if (actionKey === 'complete' && (isCenroAdminRecordRole || isPenroAdminRecordRole || isPamoAdminRole)) {
-                    buttonLabel = 'Released';
+                if (actionKey === 'release' && (isCenroAdminRecordRole || isPenroAdminRecordRole || isPamoAdminRole)) {
+                    buttonTooltip = Number.isFinite(originOfficeId)
+                        && originOfficeId > 0
+                        && Number.isFinite(rowCurrentOfficeId)
+                        && rowCurrentOfficeId > 0
+                        && originOfficeId === rowCurrentOfficeId
+                        ? 'Complete this document locally or release it to another office.'
+                        : 'Release this finished document to another office for the next workflow leg.';
                 }
                 if (actionKey === 'release' && isReleasedAwaitingOriginReceive) {
                     buttonLabel = 'Send to Originating Office';
@@ -4132,6 +4158,9 @@
             function routeActionLabel(context) {
                 const action = String(context && context.action ? context.action : '').toUpperCase();
                 const routeMode = normalizeLabelKey(context && context.routeMode ? context.routeMode : '');
+                if (routeContextSupportsDualRelease(context)) {
+                    return resolveRouteReleaseMode(context) === 'complete_local' ? 'Complete Here' : 'Release';
+                }
                 if (action === 'FORWARD' && isCenroSectionRole && routeMode === 'cenro_officer_back') {
                     return 'Send Back to CENRO Officer';
                 }
@@ -4145,6 +4174,52 @@
                     return 'Send Back to ORED';
                 }
                 return actionLabel(action);
+            }
+
+            function routeContextSupportsDualRelease(context) {
+                const action = String(context && context.action ? context.action : '').toUpperCase();
+                if (action !== 'RELEASE') {
+                    return false;
+                }
+                return isCenroAdminRecordRole || isPenroAdminRecordRole || isPamoAdminRole;
+            }
+
+            function normalizeRouteReleaseMode(value) {
+                return String(value || '').trim().toLowerCase();
+            }
+
+            function routeCanCompleteLocally(context) {
+                if (!routeContextSupportsDualRelease(context)) {
+                    return false;
+                }
+                const originOfficeId = Number(context && context.originOfficeId ? context.originOfficeId : 0);
+                const contextOfficeId = routeContextOfficeId(context);
+                return Number.isFinite(originOfficeId)
+                    && originOfficeId > 0
+                    && Number.isFinite(contextOfficeId)
+                    && contextOfficeId > 0
+                    && originOfficeId === contextOfficeId;
+            }
+
+            function resolveRouteReleaseMode(context) {
+                if (!routeContextSupportsDualRelease(context)) {
+                    return '';
+                }
+                const selectedMode = normalizeRouteReleaseMode(routeReleaseMode ? routeReleaseMode.value : '');
+                if (selectedMode === 'complete_local' && routeCanCompleteLocally(context)) {
+                    return 'complete_local';
+                }
+                if (selectedMode === 'send_to_office') {
+                    return 'send_to_office';
+                }
+                return routeCanCompleteLocally(context) ? 'complete_local' : 'send_to_office';
+            }
+
+            function routeReleaseRequiresDestination(context) {
+                if (!routeContextSupportsDualRelease(context)) {
+                    return true;
+                }
+                return resolveRouteReleaseMode(context) === 'send_to_office';
             }
 
             function routeActionAllowsSubjectChange(context) {
@@ -5013,12 +5088,21 @@
                 const policyOfficeId = routeContextOfficeId(context);
                 const policyParentOfficeId = routeContextParentOfficeId(context);
 
-                if (action === 'RELEASE' && currentRoleKey === 'RECORDS_UNIT') {
+                if (
+                    action === 'RELEASE'
+                    && currentRoleKey === 'RECORDS_UNIT'
+                    && !isCenroAdminRecordRole
+                    && !isPenroAdminRecordRole
+                    && !isPamoAdminRole
+                ) {
                     if (Number.isFinite(originOfficeId) && originOfficeId > 0) {
                         return Number.isFinite(officeId) && officeId === originOfficeId;
                     }
                     return true;
                 }
+
+                const releaseUsesForwardPolicy = action === 'RELEASE'
+                    && (isCenroAdminRecordRole || isPenroAdminRecordRole || isPamoAdminRole);
 
                 if (action === 'REROUTE') {
                     if (isPenroSectionUnitRole) {
@@ -5162,7 +5246,7 @@
                     return true;
                 }
 
-                if (action !== 'FORWARD') {
+                if (action !== 'FORWARD' && !releaseUsesForwardPolicy) {
                     return true;
                 }
 
@@ -5207,6 +5291,14 @@
                     return isSectionChild || isUnitSameRoot;
                 }
                 if (isPamoAdminRole) {
+                    if (
+                        releaseUsesForwardPolicy
+                        && Number.isFinite(officeId)
+                        && officeId > 0
+                        && officeId === currentOfficeId
+                    ) {
+                        return false;
+                    }
                     const parentOfficeId = Number(office && office.parent_office_id ? office.parent_office_id : 0);
                     const isOfficerDestination = officeLevel === 'PASU_OFFICER'
                         && Number.isFinite(parentOfficeId)
@@ -5217,6 +5309,14 @@
                     return isOfficerDestination || isCenroDestination || isPenroDestination;
                 }
                 if (isPenroAdminRecordRole) {
+                    if (
+                        releaseUsesForwardPolicy
+                        && Number.isFinite(officeId)
+                        && officeId > 0
+                        && officeId === currentOfficeId
+                    ) {
+                        return false;
+                    }
                     const parentOfficeId = Number(office && office.parent_office_id ? office.parent_office_id : 0);
                     const isOfficerDestination = officeLevel === 'PENRO_OFFICER'
                         && Number.isFinite(parentOfficeId)
@@ -5301,6 +5401,14 @@
                     return officeNameMatchesRecordsUnit(officeName);
                 }
                 if (isCenroAdminRecordRole) {
+                    if (
+                        releaseUsesForwardPolicy
+                        && Number.isFinite(officeId)
+                        && officeId > 0
+                        && officeId === currentOfficeId
+                    ) {
+                        return false;
+                    }
                     const isOfficerDestination = officeLevel === 'CENRO_OFFICER' || officeName.indexOf(' - OFFICER') !== -1;
                     const isPenroDestination = officeLevel === 'PENRO_ADMIN_RECORD' || officeName.indexOf('PENRO ADMIN') !== -1;
                     const isRecordsUnitDestination = officeNameMatchesRecordsUnit(officeName);
@@ -5715,6 +5823,86 @@
                 return count;
             }
 
+            function syncDualReleaseModalUi(context) {
+                if (!routeContextSupportsDualRelease(context)) {
+                    if (routeReleaseModeWrap) {
+                        routeReleaseModeWrap.hidden = true;
+                    }
+                    if (routeDestinationWrap) {
+                        routeDestinationWrap.hidden = false;
+                    }
+                    if (routeDestinationOffice) {
+                        routeDestinationOffice.required = true;
+                    }
+                    if (routeDestinationMeta) {
+                        routeDestinationMeta.textContent = 'Required for routing actions. Remarks are optional.';
+                    }
+                    if (routeActionSubmit) {
+                        routeActionSubmit.textContent = 'Submit';
+                    }
+                    return '';
+                }
+
+                const canCompleteLocal = routeCanCompleteLocally(context);
+                const currentMode = resolveRouteReleaseMode(context);
+
+                if (routeReleaseModeWrap) {
+                    routeReleaseModeWrap.hidden = false;
+                }
+                if (routeReleaseModeMeta) {
+                    routeReleaseModeMeta.textContent = canCompleteLocal
+                        ? 'Choose whether to complete the document in this office or release it to another office.'
+                        : 'This document cannot be completed locally here, so release it to another office for the next workflow leg.';
+                }
+                if (routeReleaseMode) {
+                    routeReleaseMode.innerHTML = '';
+                    if (canCompleteLocal) {
+                        const localOption = document.createElement('option');
+                        localOption.value = 'complete_local';
+                        localOption.textContent = 'Complete in this office';
+                        routeReleaseMode.appendChild(localOption);
+                    }
+                    const sendOption = document.createElement('option');
+                    sendOption.value = 'send_to_office';
+                    sendOption.textContent = 'Release and send to office';
+                    routeReleaseMode.appendChild(sendOption);
+                    routeReleaseMode.value = currentMode;
+                    routeReleaseMode.disabled = routeReleaseMode.options.length <= 1;
+                }
+
+                const requiresDestination = currentMode === 'send_to_office';
+                if (routeDestinationWrap) {
+                    routeDestinationWrap.hidden = !requiresDestination;
+                }
+                if (routeDestinationOffice) {
+                    routeDestinationOffice.required = requiresDestination;
+                    if (!requiresDestination) {
+                        routeDestinationOffice.value = '';
+                    }
+                }
+                if (routeDestinationMeta) {
+                    routeDestinationMeta.textContent = requiresDestination
+                        ? 'Select the next office that should receive this released document.'
+                        : 'Destination office is not required when you complete the document locally.';
+                }
+                if (routeActionTitle) {
+                    routeActionTitle.textContent = requiresDestination ? 'Release Document' : 'Complete Document';
+                }
+                if (routeActionMeta) {
+                    const trackingPrefix = String(context && context.trackingId ? context.trackingId : '').trim() !== ''
+                        ? ('Tracking ID: ' + String(context.trackingId).trim() + ' | ')
+                        : '';
+                    routeActionMeta.textContent = requiresDestination
+                        ? (trackingPrefix + 'Select destination office and add optional remarks. The document will stay Released until the next office clicks Receive.')
+                        : (trackingPrefix + 'This will mark the document completed in this office and close the workflow for this release leg.');
+                }
+                if (routeActionSubmit) {
+                    routeActionSubmit.textContent = requiresDestination ? 'Release' : 'Complete Here';
+                }
+
+                return currentMode;
+            }
+
             function openRouteActionModal(context) {
                 if (!routeActionModal || !routeActionForm || !routeDestinationOffice || !routeActionTitle || !routeActionMeta || !routeRemarks) {
                     showAlertDialog('Routing form is not available on this page.');
@@ -5723,25 +5911,36 @@
 
                 activeRouteContext = context;
                 const routeFilterEnabled = syncRouteDestinationFilterUi(context);
-                let optionCount = populateDestinationOfficeSelect(context);
-                if (optionCount === 0 && routeFilterEnabled) {
-                    const fallbackModes = routeDestinationFilterFallbackModes(activeRouteDestinationFilter);
-                    for (let index = 0; index < fallbackModes.length; index += 1) {
-                        const fallbackMode = fallbackModes[index];
-                        setRouteDestinationFilterMode(fallbackMode);
-                        optionCount = populateDestinationOfficeSelect(context);
-                        if (optionCount > 0) {
-                            break;
+                const dualReleaseContext = routeContextSupportsDualRelease(context);
+                const releaseNeedsDestination = !dualReleaseContext || routeReleaseRequiresDestination(context);
+                let optionCount = 0;
+                if (releaseNeedsDestination) {
+                    optionCount = populateDestinationOfficeSelect(context);
+                    if (optionCount === 0 && routeFilterEnabled) {
+                        const fallbackModes = routeDestinationFilterFallbackModes(activeRouteDestinationFilter);
+                        for (let index = 0; index < fallbackModes.length; index += 1) {
+                            const fallbackMode = fallbackModes[index];
+                            setRouteDestinationFilterMode(fallbackMode);
+                            optionCount = populateDestinationOfficeSelect(context);
+                            if (optionCount > 0) {
+                                break;
+                            }
                         }
                     }
-                }
-                if (optionCount === 0) {
-                    optionCount = forcePopulatePamoRouteDestinations(context);
-                }
-                if (optionCount === 0) {
-                    showAlertDialog('No destination offices are configured for routing.');
-                    activeRouteContext = null;
-                    return false;
+                    if (optionCount === 0) {
+                        optionCount = forcePopulatePamoRouteDestinations(context);
+                    }
+                    if (optionCount === 0) {
+                        showAlertDialog('No destination offices are configured for routing.');
+                        activeRouteContext = null;
+                        return false;
+                    }
+                } else {
+                    routeDestinationOffice.innerHTML = '';
+                    const localPlaceholder = document.createElement('option');
+                    localPlaceholder.value = '';
+                    localPlaceholder.textContent = 'Destination not required';
+                    routeDestinationOffice.appendChild(localPlaceholder);
                 }
 
                 const normalizedRouteMode = normalizeLabelKey(context && context.routeMode ? context.routeMode : '');
@@ -5790,6 +5989,9 @@
                     routeNewSubjectWrap.hidden = !allowSubjectChange;
                     routeNewSubject.value = '';
                     routeNewSubject.required = false;
+                }
+                if (routeReleaseMode) {
+                    routeReleaseMode.disabled = false;
                 }
 
                 if (isPenroAdminRecordRole && context.action === 'FORWARD') {
@@ -5979,7 +6181,13 @@
                         routeDestinationOffice.value = String(officerBackOption.value || '');
                     }
                 }
-                if (currentRoleKey === 'RECORDS_UNIT' && !isCenroAdminRecordRole && context.action === 'FORWARD') {
+                if (
+                    currentRoleKey === 'RECORDS_UNIT'
+                    && !isCenroAdminRecordRole
+                    && !isPenroAdminRecordRole
+                    && !isPamoAdminRole
+                    && context.action === 'FORWARD'
+                ) {
                     const oredOption = Array.from(routeDestinationOffice.options).find(function (option) {
                         const label = String(option.textContent || '').toUpperCase();
                         return label.indexOf('ORED') !== -1 || label.indexOf('REGIONAL EXECUTIVE') !== -1;
@@ -5988,7 +6196,13 @@
                         routeDestinationOffice.value = String(oredOption.value || '');
                     }
                 }
-                if (currentRoleKey === 'RECORDS_UNIT' && !isCenroAdminRecordRole && context.action === 'RETURN') {
+                if (
+                    currentRoleKey === 'RECORDS_UNIT'
+                    && !isCenroAdminRecordRole
+                    && !isPenroAdminRecordRole
+                    && !isPamoAdminRole
+                    && context.action === 'RETURN'
+                ) {
                     const originOfficeId = Number(context.originOfficeId || 0);
                     if (Number.isFinite(originOfficeId) && originOfficeId > 0) {
                         const originOption = Array.from(routeDestinationOffice.options).find(function (option) {
@@ -6008,7 +6222,13 @@
                         }
                     }
                 }
-                if (currentRoleKey === 'RECORDS_UNIT' && !isCenroAdminRecordRole && context.action === 'RELEASE') {
+                if (
+                    currentRoleKey === 'RECORDS_UNIT'
+                    && !isCenroAdminRecordRole
+                    && !isPenroAdminRecordRole
+                    && !isPamoAdminRole
+                    && context.action === 'RELEASE'
+                ) {
                     const originOfficeId = Number(context.originOfficeId || 0);
                     if (Number.isFinite(originOfficeId) && originOfficeId > 0) {
                         const originOption = Array.from(routeDestinationOffice.options).find(function (option) {
@@ -6099,8 +6319,14 @@
                         routeDestinationOffice.value = String(divisionOption.value || '');
                     }
                 }
-                if (String(routeDestinationOffice.value || '') === '') {
+                if (String(routeDestinationOffice.value || '') === '' && releaseNeedsDestination) {
                     autoSelectFirstRouteDestinationOption(context);
+                }
+
+                if (dualReleaseContext) {
+                    syncDualReleaseModalUi(context);
+                } else if (routeActionSubmit) {
+                    routeActionSubmit.textContent = 'Submit';
                 }
 
                 syncRouteBypassReasonUi(context);
@@ -6109,7 +6335,11 @@
                 routeActionModal.hidden = false;
                 routeActionModal.classList.add('is-open');
                 document.body.classList.add('modal-open');
-                routeDestinationOffice.focus();
+                if (dualReleaseContext && !routeReleaseRequiresDestination(context) && routeReleaseMode) {
+                    routeReleaseMode.focus();
+                } else {
+                    routeDestinationOffice.focus();
+                }
                 return true;
             }
 
@@ -6121,6 +6351,18 @@
                 routeActionModal.hidden = true;
                 document.body.classList.remove('modal-open');
                 activeRouteContext = null;
+                if (routeReleaseModeWrap) {
+                    routeReleaseModeWrap.hidden = true;
+                }
+                if (routeReleaseMode) {
+                    routeReleaseMode.disabled = false;
+                }
+                if (routeDestinationWrap) {
+                    routeDestinationWrap.hidden = false;
+                }
+                if (routeDestinationMeta) {
+                    routeDestinationMeta.textContent = 'Required for routing actions. Remarks are optional.';
+                }
                 if (routeDestinationTypeFilterWrap) {
                     routeDestinationTypeFilterWrap.hidden = true;
                 }
@@ -6131,6 +6373,9 @@
                 if (routeRemarks) {
                     routeRemarks.required = false;
                     routeRemarks.placeholder = 'Optional remarks for activity logs';
+                }
+                if (routeActionSubmit) {
+                    routeActionSubmit.textContent = 'Submit';
                 }
                 if (routeBypassReasonWrap) {
                     routeBypassReasonWrap.hidden = true;
@@ -6215,6 +6460,35 @@
                     syncRouteAttachmentUi(activeRouteContext);
                 });
 
+                if (routeReleaseMode) {
+                    routeReleaseMode.addEventListener('change', function () {
+                        if (!activeRouteContext || !routeContextSupportsDualRelease(activeRouteContext)) {
+                            return;
+                        }
+
+                        const needsDestination = routeReleaseRequiresDestination(activeRouteContext);
+                        if (needsDestination) {
+                            let optionCount = populateDestinationOfficeSelect(activeRouteContext);
+                            if (optionCount === 0) {
+                                optionCount = forcePopulatePamoRouteDestinations(activeRouteContext);
+                            }
+                            if (String(routeDestinationOffice.value || '') === '') {
+                                autoSelectFirstRouteDestinationOption(activeRouteContext);
+                            }
+                        } else {
+                            routeDestinationOffice.innerHTML = '';
+                            const placeholder = document.createElement('option');
+                            placeholder.value = '';
+                            placeholder.textContent = 'Destination not required';
+                            routeDestinationOffice.appendChild(placeholder);
+                        }
+
+                        syncDualReleaseModalUi(activeRouteContext);
+                        syncRouteBypassReasonUi(activeRouteContext);
+                        syncRouteAttachmentUi(activeRouteContext);
+                    });
+                }
+
                 document.addEventListener('keydown', function (event) {
                     if (event.key === 'Escape' && !routeActionModal.hidden && (!routeActionSubmit || !routeActionSubmit.disabled)) {
                         closeRouteActionModal();
@@ -6228,14 +6502,25 @@
                     }
 
                     const routeContextAction = String(activeRouteContext.action || '').toUpperCase();
+                    const releaseMode = routeContextSupportsDualRelease(activeRouteContext)
+                        ? resolveRouteReleaseMode(activeRouteContext)
+                        : '';
+                    const requiresDestination = routeContextAction !== 'RELEASE'
+                        || !routeContextSupportsDualRelease(activeRouteContext)
+                        || releaseMode === 'send_to_office';
                     const remarksValue = String(routeRemarks.value || '').trim();
-                    const destinationOfficeId = parseInt(String(routeDestinationOffice.value || '0'), 10);
-                    if (!Number.isFinite(destinationOfficeId) || destinationOfficeId <= 0) {
+                    let destinationOfficeId = parseInt(String(routeDestinationOffice.value || '0'), 10);
+                    if (requiresDestination && (!Number.isFinite(destinationOfficeId) || destinationOfficeId <= 0)) {
                         showAlertDialog('Please select a destination office.');
                         routeDestinationOffice.focus();
                         return;
                     }
-                    const selectedOption = routeDestinationOffice.options[routeDestinationOffice.selectedIndex];
+                    if (!requiresDestination) {
+                        destinationOfficeId = 0;
+                    }
+                    const selectedOption = requiresDestination
+                        ? routeDestinationOffice.options[routeDestinationOffice.selectedIndex]
+                        : null;
                     const bypassReasonValue = routeBypassReason ? String(routeBypassReason.value || '').trim() : '';
                     const bypassReasonRequired = routeRequiresOredBypassReason(activeRouteContext, selectedOption);
                     const effectiveRerouteRemarks = remarksValue !== ''
@@ -6271,7 +6556,9 @@
                         return;
                     }
 
-                    const destinationOfficeLabel = selectedOption ? String(selectedOption.textContent || '').trim() : 'selected office';
+                    const destinationOfficeLabel = requiresDestination
+                        ? (selectedOption ? String(selectedOption.textContent || '').trim() : 'selected office')
+                        : 'this office';
                     let remarksForSubmit = remarksValue;
                     if (bypassReasonRequired && bypassReasonValue !== '') {
                         const bypassPrefix = 'Bypass reason: ' + bypassReasonValue;
@@ -6284,9 +6571,12 @@
                     const submitButton = routeActionSubmit || null;
                     const triggerButton = activeRouteContext.triggerButton || null;
                     const actionText = routeActionLabel(activeRouteContext);
+                    const confirmMessage = requiresDestination
+                        ? ('Proceed with ' + actionText + ' to ' + destinationOfficeLabel + '?')
+                        : 'Proceed with ' + actionText + ' in this office?';
 
                     showConfirmDialog(
-                        'Proceed with ' + actionText + ' to ' + destinationOfficeLabel + '?',
+                        confirmMessage,
                         'Confirm Routing',
                         actionText
                     ).then(function (confirmed) {
@@ -6319,7 +6609,9 @@
                             }
                             return;
                         }
-                        const selectedAttachmentOption = routeDestinationOffice.options[routeDestinationOffice.selectedIndex];
+                        const selectedAttachmentOption = requiresDestination
+                            ? routeDestinationOffice.options[routeDestinationOffice.selectedIndex]
+                            : null;
                         const requiresPreparedResponse = allowsPreparedResponseAttachment(activeRouteContext, selectedAttachmentOption);
                         const requiresEndorsementLetter = endorsementLetterRequired(activeRouteContext, selectedAttachmentOption);
                         if (requiresPreparedResponse && attachmentFiles.length < 1) {
@@ -6358,6 +6650,7 @@
                             documentId: activeRouteContext.documentId,
                             preconditionVersion: Number(activeRouteContext.documentVersion || 0),
                             destinationOfficeId: destinationOfficeId,
+                            releaseMode: releaseMode,
                             bypassReason: bypassReasonValue,
                             remarks: remarksForSubmit,
                             subject: nextSubjectValue,
@@ -6917,6 +7210,9 @@
                     if (payload.destinationOfficeId && payload.destinationOfficeId > 0) {
                         formData.set('destination_office_id', String(payload.destinationOfficeId));
                     }
+                    if (payload.releaseMode) {
+                        formData.set('release_mode', String(payload.releaseMode));
+                    }
                     if (payload.bypassReason) {
                         formData.set('bypass_reason', String(payload.bypassReason));
                     }
@@ -6951,6 +7247,9 @@
                     }
                     if (payload.destinationOfficeId && payload.destinationOfficeId > 0) {
                         body.set('destination_office_id', String(payload.destinationOfficeId));
+                    }
+                    if (payload.releaseMode) {
+                        body.set('release_mode', String(payload.releaseMode));
                     }
                     if (payload.bypassReason) {
                         body.set('bypass_reason', String(payload.bypassReason));
@@ -7565,6 +7864,8 @@
                         action === 'APPROVE'
                         && currentRoleKey === 'RECORDS_UNIT'
                         && !isCenroAdminRecordRole
+                        && !isPenroAdminRecordRole
+                        && !isPamoAdminRole
                         && !queueRowHasReceivedState(currentStatus, pendingOfficeId, rowCurrentOfficeId)
                     ) {
                         showAlertDialog('RECORDS-UNIT must click Receive first before Approve.');
@@ -7574,6 +7875,8 @@
                         action === 'FORWARD'
                         && currentRoleKey === 'RECORDS_UNIT'
                         && !isCenroAdminRecordRole
+                        && !isPenroAdminRecordRole
+                        && !isPamoAdminRole
                         && !queueRowCanManageIntake({
                             created_by_user_id: createdByUserId,
                             status: currentStatus,
@@ -7591,6 +7894,8 @@
                         action === 'RELEASE'
                         && currentRoleKey === 'RECORDS_UNIT'
                         && !isCenroAdminRecordRole
+                        && !isPenroAdminRecordRole
+                        && !isPamoAdminRole
                         && !hasSignedAction
                     ) {
                         showAlertDialog('Release is available only after ORED signs/completes the document and routes it back to RECORDS-UNIT.');
@@ -7600,6 +7905,8 @@
                         action === 'RELEASE'
                         && currentRoleKey === 'RECORDS_UNIT'
                         && !isCenroAdminRecordRole
+                        && !isPenroAdminRecordRole
+                        && !isPamoAdminRole
                         && normalizeLabelKey(currentStatus).indexOf('released') !== -1
                         && Number.isFinite(pendingOfficeId)
                         && pendingOfficeId > 0
@@ -7716,6 +8023,8 @@
                             action === 'RELEASE'
                             && currentRoleKey === 'RECORDS_UNIT'
                             && !isCenroAdminRecordRole
+                            && !isPenroAdminRecordRole
+                            && !isPamoAdminRole
                             && Number.isFinite(originOfficeId)
                             && originOfficeId > 0
                         ) {
@@ -8914,16 +9223,16 @@
                 const isTerminal = queueStatusIsTerminal(status);
                 const actions = hideQueueDocumentOnlyActions ? [] : ['View Tracking Slip'];
                 if (currentRoleKey === 'RECORDS_UNIT') {
-                    if (isCenroAdminRecordRole) {
+                    if (isCenroAdminRecordRole || isPenroAdminRecordRole || isPamoAdminRole) {
                         if (!isReceived && queueRowAllowsReceive(status, pendingOfficeId, rowCurrentOfficeId)) {
                             actions.push('Receive');
                         } else if (isSignedForPhase) {
-                            actions.push('Complete');
+                            actions.push('Release');
                         } else if (!isApproved) {
                             actions.push('Approve');
                         } else {
                             actions.push('Forward');
-                            actions.push('Complete');
+                            actions.push('Release');
                         }
                         if (!hideQueueDocumentOnlyActions) {
                             actions.push('Print Package');
@@ -8955,27 +9264,21 @@
                         // After signing, ORED can still undo sign before forwarding.
                         actions.push('Undo Sign');
                         actions.push('Forward');
-                        if (!isCenroOfficerRole) {
-                            actions.push('Return');
-                        }
+                        actions.push('Return');
                     } else if (isSignedForPhase && isForwarded) {
                         if (!isCenroOfficerRole) {
                             actions.push('Override');
                         }
                     } else if (!isApproved) {
                         actions.push('Approve');
-                        if (!isCenroOfficerRole) {
-                            actions.push('Return');
-                        }
+                        actions.push('Return');
                     } else if (!isForwarded) {
                         actions.push('Sign');
                         actions.push('Forward');
                         if (isCenroOfficerRole && enableQueueRerouteAction) {
                             actions.push('Reroute');
                         }
-                        if (!isCenroOfficerRole) {
-                            actions.push('Return');
-                        }
+                        actions.push('Return');
                     } else {
                         if (!isCenroOfficerRole) {
                             actions.push('Override');
@@ -12903,6 +13206,10 @@
                 /* â”€â”€ Target detection â”€â”€ */
                 function getHoverTarget(el) {
                     if (!el) return null;
+                    if (typeof el.closest !== 'function') {
+                        el = el.parentElement || null;
+                    }
+                    if (!el || typeof el.closest !== 'function') return null;
                     /* Stat cards â€” excluding clickable link navigation clicks */
                     const statCard = el.closest('.stat-card');
                     if (statCard) return statCard;

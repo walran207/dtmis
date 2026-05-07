@@ -14,4 +14,4 @@ if (ini_get('session.use_cookies')) {
 
 session_destroy();
 
-app_redirect('auth/login.php');
+app_redirect('auth/login.php?offline_clear=1');

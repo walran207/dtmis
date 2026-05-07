@@ -29,9 +29,9 @@
     # Auth shortcut route.
     RewriteRule ^auth/?$ auth/login.php [L,NC]
 
-    # Root URL compatibility for relocated utility and PWA files.
+    # Root URL compatibility for relocated utility files.
     RewriteCond %{REQUEST_FILENAME} !-f
-    RewriteRule ^(check_qa\.php|verify_final\.php|service-worker\.js|manifest\.webmanifest|offline\.html)$ root-files/$1 [L,NC,QSA]
+    RewriteRule ^(check_qa\.php|verify_final\.php)$ root-files/$1 [L,NC,QSA]
 
     # Root page compatibility after moving standalone pages to app/pages.
     RewriteCond %{REQUEST_FILENAME} !-f

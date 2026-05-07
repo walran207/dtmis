@@ -36,6 +36,7 @@ $documentId = (int)($_POST['document_id'] ?? 0);
 $trackingId = strtoupper(trim((string)($_POST['tracking_id'] ?? '')));
 $destinationOfficeId = (int)($_POST['destination_office_id'] ?? 0);
 $destinationUserId = (int)($_POST['destination_user_id'] ?? 0);
+$releaseMode = strtolower(trim((string)($_POST['release_mode'] ?? '')));
 $bypassReason = trim((string)($_POST['bypass_reason'] ?? ''));
 $remarks = trim((string)($_POST['remarks'] ?? ''));
 $receiveMethod = strtoupper(trim((string)($_POST['receive_method'] ?? 'MANUAL')));
@@ -652,6 +653,12 @@ function workflow_build_prepared_response_route_context(
                     )
             ),
     ];
+}
+
+if ($releaseMode !== '' && !in_array($releaseMode, ['complete_local', 'send_to_office'], true)) {
+    http_response_code(422);
+    echo json_encode(['ok' => false, 'message' => 'Invalid release mode.']);
+    exit;
 }
 
 function workflow_build_endorsement_route_context(
@@ -1888,6 +1895,9 @@ try {
             break;
 
         case 'RELEASE':
+            if ($destinationOfficeId <= 0 && $releaseMode === 'send_to_office') {
+                throw new InvalidArgumentException('Destination office is required.');
+            }
             if ($destinationOfficeId <= 0) {
                 $originStmt = $pdo->prepare(
                     'SELECT originating_office_id
@@ -1907,7 +1917,8 @@ try {
                 $actorUserId,
                 $destinationOfficeId,
                 $destinationUserId > 0 ? $destinationUserId : null,
-                $remarks
+                $remarks,
+                $releaseMode
             );
             break;
 

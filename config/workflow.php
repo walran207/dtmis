@@ -1755,7 +1755,12 @@ function workflow_transition_policy_fallback_allowed(PDO $pdo, string $actionTyp
         if (
             $cenroAdminRecordRoleId !== null
             && (int)$fromRoleId === (int)$cenroAdminRecordRoleId
-            && (int)$toRoleId === (int)$cenroAdminRecordRoleId
+            && (
+                (int)$toRoleId === (int)$cenroAdminRecordRoleId
+                || ($cenroOfficerRoleId !== null && (int)$toRoleId === (int)$cenroOfficerRoleId)
+                || ($penroAdminRecordRoleId !== null && (int)$toRoleId === (int)$penroAdminRecordRoleId)
+                || ($recordsUnitRoleId !== null && (int)$toRoleId === (int)$recordsUnitRoleId)
+            )
         ) {
             return true;
         }
@@ -1763,7 +1768,12 @@ function workflow_transition_policy_fallback_allowed(PDO $pdo, string $actionTyp
         if (
             $penroAdminRecordRoleId !== null
             && (int)$fromRoleId === (int)$penroAdminRecordRoleId
-            && (int)$toRoleId === (int)$penroAdminRecordRoleId
+            && (
+                (int)$toRoleId === (int)$penroAdminRecordRoleId
+                || ($penroOfficerRoleId !== null && (int)$toRoleId === (int)$penroOfficerRoleId)
+                || ($cenroAdminRecordRoleId !== null && (int)$toRoleId === (int)$cenroAdminRecordRoleId)
+                || ($recordsUnitRoleId !== null && (int)$toRoleId === (int)$recordsUnitRoleId)
+            )
         ) {
             return true;
         }
@@ -1771,7 +1781,12 @@ function workflow_transition_policy_fallback_allowed(PDO $pdo, string $actionTyp
         if (
             $pamoAdminRoleId !== null
             && (int)$fromRoleId === (int)$pamoAdminRoleId
-            && (int)$toRoleId === (int)$pamoAdminRoleId
+            && (
+                (int)$toRoleId === (int)$pamoAdminRoleId
+                || ($pamoOfficerRoleId !== null && (int)$toRoleId === (int)$pamoOfficerRoleId)
+                || ($cenroAdminRecordRoleId !== null && (int)$toRoleId === (int)$cenroAdminRecordRoleId)
+                || ($penroAdminRecordRoleId !== null && (int)$toRoleId === (int)$penroAdminRecordRoleId)
+            )
         ) {
             return true;
         }
@@ -2854,8 +2869,25 @@ function workflow_forward_document(
         }
         $requiredDestination = workflow_required_initial_destination_office($pdo, $actor, $originatingOfficeId);
         if ($requiredDestination !== null) {
+            $destinationRoleId = workflow_resolve_destination_role_id($pdo, $destinationUserId, $destinationOfficeId);
+            $destinationRoleKey = '';
+            if ($destinationRoleId !== null) {
+                $destinationRoleStmt = $pdo->prepare('SELECT name FROM roles WHERE id = :id LIMIT 1');
+                $destinationRoleStmt->execute(['id' => $destinationRoleId]);
+                $destinationRoleKey = app_normalize_role_key((string)($destinationRoleStmt->fetchColumn() ?: ''));
+            }
             $requiredOfficeId = (int)($requiredDestination['office_id'] ?? 0);
-            if ($requiredOfficeId > 0 && $destinationOfficeId !== $requiredOfficeId) {
+            $isInternalCenroOfficerRoute = false;
+            if ($destinationRoleKey === 'CENRO_OFFICER') {
+                $actorRoot = workflow_find_cenro_root_office($pdo, (int)($actor['office_id'] ?? 0));
+                $destinationRoot = workflow_find_cenro_root_office($pdo, $destinationOfficeId);
+                $actorRootId = (int)($actorRoot['id'] ?? 0);
+                $destinationRootId = (int)($destinationRoot['id'] ?? 0);
+                $isInternalCenroOfficerRoute = $actorRootId > 0
+                    && $destinationRootId > 0
+                    && $actorRootId === $destinationRootId;
+            }
+            if ($requiredOfficeId > 0 && $destinationOfficeId !== $requiredOfficeId && !$isInternalCenroOfficerRoute) {
                 $destinationOffice = workflow_get_office_context($pdo, $destinationOfficeId);
                 $destinationOfficeName = strtoupper(trim((string)($destinationOffice['name'] ?? '')));
                 $isRecordsUnitBypass = workflow_name_matches_records_unit($destinationOfficeName);
@@ -3698,16 +3730,118 @@ function workflow_override_document(PDO $pdo, int $documentId, int $actorUserId,
     );
 }
 
-function workflow_release_document(PDO $pdo, int $documentId, int $actorUserId, int $destinationOfficeId, ?int $destinationUserId = null, string $remarks = ''): void
+function workflow_release_mode_key(string $releaseMode): string
+{
+    $normalized = strtolower(trim($releaseMode));
+    return in_array($normalized, ['complete_local', 'send_to_office'], true) ? $normalized : '';
+}
+
+function workflow_role_supports_dual_release(string $actorRoleKey): bool
+{
+    return in_array($actorRoleKey, ['CENRO_ADMIN_RECORD', 'PENRO_ADMIN_RECORD', 'PAMO_ADMIN'], true);
+}
+
+function workflow_assert_internal_release_destination_matches_forward_policy(
+    PDO $pdo,
+    array $actor,
+    int $destinationOfficeId,
+    ?int $destinationUserId = null
+): void {
+    $actorRoleKey = app_normalize_role_key((string)($actor['role_name'] ?? ''));
+    $destinationOffice = workflow_get_office_context($pdo, $destinationOfficeId);
+    if (!$destinationOffice) {
+        throw new InvalidArgumentException('Destination office is not valid.');
+    }
+
+    $destinationRoleId = workflow_resolve_destination_role_id($pdo, $destinationUserId, $destinationOfficeId);
+    $destinationRoleKey = '';
+    if ($destinationRoleId !== null) {
+        $roleStmt = $pdo->prepare('SELECT name FROM roles WHERE id = :id LIMIT 1');
+        $roleStmt->execute(['id' => $destinationRoleId]);
+        $destinationRoleKey = app_normalize_role_key((string)($roleStmt->fetchColumn() ?: ''));
+    }
+
+    if ($actorRoleKey === 'PAMO_ADMIN') {
+        if ($destinationRoleKey === 'PASU_OFFICER') {
+            $actorRoot = workflow_find_pamo_root_office($pdo, (int)($actor['office_id'] ?? 0));
+            $destinationRoot = workflow_find_pamo_root_office($pdo, $destinationOfficeId);
+            $actorRootId = (int)($actorRoot['id'] ?? 0);
+            $destinationRootId = (int)($destinationRoot['id'] ?? 0);
+            if ($actorRootId <= 0 || $destinationRootId <= 0 || $actorRootId !== $destinationRootId) {
+                throw new RuntimeException('PAMO Admin can release only to PASU under the same PAMO office.');
+            }
+            return;
+        }
+        if (in_array($destinationRoleKey, ['CENRO_ADMIN_RECORD', 'PENRO_ADMIN_RECORD'], true)) {
+            return;
+        }
+        throw new RuntimeException('PAMO Admin can release only to PASU, CENRO Admin Record, or PENRO Admin Record.');
+    }
+
+    if ($actorRoleKey === 'CENRO_ADMIN_RECORD') {
+        if ($destinationRoleKey === 'CENRO_OFFICER') {
+            $actorRoot = workflow_find_cenro_root_office($pdo, (int)($actor['office_id'] ?? 0));
+            $destinationRoot = workflow_find_cenro_root_office($pdo, $destinationOfficeId);
+            $actorRootId = (int)($actorRoot['id'] ?? 0);
+            $destinationRootId = (int)($destinationRoot['id'] ?? 0);
+            if ($actorRootId <= 0 || $destinationRootId <= 0 || $actorRootId !== $destinationRootId) {
+                throw new RuntimeException('CENRO Admin Record can release only to CENRO Officer under the same CENRO office.');
+            }
+            return;
+        }
+        if (in_array($destinationRoleKey, ['PENRO_ADMIN_RECORD', 'RECORDS_UNIT'], true)) {
+            return;
+        }
+        throw new RuntimeException('CENRO Admin Record can release only to CENRO Officer, PENRO Admin Record, or PACDO/RECORDS-UNIT.');
+    }
+
+    if ($actorRoleKey === 'PENRO_ADMIN_RECORD') {
+        if ($destinationRoleKey === 'PENRO_OFFICER') {
+            $actorRoot = workflow_find_penro_root_office($pdo, (int)($actor['office_id'] ?? 0));
+            $destinationRoot = workflow_find_penro_root_office($pdo, $destinationOfficeId);
+            $actorRootId = (int)($actorRoot['id'] ?? 0);
+            $destinationRootId = (int)($destinationRoot['id'] ?? 0);
+            if ($actorRootId <= 0 || $destinationRootId <= 0 || $actorRootId !== $destinationRootId) {
+                throw new RuntimeException('PENRO Admin Record can release only to PENRO Officer under the same PENRO office.');
+            }
+            return;
+        }
+        if ($destinationRoleKey === 'CENRO_ADMIN_RECORD') {
+            $actorRoot = workflow_find_penro_root_office($pdo, (int)($actor['office_id'] ?? 0));
+            $actorRootId = (int)($actorRoot['id'] ?? 0);
+            if ($actorRootId <= 0 || !workflow_cenro_belongs_to_penro($pdo, $actorRootId, $destinationOfficeId)) {
+                throw new RuntimeException('PENRO Admin Record can release only to CENRO Admin Record offices under the same PENRO scope.');
+            }
+            return;
+        }
+        if ($destinationRoleKey === 'RECORDS_UNIT') {
+            return;
+        }
+        throw new RuntimeException('PENRO Admin Record can release only to PENRO Officer, CENRO Admin Record, or PACDO/RECORDS-UNIT.');
+    }
+}
+
+function workflow_release_document(
+    PDO $pdo,
+    int $documentId,
+    int $actorUserId,
+    int $destinationOfficeId,
+    ?int $destinationUserId = null,
+    string $remarks = '',
+    string $releaseMode = ''
+): void
 {
     $actor = workflow_get_user_context($pdo, $actorUserId);
     $actorRoleKey = app_normalize_role_key((string)($actor['role_name'] ?? ''));
     $document = workflow_get_document_context($pdo, $documentId, false);
+    $releaseModeKey = workflow_release_mode_key($releaseMode);
+    $supportsDualRelease = workflow_role_supports_dual_release($actorRoleKey);
 
     $currentStatus = strtolower(trim((string)($document['status'] ?? '')));
     $currentOfficeId = (int)($document['current_office_id'] ?? 0);
     $currentPendingOfficeId = (int)($document['pending_office_id'] ?? 0);
     $actorOfficeId = (int)($actor['office_id'] ?? 0);
+    $originatingOfficeId = (int)($document['originating_office_id'] ?? 0);
 
     if (
         $currentStatus === 'released'
@@ -3719,8 +3853,96 @@ function workflow_release_document(PDO $pdo, int $documentId, int $actorUserId, 
         return;
     }
 
-    if (in_array($actorRoleKey, ['RECORDS_UNIT', 'CENRO_ADMIN_RECORD', 'PENRO_ADMIN_RECORD', 'PAMO_ADMIN'], true)) {
-        $originatingOfficeId = (int)($document['originating_office_id'] ?? 0);
+    if ($supportsDualRelease) {
+        if ($releaseModeKey === '') {
+            $releaseModeKey = ($originatingOfficeId > 0 && $destinationOfficeId > 0 && $destinationOfficeId !== $originatingOfficeId)
+                ? 'send_to_office'
+                : 'complete_local';
+        }
+
+        if ($releaseModeKey === 'complete_local') {
+            if ($originatingOfficeId <= 0 || $actorOfficeId !== $originatingOfficeId) {
+                throw new RuntimeException('Local completion is allowed only when the current office is the originating office.');
+            }
+            $destinationOfficeId = $originatingOfficeId;
+
+            if ($currentStatus === 'completed') {
+                return;
+            }
+
+            $pdo->beginTransaction();
+            try {
+                $lockedDocument = workflow_get_document_context($pdo, $documentId, true);
+                workflow_assert_actor_can_route_document($lockedDocument, $actor, 'RELEASE');
+
+                $update = $pdo->prepare(
+                    'UPDATE documents
+                     SET status = :status,
+                         current_office_id = :current_office_id,
+                         current_holder_user_id = :current_holder_user_id,
+                         pending_office_id = NULL,
+                         pending_user_id = NULL
+                     WHERE id = :id'
+                );
+                $update->execute([
+                    'status' => 'Completed',
+                    'current_office_id' => $destinationOfficeId,
+                    'current_holder_user_id' => $actorUserId,
+                    'id' => $documentId,
+                ]);
+
+                workflow_log_action($pdo, [
+                    'document_id' => $documentId,
+                    'user_id' => $actorUserId,
+                    'action_type' => 'Released',
+                    'action_scope' => 'ACTION',
+                    'destination_office_id' => $destinationOfficeId,
+                    'destination_user_id' => null,
+                    'remarks' => $remarks === '' ? 'Released and completed at originating office.' : $remarks,
+                    'is_visible_on_slip' => 0,
+                ]);
+
+                workflow_log_action($pdo, [
+                    'document_id' => $documentId,
+                    'user_id' => $actorUserId,
+                    'action_type' => 'Completed',
+                    'action_scope' => 'CUSTODY',
+                    'destination_office_id' => $destinationOfficeId,
+                    'destination_user_id' => null,
+                    'remarks' => 'Document transaction completed at originating office.',
+                    'is_visible_on_slip' => 1,
+                ]);
+
+                $pdo->commit();
+            } catch (Throwable $exception) {
+                $pdo->rollBack();
+                throw $exception;
+            }
+
+            return;
+        }
+
+        if ($releaseModeKey !== 'send_to_office') {
+            throw new InvalidArgumentException('Invalid release mode.');
+        }
+
+        if ($destinationOfficeId <= 0) {
+            throw new InvalidArgumentException('Destination office is required.');
+        }
+        if ($destinationOfficeId === $currentOfficeId) {
+            throw new RuntimeException('Destination office must be different from current office.');
+        }
+
+        workflow_assert_internal_release_destination_matches_forward_policy(
+            $pdo,
+            $actor,
+            $destinationOfficeId,
+            $destinationUserId
+        );
+    } elseif (in_array($actorRoleKey, ['RECORDS_UNIT'], true)) {
+        if ($releaseModeKey !== '') {
+            throw new RuntimeException('This release mode is not available for RECORDS-UNIT.');
+        }
         if ($originatingOfficeId > 0 && $destinationOfficeId !== $originatingOfficeId) {
             $releaseActorLabel = match ($actorRoleKey) {
                 'CENRO_ADMIN_RECORD' => 'CENRO Admin Record',
@@ -3791,6 +4013,8 @@ function workflow_release_document(PDO $pdo, int $documentId, int $actorUserId, 
 
             return;
         }
+    } elseif ($releaseModeKey !== '') {
+        throw new RuntimeException('This release mode is not available for the current role.');
     }
 
     workflow_route_document_internal(

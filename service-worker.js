@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'edats-shell';
-const CACHE_VERSION = 'v5';
+const CACHE_VERSION = 'v7';
 const CACHE_NAME = `${CACHE_PREFIX}-${CACHE_VERSION}`;
 const API_PATH_MARKERS = ['/actions/', '/app/actions/'];
 const STATIC_EXTENSIONS = /\.(?:css|js|mjs|png|jpg|jpeg|gif|webp|svg|ico|woff2?|ttf|eot|wav|mp3|json)$/i;
@@ -79,6 +79,33 @@ function isCacheableResponse(response) {
     return response && (response.status === 200 || response.type === 'opaque');
 }
 
+function isNavigationCacheableResponse(response) {
+    if (!response || response.status !== 200 || response.type === 'opaque') {
+        return false;
+    }
+
+    const contentType = String(response.headers.get('Content-Type') || '').toLowerCase();
+    return contentType.includes('text/html');
+}
+
+async function matchCachedNavigation(cache, request) {
+    const candidates = [
+        request,
+        request.url,
+        scopedAssetPath('index.php'),
+        scopedAssetPath(''),
+    ];
+
+    for (const candidate of candidates) {
+        const cachedResponse = await cache.match(candidate);
+        if (cachedResponse) {
+            return cachedResponse;
+        }
+    }
+
+    return null;
+}
+
 self.addEventListener('install', (event) => {
     event.waitUntil(
         (async () => {
@@ -113,10 +140,20 @@ self.addEventListener('activate', (event) => {
 });
 
 async function handleNavigationRequest(request) {
+    const cache = await caches.open(CACHE_NAME);
+
     try {
-        return await fetch(request);
+        const networkResponse = await fetch(request);
+        if (isNavigationCacheableResponse(networkResponse)) {
+            await cache.put(request, networkResponse.clone());
+        }
+        return networkResponse;
     } catch (error) {
-        const cache = await caches.open(CACHE_NAME);
+        const cachedNavigation = await matchCachedNavigation(cache, request);
+        if (cachedNavigation) {
+            return cachedNavigation;
+        }
+
         const offlineFallback = await cache.match(OFFLINE_FALLBACK_PATH);
         if (offlineFallback) {
             return offlineFallback;
@@ -184,7 +221,7 @@ self.addEventListener('fetch', (event) => {
     }
 
     if (isApiRequest(url.pathname)) {
-        event.respondWith(fetch(request));
+        // Let page-level offline handlers decide how to recover API requests.
         return;
     }
 
