@@ -14,6 +14,16 @@ function workflow_normalize_source_type(string $sourceType): string
     return $normalized;
 }
 
+function workflow_resolve_display_status(string $status, int $pendingOfficeId = 0, int $currentOfficeId = 0): string
+{
+    $resolved = trim($status);
+    if ($resolved === '') {
+        $resolved = 'Pending';
+    }
+
+    return $resolved;
+}
+
 function workflow_table_exists(PDO $pdo, string $tableName): bool
 {
     static $cache = [];
@@ -25,24 +35,20 @@ function workflow_table_exists(PDO $pdo, string $tableName): bool
         return $cache[$key];
     }
 
-    // MariaDB does not support parameter placeholders in SHOW TABLES LIKE.
-    $stmt = $pdo->query('SHOW TABLES LIKE ' . $pdo->quote($tableName));
-    $cache[$key] = $stmt ? (bool)$stmt->fetchColumn() : false;
+    $cache[$key] = db_table_exists($pdo, $tableName);
 
     return $cache[$key];
 }
 
 function workflow_column_exists(PDO $pdo, string $tableName, string $columnName): bool
 {
-    $safeTable = str_replace('`', '', trim($tableName));
-    $safeColumn = str_replace(['\\', "'"], ['\\\\', "\\'"], trim($columnName));
+    $safeTable = trim($tableName);
+    $safeColumn = trim($columnName);
     if ($safeTable === '' || $safeColumn === '') {
         return false;
     }
 
-    $sql = "SHOW COLUMNS FROM `{$safeTable}` LIKE '{$safeColumn}'";
-    $stmt = $pdo->query($sql);
-    return $stmt ? (bool)$stmt->fetch() : false;
+    return db_column_exists($pdo, $safeTable, $safeColumn);
 }
 
 function workflow_ensure_document_arta_override_columns(PDO $pdo): void
@@ -53,11 +59,15 @@ function workflow_ensure_document_arta_override_columns(PDO $pdo): void
 
     if (!workflow_column_exists($pdo, 'documents', 'arta_category_override')) {
         try {
-            $pdo->exec(
-                "ALTER TABLE documents
-                 ADD COLUMN arta_category_override VARCHAR(50) NULL DEFAULT NULL
-                 AFTER document_type_id"
-            );
+            if (db_is_sql_server($pdo)) {
+                $pdo->exec('ALTER TABLE documents ADD arta_category_override NVARCHAR(50) NULL');
+            } else {
+                $pdo->exec(
+                    "ALTER TABLE documents
+                     ADD COLUMN arta_category_override VARCHAR(50) NULL DEFAULT NULL
+                     AFTER document_type_id"
+                );
+            }
         } catch (Throwable $exception) {
             if (!workflow_column_exists($pdo, 'documents', 'arta_category_override')) {
                 throw $exception;
@@ -67,11 +77,15 @@ function workflow_ensure_document_arta_override_columns(PDO $pdo): void
 
     if (!workflow_column_exists($pdo, 'documents', 'arta_days_limit_override')) {
         try {
-            $pdo->exec(
-                "ALTER TABLE documents
-                 ADD COLUMN arta_days_limit_override INT(11) NULL DEFAULT NULL
-                 AFTER arta_category_override"
-            );
+            if (db_is_sql_server($pdo)) {
+                $pdo->exec('ALTER TABLE documents ADD arta_days_limit_override INT NULL');
+            } else {
+                $pdo->exec(
+                    "ALTER TABLE documents
+                     ADD COLUMN arta_days_limit_override INT(11) NULL DEFAULT NULL
+                     AFTER arta_category_override"
+                );
+            }
         } catch (Throwable $exception) {
             if (!workflow_column_exists($pdo, 'documents', 'arta_days_limit_override')) {
                 throw $exception;
@@ -88,11 +102,15 @@ function workflow_ensure_document_row_version_column(PDO $pdo): void
 
     if (!workflow_column_exists($pdo, 'documents', 'row_version')) {
         try {
-            $pdo->exec(
-                "ALTER TABLE documents
-                 ADD COLUMN row_version INT UNSIGNED NOT NULL DEFAULT 1
-                 AFTER pending_user_id"
-            );
+            if (db_is_sql_server($pdo)) {
+                $pdo->exec('ALTER TABLE documents ADD row_version INT NOT NULL CONSTRAINT DF_documents_row_version DEFAULT 1');
+            } else {
+                $pdo->exec(
+                    "ALTER TABLE documents
+                     ADD COLUMN row_version INT UNSIGNED NOT NULL DEFAULT 1
+                     AFTER pending_user_id"
+                );
+            }
         } catch (Throwable $exception) {
             if (!workflow_column_exists($pdo, 'documents', 'row_version')) {
                 throw $exception;
@@ -104,11 +122,10 @@ function workflow_ensure_document_row_version_column(PDO $pdo): void
 function workflow_get_user_context(PDO $pdo, int $userId): array
 {
     $stmt = $pdo->prepare(
-        'SELECT u.id, u.office_id, u.role_id, r.name AS role_name
+        'SELECT TOP (1) u.id, u.office_id, u.role_id, r.name AS role_name
          FROM users u
          LEFT JOIN roles r ON r.id = u.role_id
-         WHERE u.id = :id AND u.is_active = 1
-         LIMIT 1'
+         WHERE u.id = :id AND u.is_active = 1'
     );
     $stmt->execute(['id' => $userId]);
     $user = $stmt->fetch();
@@ -122,21 +139,20 @@ function workflow_get_user_context(PDO $pdo, int $userId): array
 
 function workflow_get_document_context(PDO $pdo, int $documentId, bool $forUpdate = false): array
 {
-    $sql = 'SELECT
+    $sql = 'SELECT TOP (1)
                 d.*,
                 cu.role_id AS current_holder_role_id,
                 rc.name AS current_holder_role_name,
                 pu.role_id AS pending_user_role_id,
                 rp.name AS pending_user_role_name
-            FROM documents d
+            FROM documents AS d
             LEFT JOIN users cu ON cu.id = d.current_holder_user_id
             LEFT JOIN roles rc ON rc.id = cu.role_id
             LEFT JOIN users pu ON pu.id = d.pending_user_id
             LEFT JOIN roles rp ON rp.id = pu.role_id
-            WHERE d.id = :id
-            LIMIT 1';
+            WHERE d.id = :id';
     if ($forUpdate) {
-        $sql .= ' FOR UPDATE';
+        $sql = str_replace('FROM documents AS d', 'FROM documents AS d WITH (UPDLOCK, ROWLOCK)', $sql);
     }
 
     $stmt = $pdo->prepare($sql);
@@ -148,6 +164,65 @@ function workflow_get_document_context(PDO $pdo, int $documentId, bool $forUpdat
     }
 
     return $document;
+}
+
+function workflow_document_current_leg_started_at(PDO $pdo, array $documentContext, int $officeId): string
+{
+    $documentId = (int)($documentContext['id'] ?? 0);
+    $documentCreatedAt = trim((string)($documentContext['created_at'] ?? ''));
+    if ($documentId <= 0 || $officeId <= 0 || !workflow_table_exists($pdo, 'tracking_slips')) {
+        return $documentCreatedAt;
+    }
+
+    $latestReceiveStmt = $pdo->prepare(
+        'SELECT MAX(ts.date_time_received)
+         FROM tracking_slips ts
+         WHERE ts.document_id = :document_id
+           AND ts.receiving_office_id = :office_id'
+    );
+    $latestReceiveStmt->execute([
+        'document_id' => $documentId,
+        'office_id' => $officeId,
+    ]);
+    $latestReceiveAt = trim((string)($latestReceiveStmt->fetchColumn() ?: ''));
+
+    return $latestReceiveAt !== '' ? $latestReceiveAt : $documentCreatedAt;
+}
+
+function workflow_document_has_local_sign_stage(PDO $pdo, array $documentContext, int $officeId, string $roleKey): bool
+{
+    $documentId = (int)($documentContext['id'] ?? 0);
+    $normalizedRoleKey = app_normalize_role_key($roleKey);
+    if ($documentId <= 0 || $officeId <= 0 || $normalizedRoleKey === '' || !workflow_table_exists($pdo, 'activity_logs')) {
+        return false;
+    }
+
+    $legStartedAt = workflow_document_current_leg_started_at($pdo, $documentContext, $officeId);
+    $params = [
+        'document_id' => $documentId,
+        'office_id' => $officeId,
+        'role_name' => $normalizedRoleKey,
+    ];
+    $legStartedFilter = '';
+    if ($legStartedAt !== '') {
+        $legStartedFilter = ' AND al.created_at >= :leg_started_at';
+        $params['leg_started_at'] = $legStartedAt;
+    }
+
+    $signedStmt = $pdo->prepare(
+        'SELECT TOP (1) 1
+         FROM activity_logs al
+         INNER JOIN users u ON u.id = al.user_id
+         INNER JOIN roles r ON r.id = u.role_id
+         WHERE al.document_id = :document_id
+           AND LOWER(COALESCE(al.action_type, \'\')) = \'signed\'
+           AND u.office_id = :office_id
+           AND UPPER(COALESCE(r.name, \'\')) = :role_name'
+         . $legStartedFilter
+    );
+    $signedStmt->execute($params);
+
+    return (bool)$signedStmt->fetchColumn();
 }
 
 function workflow_get_role_id_by_key(PDO $pdo, string $roleKey): ?int
@@ -165,9 +240,109 @@ function workflow_get_role_id_by_key(PDO $pdo, string $roleKey): ?int
     return $roleMap[$normalized] ?? null;
 }
 
+function workflow_is_regional_ored_role_key(string $roleKey): bool
+{
+    return in_array(app_normalize_role_key($roleKey), ['ORED', 'ORED_SIGN'], true);
+}
+
+function workflow_is_ored_sign_role_key(string $roleKey): bool
+{
+    return app_normalize_role_key($roleKey) === 'ORED_SIGN';
+}
+
+function workflow_ored_resolve_user_id_by_priority(
+    PDO $pdo,
+    int $officeId,
+    array $preferredRoleKeys,
+    ?int $excludeUserId = null
+): ?int {
+    if ($officeId <= 0 || $preferredRoleKeys === []) {
+        return null;
+    }
+
+    $priorityMap = [];
+    foreach (array_values($preferredRoleKeys) as $index => $roleKey) {
+        $normalizedRoleKey = app_normalize_role_key((string)$roleKey);
+        if ($normalizedRoleKey === '' || array_key_exists($normalizedRoleKey, $priorityMap)) {
+            continue;
+        }
+        $priorityMap[$normalizedRoleKey] = $index;
+    }
+    if ($priorityMap === []) {
+        return null;
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT u.id, r.name AS role_name
+         FROM users u
+         LEFT JOIN roles r ON r.id = u.role_id
+         WHERE u.office_id = :office_id
+           AND u.is_active = 1
+         ORDER BY u.id DESC'
+    );
+    $stmt->execute(['office_id' => $officeId]);
+    $users = $stmt->fetchAll() ?: [];
+
+    $bestUserId = null;
+    $bestPriority = PHP_INT_MAX;
+    foreach ($users as $user) {
+        $userId = (int)($user['id'] ?? 0);
+        if ($userId <= 0 || ($excludeUserId !== null && $excludeUserId > 0 && $userId === $excludeUserId)) {
+            continue;
+        }
+
+        $normalizedRoleKey = app_normalize_role_key((string)($user['role_name'] ?? ''));
+        if (!array_key_exists($normalizedRoleKey, $priorityMap)) {
+            continue;
+        }
+
+        $priority = (int)$priorityMap[$normalizedRoleKey];
+        if ($priority < $bestPriority) {
+            $bestPriority = $priority;
+            $bestUserId = $userId;
+        }
+    }
+
+    return $bestUserId;
+}
+
+function workflow_ored_office_has_signer(PDO $pdo, int $officeId, ?int $excludeUserId = null): bool
+{
+    return workflow_ored_resolve_user_id_by_priority($pdo, $officeId, ['ORED_SIGN'], $excludeUserId) !== null;
+}
+
+function workflow_ored_resolve_signer_user_id(PDO $pdo, int $officeId, ?int $excludeUserId = null): ?int
+{
+    return workflow_ored_resolve_user_id_by_priority($pdo, $officeId, ['ORED_SIGN', 'ORED'], $excludeUserId);
+}
+
+function workflow_ored_resolve_reviewer_user_id(PDO $pdo, int $officeId, ?int $excludeUserId = null): ?int
+{
+    return workflow_ored_resolve_user_id_by_priority($pdo, $officeId, ['ORED', 'ORED_SIGN'], $excludeUserId);
+}
+
+function workflow_actor_is_ored_signer(PDO $pdo, array $actor): bool
+{
+    $actorRoleKey = app_normalize_role_key((string)($actor['role_name'] ?? ''));
+    if ($actorRoleKey === 'ORED_SIGN') {
+        return true;
+    }
+    if ($actorRoleKey !== 'ORED') {
+        return false;
+    }
+
+    $officeId = (int)($actor['office_id'] ?? 0);
+    $actorUserId = (int)($actor['id'] ?? 0);
+    if ($officeId <= 0) {
+        return true;
+    }
+
+    return !workflow_ored_office_has_signer($pdo, $officeId, $actorUserId > 0 ? $actorUserId : null);
+}
+
 function workflow_can_override_role(string $roleName): bool
 {
-    return app_normalize_role_key($roleName) === 'ORED';
+    return workflow_is_ored_sign_role_key($roleName);
 }
 
 function workflow_is_supervisor_role(string $roleName): bool
@@ -179,6 +354,7 @@ function workflow_is_supervisor_role(string $roleName): bool
         'ARD_MS',
         'RECORDS_UNIT',
         'ORED',
+        'ORED_SIGN',
         'CENRO_ADMIN_RECORD',
         'CENRO_OFFICER',
         'CENRO_SECTION',
@@ -770,13 +946,12 @@ function workflow_find_ard_office_by_track(PDO $pdo, string $track): ?array
 
     $roleKey = $normalizedTrack === 'TS' ? 'ARD_TS' : 'ARD_MS';
     $stmt = $pdo->prepare(
-        'SELECT o.id, o.name, o.level, o.parent_office_id
+        'SELECT TOP (1) o.id, o.name, o.level, o.parent_office_id
          FROM offices o
          INNER JOIN users u ON u.office_id = o.id
          INNER JOIN roles r ON r.id = u.role_id
          WHERE UPPER(r.name) = :role_name
-         ORDER BY o.id ASC
-         LIMIT 1'
+         ORDER BY o.id ASC'
     );
     $stmt->execute(['role_name' => $roleKey]);
     $office = $stmt->fetch();
@@ -786,12 +961,11 @@ function workflow_find_ard_office_by_track(PDO $pdo, string $track): ?array
 
     $likeNeedle = $normalizedTrack === 'TS' ? '%TECHNICAL%' : '%MANAGEMENT%';
     $fallbackStmt = $pdo->prepare(
-        'SELECT id, name, level, parent_office_id
+        'SELECT TOP (1) id, name, level, parent_office_id
          FROM offices
          WHERE UPPER(name) LIKE :needle
             OR UPPER(name) LIKE :ard_short
-         ORDER BY id ASC
-         LIMIT 1'
+         ORDER BY id ASC'
     );
     $fallbackStmt->execute([
         'needle' => $likeNeedle,
@@ -843,6 +1017,43 @@ function workflow_office_is_ored(array $office): bool
     return str_contains($name, 'ORED') || str_contains($name, 'REGIONAL EXECUTIVE');
 }
 
+function workflow_office_is_rbco(array $office): bool
+{
+    $officeKey = workflow_office_name_key((string)($office['name'] ?? ''));
+    return $officeKey === 'RBCORIVERBASINCONTROLOFFICE'
+        || $officeKey === 'RIVERBASINCONTROLOFFICE';
+}
+
+function workflow_office_track_from_context(PDO $pdo, array $office): ?string
+{
+    $officeLevel = workflow_office_level_key((string)($office['level'] ?? ''));
+    $officeName = (string)($office['name'] ?? '');
+
+    if ($officeLevel === 'DIVISION') {
+        return workflow_division_track_from_name($officeName);
+    }
+
+    if ($officeLevel === 'SECTION' || $officeLevel === 'UNIT') {
+        $parentOfficeId = (int)($office['parent_office_id'] ?? 0);
+        if ($parentOfficeId > 0) {
+            $parentOffice = workflow_get_office_context($pdo, $parentOfficeId);
+            if ($parentOffice) {
+                $parentLevel = workflow_office_level_key((string)($parentOffice['level'] ?? ''));
+                if ($parentLevel === 'DIVISION') {
+                    return workflow_division_track_from_name((string)($parentOffice['name'] ?? ''));
+                }
+
+                $parentTrack = workflow_ard_track_from_office_name((string)($parentOffice['name'] ?? ''));
+                if ($parentTrack !== null) {
+                    return $parentTrack;
+                }
+            }
+        }
+    }
+
+    return workflow_ard_track_from_office_name($officeName);
+}
+
 function workflow_infer_office_role_id(PDO $pdo, int $officeId): ?int
 {
     if ($officeId <= 0) {
@@ -850,10 +1061,9 @@ function workflow_infer_office_role_id(PDO $pdo, int $officeId): ?int
     }
 
     $stmt = $pdo->prepare(
-        'SELECT id, name, level
+        'SELECT TOP (1) id, name, level
          FROM offices
-         WHERE id = :id
-         LIMIT 1'
+         WHERE id = :id'
     );
     $stmt->execute(['id' => $officeId]);
     $office = $stmt->fetch();
@@ -939,10 +1149,9 @@ function workflow_get_office_context(PDO $pdo, int $officeId): ?array
     }
 
     $stmt = $pdo->prepare(
-        'SELECT id, name, level, parent_office_id
+        'SELECT TOP (1) id, name, level, parent_office_id
          FROM offices
-         WHERE id = :id
-         LIMIT 1'
+         WHERE id = :id'
     );
     $stmt->execute(['id' => $officeId]);
     $office = $stmt->fetch();
@@ -989,12 +1198,11 @@ function workflow_find_child_office_by_level(PDO $pdo, int $parentOfficeId, stri
     }
 
     $stmt = $pdo->prepare(
-        'SELECT id, name, level, parent_office_id
+        'SELECT TOP (1) id, name, level, parent_office_id
          FROM offices
          WHERE parent_office_id = :parent_office_id
            AND UPPER(COALESCE(level, \'\')) = :level
-         ORDER BY id ASC
-         LIMIT 1'
+         ORDER BY id ASC'
     );
     $stmt->execute([
         'parent_office_id' => $parentOfficeId,
@@ -1005,17 +1213,79 @@ function workflow_find_child_office_by_level(PDO $pdo, int $parentOfficeId, stri
     return $office ?: null;
 }
 
+function workflow_resolve_officer_admin_record_back_destination(PDO $pdo, string $actorRoleKey, array $actor, array $documentSnapshot): int
+{
+    $normalizedActorRoleKey = app_normalize_role_key($actorRoleKey);
+    $expectedLevel = match ($normalizedActorRoleKey) {
+        'CENRO_OFFICER' => 'CENRO_ADMIN_RECORD',
+        'PENRO_OFFICER' => 'PENRO_ADMIN_RECORD',
+        'PASU_OFFICER' => 'PAMO_ADMIN',
+        default => '',
+    };
+    if ($expectedLevel === '') {
+        return 0;
+    }
+
+    $originatingOfficeId = (int)($documentSnapshot['originating_office_id'] ?? 0);
+    if ($originatingOfficeId > 0) {
+        $originOffice = workflow_get_office_context($pdo, $originatingOfficeId);
+        if ($originOffice && workflow_office_level_key((string)($originOffice['level'] ?? '')) === $expectedLevel) {
+            return $originatingOfficeId;
+        }
+    }
+
+    $actorOfficeId = (int)($actor['office_id'] ?? 0);
+    if ($actorOfficeId <= 0) {
+        return 0;
+    }
+
+    $actorOffice = workflow_get_office_context($pdo, $actorOfficeId);
+    $actorParentOfficeId = (int)($actorOffice['parent_office_id'] ?? 0);
+    if ($actorParentOfficeId > 0) {
+        $siblingAdminOffice = workflow_find_child_office_by_level($pdo, $actorParentOfficeId, $expectedLevel);
+        if ($siblingAdminOffice) {
+            return (int)($siblingAdminOffice['id'] ?? 0);
+        }
+    }
+
+    $rootFinder = match ($normalizedActorRoleKey) {
+        'CENRO_OFFICER' => 'workflow_find_cenro_root_office',
+        'PENRO_OFFICER' => 'workflow_find_penro_root_office',
+        'PASU_OFFICER' => 'workflow_find_pamo_root_office',
+        default => null,
+    };
+    if (!is_string($rootFinder) || !function_exists($rootFinder)) {
+        return 0;
+    }
+
+    $rootOffice = $rootFinder($pdo, $actorOfficeId);
+    $rootOfficeId = (int)($rootOffice['id'] ?? 0);
+    if ($rootOfficeId <= 0) {
+        return 0;
+    }
+
+    if (workflow_office_level_key((string)($rootOffice['level'] ?? '')) === $expectedLevel) {
+        return $rootOfficeId;
+    }
+
+    $rootAdminOffice = workflow_find_child_office_by_level($pdo, $rootOfficeId, $expectedLevel);
+    if ($rootAdminOffice) {
+        return (int)($rootAdminOffice['id'] ?? 0);
+    }
+
+    return 0;
+}
+
 function workflow_find_records_unit_office(PDO $pdo): ?array
 {
     $stmt = $pdo->query(
-        "SELECT id, name, level, parent_office_id
+        "SELECT TOP (1) id, name, level, parent_office_id
          FROM offices
          WHERE UPPER(name) LIKE '%PACDO%'
             OR UPPER(name) LIKE '%RECORDS-UNIT%'
             OR UPPER(name) LIKE '%RECORDS UNIT%'
             OR UPPER(name) LIKE '%RECORDS_UNIT%'
-         ORDER BY id ASC
-         LIMIT 1"
+         ORDER BY id ASC"
     );
     $office = $stmt ? $stmt->fetch() : false;
     if ($office) {
@@ -1023,13 +1293,12 @@ function workflow_find_records_unit_office(PDO $pdo): ?array
     }
 
     $fallback = $pdo->query(
-        "SELECT o.id, o.name, o.level, o.parent_office_id
+        "SELECT TOP (1) o.id, o.name, o.level, o.parent_office_id
          FROM offices o
          INNER JOIN users u ON u.office_id = o.id
          INNER JOIN roles r ON r.id = u.role_id
          WHERE UPPER(REPLACE(REPLACE(r.name, '_', ' '), '-', ' ')) IN ('PACDO', 'RECORDS UNIT')
-         ORDER BY o.id ASC
-         LIMIT 1"
+         ORDER BY o.id ASC"
     );
     $office = $fallback ? $fallback->fetch() : false;
     return $office ?: null;
@@ -1105,7 +1374,7 @@ function workflow_build_assigned_status(string $officeName): string
 function workflow_resolve_destination_role_id(PDO $pdo, ?int $destinationUserId, ?int $destinationOfficeId): ?int
 {
     if ($destinationUserId !== null && $destinationUserId > 0) {
-        $stmt = $pdo->prepare('SELECT role_id FROM users WHERE id = :id LIMIT 1');
+        $stmt = $pdo->prepare('SELECT TOP (1) role_id FROM users WHERE id = :id');
         $stmt->execute(['id' => $destinationUserId]);
         $roleId = $stmt->fetchColumn();
         return $roleId === false ? null : (int)$roleId;
@@ -1125,11 +1394,10 @@ function workflow_role_key_from_user_id(PDO $pdo, int $userId): ?string
     }
 
     $stmt = $pdo->prepare(
-        'SELECT r.name
+        'SELECT TOP (1) r.name
          FROM users u
          LEFT JOIN roles r ON r.id = u.role_id
-         WHERE u.id = :id
-         LIMIT 1'
+         WHERE u.id = :id'
     );
     $stmt->execute(['id' => $userId]);
     $roleName = $stmt->fetchColumn();
@@ -1179,7 +1447,7 @@ function workflow_assert_section_assignment_scope(
     $destinationOffice = workflow_get_office_context($pdo, $destinationOfficeId);
     $destinationParentOfficeId = (int)($destinationOffice['parent_office_id'] ?? 0);
 
-    if ($actorRoleKey === 'ORED') {
+    if (workflow_is_regional_ored_role_key($actorRoleKey)) {
         if (in_array($actionType, ['FORWARD', 'REROUTE'], true)) {
             return;
         }
@@ -1228,7 +1496,7 @@ function workflow_assert_cenro_internal_assignment_scope(
         $destinationRoleId = workflow_infer_office_role_id($pdo, $destinationOfficeId);
         $destinationRoleName = '';
         if ($destinationRoleId !== null) {
-            $roleStmt = $pdo->prepare('SELECT name FROM roles WHERE id = :id LIMIT 1');
+            $roleStmt = $pdo->prepare('SELECT TOP (1) name FROM roles WHERE id = :id');
             $roleStmt->execute(['id' => $destinationRoleId]);
             $destinationRoleName = app_normalize_role_key((string)($roleStmt->fetchColumn() ?: ''));
         }
@@ -1253,8 +1521,12 @@ function workflow_assert_cenro_internal_assignment_scope(
         }
 
         if ($actorRoleKey === 'PASU_OFFICER') {
-            $currentStatus = strtolower(trim((string)($documentContext['status'] ?? '')));
-            $isPostSignStage = str_contains($currentStatus, 'signed') || str_contains($currentStatus, 'completed');
+            $isPostSignStage = workflow_document_has_local_sign_stage(
+                $pdo,
+                $documentContext,
+                $actorOfficeId,
+                $actorRoleKey
+            );
             $originatingOfficeId = (int)($documentContext['originating_office_id'] ?? 0);
             $isUnitTarget = $destinationRoleName === 'PAMO_UNIT'
                 && $destinationLevel === 'PAMO_UNIT'
@@ -1329,7 +1601,7 @@ function workflow_assert_cenro_internal_assignment_scope(
     $destinationRoleId = workflow_infer_office_role_id($pdo, $destinationOfficeId);
     $destinationRoleName = '';
     if ($destinationRoleId !== null) {
-        $roleStmt = $pdo->prepare('SELECT name FROM roles WHERE id = :id LIMIT 1');
+        $roleStmt = $pdo->prepare('SELECT TOP (1) name FROM roles WHERE id = :id');
         $roleStmt->execute(['id' => $destinationRoleId]);
         $destinationRoleName = app_normalize_role_key((string)($roleStmt->fetchColumn() ?: ''));
     }
@@ -1415,8 +1687,12 @@ function workflow_assert_cenro_internal_assignment_scope(
     }
 
     if ($actorRoleKey === $officerRole) {
-        $currentStatus = strtolower(trim((string)($documentContext['status'] ?? '')));
-        $isPostSignStage = str_contains($currentStatus, 'signed') || str_contains($currentStatus, 'completed');
+        $isPostSignStage = workflow_document_has_local_sign_stage(
+            $pdo,
+            $documentContext,
+            $actorOfficeId,
+            $actorRoleKey
+        );
         $originatingOfficeId = (int)($documentContext['originating_office_id'] ?? 0);
         $actorOffice = workflow_get_office_context($pdo, $actorOfficeId);
         $actorParentOfficeId = (int)($actorOffice['parent_office_id'] ?? 0);
@@ -1440,6 +1716,12 @@ function workflow_assert_cenro_internal_assignment_scope(
             && (
                 ($actorParentOfficeId > 0 && (int)($destinationOffice['parent_office_id'] ?? 0) === $actorParentOfficeId)
                 || $isSameCenroRoot
+            );
+        $isAdminRecordTarget = $destinationRoleName === $adminRole
+            && workflow_is_cenro_admin_record_level($destinationLevel)
+            && (
+                ($originatingOfficeId > 0 && $destinationOfficeId === $originatingOfficeId)
+                || $isAdminRecordSameRoot
             );
 
         if ($actionType === 'FORWARD' && $isPostSignStage) {
@@ -1467,8 +1749,8 @@ function workflow_assert_cenro_internal_assignment_scope(
         }
 
         if ($actionType === 'FORWARD') {
-            if (!$isSectionChild && !$isUnitSameRoot) {
-                throw new RuntimeException($officerLabel . ' can forward only to child ' . $sectionLevelLabel . ', or bypass to same-chain ' . $unitLevelLabel . ' with reason.');
+            if (!$isSectionChild && !$isUnitSameRoot && !$isAdminRecordTarget) {
+                throw new RuntimeException($officerLabel . ' can forward only to child ' . $sectionLevelLabel . ', bypass to same-chain ' . $unitLevelLabel . ', or send back to ' . $adminLabel . '.');
             }
             return;
         }
@@ -1575,6 +1857,81 @@ function workflow_assert_cenro_internal_assignment_scope(
     }
 }
 
+function workflow_ensure_document_sender_column(PDO $pdo): void
+{
+    if (!workflow_table_exists($pdo, 'documents')) {
+        throw new RuntimeException('Documents table is missing.');
+    }
+
+    if (!workflow_column_exists($pdo, 'documents', 'sender')) {
+        try {
+            if (db_is_sql_server($pdo)) {
+                $pdo->exec('ALTER TABLE documents ADD sender NVARCHAR(255) NULL');
+            } else {
+                $pdo->exec(
+                    "ALTER TABLE documents
+                     ADD COLUMN sender VARCHAR(255) NULL DEFAULT NULL
+                     AFTER source_type"
+                );
+            }
+        } catch (Throwable $exception) {
+            if (!workflow_column_exists($pdo, 'documents', 'sender')) {
+                throw $exception;
+            }
+        }
+    }
+}
+
+function workflow_ensure_document_client_address_column(PDO $pdo): void
+{
+    if (!workflow_table_exists($pdo, 'documents')) {
+        throw new RuntimeException('Documents table is missing.');
+    }
+
+    if (!workflow_column_exists($pdo, 'documents', 'client_address')) {
+        try {
+            if (db_is_sql_server($pdo)) {
+                $pdo->exec('ALTER TABLE documents ADD client_address NVARCHAR(255) NULL');
+            } else {
+                $pdo->exec(
+                    "ALTER TABLE documents
+                     ADD COLUMN client_address VARCHAR(255) NULL DEFAULT NULL
+                     AFTER external_client_name"
+                );
+            }
+        } catch (Throwable $exception) {
+            if (!workflow_column_exists($pdo, 'documents', 'client_address')) {
+                throw $exception;
+            }
+        }
+    }
+}
+
+function workflow_ensure_document_originating_entity_column(PDO $pdo): void
+{
+    if (!workflow_table_exists($pdo, 'documents')) {
+        throw new RuntimeException('Documents table is missing.');
+    }
+
+    if (!workflow_column_exists($pdo, 'documents', 'originating_entity_name')) {
+        try {
+            if (db_is_sql_server($pdo)) {
+                $pdo->exec('ALTER TABLE documents ADD originating_entity_name NVARCHAR(255) NULL');
+            } else {
+                $pdo->exec(
+                    "ALTER TABLE documents
+                     ADD COLUMN originating_entity_name VARCHAR(255) NULL DEFAULT NULL
+                     AFTER client_address"
+                );
+            }
+        } catch (Throwable $exception) {
+            if (!workflow_column_exists($pdo, 'documents', 'originating_entity_name')) {
+                throw $exception;
+            }
+        }
+    }
+}
+
 function workflow_transition_is_allowed(PDO $pdo, string $actionType, ?int $fromRoleId, ?int $toRoleId): bool
 {
     if (!workflow_table_exists($pdo, 'workflow_transitions')) {
@@ -1582,7 +1939,7 @@ function workflow_transition_is_allowed(PDO $pdo, string $actionType, ?int $from
     }
 
     $stmt = $pdo->prepare(
-        'SELECT 1
+        'SELECT TOP (1) 1
          FROM workflow_transitions wt
          WHERE wt.action_type = :action_type
            AND wt.is_active = 1
@@ -1593,10 +1950,9 @@ function workflow_transition_is_allowed(PDO $pdo, string $actionType, ?int $from
            )
            AND (
                 (:to_is_null_a = 1 AND wt.allowed_to_role_id IS NULL)
-                OR
-                (:to_is_null_b = 0 AND (wt.allowed_to_role_id IS NULL OR wt.allowed_to_role_id = :to_role_id))
-           )
-         LIMIT 1'
+               OR
+               (:to_is_null_b = 0 AND (wt.allowed_to_role_id IS NULL OR wt.allowed_to_role_id = :to_role_id))
+           )'
     );
     $stmt->execute([
         'action_type' => strtoupper(trim($actionType)),
@@ -1615,6 +1971,7 @@ function workflow_transition_policy_fallback_allowed(PDO $pdo, string $actionTyp
 {
     $normalizedAction = strtoupper(trim($actionType));
     $oredRoleId = workflow_get_role_id_by_key($pdo, 'ORED');
+    $oredSignRoleId = workflow_get_role_id_by_key($pdo, 'ORED_SIGN');
     $divisionChiefRoleId = workflow_get_role_id_by_key($pdo, 'DIVISION_CHIEF');
     $sectionRoleId = workflow_get_role_id_by_key($pdo, 'SECTION_STAFF');
     $ardTsRoleId = workflow_get_role_id_by_key($pdo, 'ARD_TS');
@@ -1634,35 +1991,6 @@ function workflow_transition_policy_fallback_allowed(PDO $pdo, string $actionTyp
     $penroDivisionRoleId = workflow_get_role_id_by_key($pdo, 'PENRO_DIVISION');
     $penroSectionRoleId = workflow_get_role_id_by_key($pdo, 'PENRO_SECTION');
 
-    if ($normalizedAction === 'APPROVE' && $toRoleId === null && $fromRoleId !== null) {
-        $allowedApproveRoleIds = array_values(array_filter([
-            $cenroAdminRecordRoleId,
-            $sectionRoleId,
-            $cenroUnitRoleId,
-            $divisionChiefRoleId,
-            $cenroSectionRoleId,
-            $ardTsRoleId,
-            $ardMsRoleId,
-            $penroRoleId,
-            $recordsUnitRoleId,
-            $oredRoleId,
-            $cenroOfficerRoleId,
-            $pamoAdminRoleId,
-            $pamoOfficerRoleId,
-            $pamoUnitRoleId,
-            $penroAdminRecordRoleId,
-            $penroOfficerRoleId,
-            $penroDivisionRoleId,
-            $penroSectionRoleId,
-        ], static fn($id): bool => $id !== null));
-
-        foreach ($allowedApproveRoleIds as $allowedRoleId) {
-            if ((int)$fromRoleId === (int)$allowedRoleId) {
-                return true;
-            }
-        }
-    }
-
     if ($normalizedAction === 'PENDING' && $toRoleId === null && $fromRoleId !== null) {
         $allowedPendingRoleIds = array_values(array_filter([
             $cenroRoleId,
@@ -1680,6 +2008,7 @@ function workflow_transition_policy_fallback_allowed(PDO $pdo, string $actionTyp
             $penroRoleId,
             $recordsUnitRoleId,
             $oredRoleId,
+            $oredSignRoleId,
             $divisionChiefRoleId,
             $sectionRoleId,
             $ardTsRoleId,
@@ -1695,7 +2024,9 @@ function workflow_transition_policy_fallback_allowed(PDO $pdo, string $actionTyp
 
     if ($normalizedAction === 'RECEIVE' && $toRoleId !== null) {
         if (
-            ($ardTsRoleId !== null && (int)$toRoleId === (int)$ardTsRoleId)
+            ($oredRoleId !== null && (int)$toRoleId === (int)$oredRoleId)
+            || ($oredSignRoleId !== null && (int)$toRoleId === (int)$oredSignRoleId)
+            || ($ardTsRoleId !== null && (int)$toRoleId === (int)$ardTsRoleId)
             || ($ardMsRoleId !== null && (int)$toRoleId === (int)$ardMsRoleId)
             || ($cenroAdminRecordRoleId !== null && (int)$toRoleId === (int)$cenroAdminRecordRoleId)
             || ($cenroOfficerRoleId !== null && (int)$toRoleId === (int)$cenroOfficerRoleId)
@@ -1793,21 +2124,37 @@ function workflow_transition_policy_fallback_allowed(PDO $pdo, string $actionTyp
     }
 
     if ($normalizedAction === 'FORWARD' && $fromRoleId !== null && $toRoleId !== null) {
+        if (
+            $oredRoleId !== null
+            && $oredSignRoleId !== null
+            && (int)$fromRoleId === (int)$oredRoleId
+            && (int)$toRoleId === (int)$oredSignRoleId
+        ) {
+            return true;
+        }
+
         // ARD flow fallback when transition seed rows are missing.
-        $oredToArd = $oredRoleId !== null
+        $oredToArd = ($oredRoleId !== null || $oredSignRoleId !== null)
             && (
-                ($ardTsRoleId !== null && (int)$fromRoleId === (int)$oredRoleId && (int)$toRoleId === (int)$ardTsRoleId)
-                || ($ardMsRoleId !== null && (int)$fromRoleId === (int)$oredRoleId && (int)$toRoleId === (int)$ardMsRoleId)
+                ($ardTsRoleId !== null && (
+                    ($oredRoleId !== null && (int)$fromRoleId === (int)$oredRoleId && (int)$toRoleId === (int)$ardTsRoleId)
+                    || ($oredSignRoleId !== null && (int)$fromRoleId === (int)$oredSignRoleId && (int)$toRoleId === (int)$ardTsRoleId)
+                ))
+                || ($ardMsRoleId !== null && (
+                    ($oredRoleId !== null && (int)$fromRoleId === (int)$oredRoleId && (int)$toRoleId === (int)$ardMsRoleId)
+                    || ($oredSignRoleId !== null && (int)$fromRoleId === (int)$oredSignRoleId && (int)$toRoleId === (int)$ardMsRoleId)
+                ))
             );
         if ($oredToArd) {
             return true;
         }
 
         if (
-            $oredRoleId !== null
-            && $sectionRoleId !== null
-            && (int)$fromRoleId === (int)$oredRoleId
-            && (int)$toRoleId === (int)$sectionRoleId
+            $sectionRoleId !== null
+            && (
+                ($oredRoleId !== null && (int)$fromRoleId === (int)$oredRoleId && (int)$toRoleId === (int)$sectionRoleId)
+                || ($oredSignRoleId !== null && (int)$fromRoleId === (int)$oredSignRoleId && (int)$toRoleId === (int)$sectionRoleId)
+            )
         ) {
             return true;
         }
@@ -1830,10 +2177,25 @@ function workflow_transition_policy_fallback_allowed(PDO $pdo, string $actionTyp
             return true;
         }
 
-        $ardToOred = $oredRoleId !== null
+        if (
+            $divisionChiefRoleId !== null
+            && $oredSignRoleId !== null
+            && (int)$fromRoleId === (int)$divisionChiefRoleId
+            && (int)$toRoleId === (int)$oredSignRoleId
+        ) {
+            return true;
+        }
+
+        $ardToOred = ($oredRoleId !== null || $oredSignRoleId !== null)
             && (
-                ($ardTsRoleId !== null && (int)$fromRoleId === (int)$ardTsRoleId && (int)$toRoleId === (int)$oredRoleId)
-                || ($ardMsRoleId !== null && (int)$fromRoleId === (int)$ardMsRoleId && (int)$toRoleId === (int)$oredRoleId)
+                ($ardTsRoleId !== null && (
+                    ($oredRoleId !== null && (int)$fromRoleId === (int)$ardTsRoleId && (int)$toRoleId === (int)$oredRoleId)
+                    || ($oredSignRoleId !== null && (int)$fromRoleId === (int)$ardTsRoleId && (int)$toRoleId === (int)$oredSignRoleId)
+                ))
+                || ($ardMsRoleId !== null && (
+                    ($oredRoleId !== null && (int)$fromRoleId === (int)$ardMsRoleId && (int)$toRoleId === (int)$oredRoleId)
+                    || ($oredSignRoleId !== null && (int)$fromRoleId === (int)$ardMsRoleId && (int)$toRoleId === (int)$oredSignRoleId)
+                ))
             );
         if ($ardToOred) {
             return true;
@@ -2048,10 +2410,12 @@ function workflow_transition_policy_fallback_allowed(PDO $pdo, string $actionTyp
         }
 
         if (
-            $oredRoleId !== null
+            ($oredRoleId !== null || $oredSignRoleId !== null)
             && $recordsUnitRoleId !== null
-            && (int)$fromRoleId === (int)$oredRoleId
-            && (int)$toRoleId === (int)$recordsUnitRoleId
+            && (
+                ($oredRoleId !== null && (int)$fromRoleId === (int)$oredRoleId && (int)$toRoleId === (int)$recordsUnitRoleId)
+                || ($oredSignRoleId !== null && (int)$fromRoleId === (int)$oredSignRoleId && (int)$toRoleId === (int)$recordsUnitRoleId)
+            )
         ) {
             return true;
         }
@@ -2059,10 +2423,16 @@ function workflow_transition_policy_fallback_allowed(PDO $pdo, string $actionTyp
 
     if ($normalizedAction === 'REROUTE' && $fromRoleId !== null && $toRoleId !== null) {
         // Policy fallback for reroute when workflow transition seed rows are missing.
-        $oredToArd = $oredRoleId !== null
+        $oredToArd = ($oredRoleId !== null || $oredSignRoleId !== null)
             && (
-                ($ardTsRoleId !== null && (int)$fromRoleId === (int)$oredRoleId && (int)$toRoleId === (int)$ardTsRoleId)
-                || ($ardMsRoleId !== null && (int)$fromRoleId === (int)$oredRoleId && (int)$toRoleId === (int)$ardMsRoleId)
+                ($ardTsRoleId !== null && (
+                    ($oredRoleId !== null && (int)$fromRoleId === (int)$oredRoleId && (int)$toRoleId === (int)$ardTsRoleId)
+                    || ($oredSignRoleId !== null && (int)$fromRoleId === (int)$oredSignRoleId && (int)$toRoleId === (int)$ardTsRoleId)
+                ))
+                || ($ardMsRoleId !== null && (
+                    ($oredRoleId !== null && (int)$fromRoleId === (int)$oredRoleId && (int)$toRoleId === (int)$ardMsRoleId)
+                    || ($oredSignRoleId !== null && (int)$fromRoleId === (int)$oredSignRoleId && (int)$toRoleId === (int)$ardMsRoleId)
+                ))
             );
         if ($oredToArd) {
             return true;
@@ -2077,29 +2447,39 @@ function workflow_transition_policy_fallback_allowed(PDO $pdo, string $actionTyp
             return true;
         }
 
-        $ardToOred = $oredRoleId !== null
+        $ardToOred = ($oredRoleId !== null || $oredSignRoleId !== null)
             && (
-                ($ardTsRoleId !== null && (int)$fromRoleId === (int)$ardTsRoleId && (int)$toRoleId === (int)$oredRoleId)
-                || ($ardMsRoleId !== null && (int)$fromRoleId === (int)$ardMsRoleId && (int)$toRoleId === (int)$oredRoleId)
+                ($ardTsRoleId !== null && (
+                    ($oredRoleId !== null && (int)$fromRoleId === (int)$ardTsRoleId && (int)$toRoleId === (int)$oredRoleId)
+                    || ($oredSignRoleId !== null && (int)$fromRoleId === (int)$ardTsRoleId && (int)$toRoleId === (int)$oredSignRoleId)
+                ))
+                || ($ardMsRoleId !== null && (
+                    ($oredRoleId !== null && (int)$fromRoleId === (int)$ardMsRoleId && (int)$toRoleId === (int)$oredRoleId)
+                    || ($oredSignRoleId !== null && (int)$fromRoleId === (int)$ardMsRoleId && (int)$toRoleId === (int)$oredSignRoleId)
+                ))
             );
         if ($ardToOred) {
             return true;
         }
 
         if (
-            $oredRoleId !== null
+            $divisionChiefRoleId !== null
             && $divisionChiefRoleId !== null
-            && (int)$fromRoleId === (int)$oredRoleId
-            && (int)$toRoleId === (int)$divisionChiefRoleId
+            && (
+                ($oredRoleId !== null && (int)$fromRoleId === (int)$oredRoleId && (int)$toRoleId === (int)$divisionChiefRoleId)
+                || ($oredSignRoleId !== null && (int)$fromRoleId === (int)$oredSignRoleId && (int)$toRoleId === (int)$divisionChiefRoleId)
+            )
         ) {
             return true;
         }
 
         if (
-            $oredRoleId !== null
+            $sectionRoleId !== null
             && $sectionRoleId !== null
-            && (int)$fromRoleId === (int)$oredRoleId
-            && (int)$toRoleId === (int)$sectionRoleId
+            && (
+                ($oredRoleId !== null && (int)$fromRoleId === (int)$oredRoleId && (int)$toRoleId === (int)$sectionRoleId)
+                || ($oredSignRoleId !== null && (int)$fromRoleId === (int)$oredSignRoleId && (int)$toRoleId === (int)$sectionRoleId)
+            )
         ) {
             return true;
         }
@@ -2234,7 +2614,7 @@ function workflow_assert_ored_reroute_policy(
     string $remarks
 ): void {
     $actorRoleKey = app_normalize_role_key((string)($actor['role_name'] ?? ''));
-    if ($actorRoleKey !== 'ORED') {
+    if (!workflow_actor_is_ored_signer($pdo, $actor)) {
         return;
     }
 
@@ -2394,7 +2774,7 @@ function workflow_assert_cenro_reroute_policy(
     $destinationRoleId = workflow_infer_office_role_id($pdo, $destinationOfficeId);
     $destinationRoleName = '';
     if ($destinationRoleId !== null) {
-        $roleStmt = $pdo->prepare('SELECT name FROM roles WHERE id = :id LIMIT 1');
+        $roleStmt = $pdo->prepare('SELECT TOP (1) name FROM roles WHERE id = :id');
         $roleStmt->execute(['id' => $destinationRoleId]);
         $destinationRoleName = app_normalize_role_key((string)($roleStmt->fetchColumn() ?: ''));
     }
@@ -2430,7 +2810,31 @@ function workflow_assert_cenro_reroute_policy(
     }
 }
 
-function workflow_assert_receive_permission(array $document, array $receiver): void
+function workflow_can_receive_regional_ored_reviewer_assignment(PDO $pdo, array $document, array $receiver): bool
+{
+    $receiverRoleKey = app_normalize_role_key((string)($receiver['role_name'] ?? ''));
+    if ($receiverRoleKey !== 'ORED') {
+        return false;
+    }
+
+    $receiverOfficeId = (int)($receiver['office_id'] ?? 0);
+    $pendingOfficeId = (int)($document['pending_office_id'] ?? 0);
+    $pendingUserId = (int)($document['pending_user_id'] ?? 0);
+    if ($receiverOfficeId <= 0 || $pendingOfficeId <= 0 || $pendingUserId <= 0 || $receiverOfficeId !== $pendingOfficeId) {
+        return false;
+    }
+
+    try {
+        $pendingUser = workflow_get_user_context($pdo, $pendingUserId);
+    } catch (Throwable $exception) {
+        return false;
+    }
+
+    return app_normalize_role_key((string)($pendingUser['role_name'] ?? '')) === 'ORED'
+        && (int)($pendingUser['office_id'] ?? 0) === $receiverOfficeId;
+}
+
+function workflow_assert_receive_permission(PDO $pdo, array $document, array $receiver): void
 {
     $receiverRole = (string)($receiver['role_name'] ?? '');
     $canOverride = workflow_can_override_role($receiverRole);
@@ -2442,7 +2846,12 @@ function workflow_assert_receive_permission(array $document, array $receiver): v
         throw new RuntimeException('Document is not awaiting receive.');
     }
 
-    if ($pendingUserId > 0 && $pendingUserId !== (int)$receiver['id'] && !$canOverride) {
+    if (
+        $pendingUserId > 0
+        && $pendingUserId !== (int)$receiver['id']
+        && !$canOverride
+        && !workflow_can_receive_regional_ored_reviewer_assignment($pdo, $document, $receiver)
+    ) {
         throw new RuntimeException('Document is pending for a different user.');
     }
 
@@ -2457,11 +2866,10 @@ function workflow_generate_tracking_id(PDO $pdo): string
     $prefix = 'DENR-XII-' . $year . '-';
 
     $stmt = $pdo->prepare(
-        'SELECT tracking_id
+        'SELECT TOP (1) tracking_id
          FROM documents
          WHERE tracking_id LIKE :prefix
-         ORDER BY id DESC
-         LIMIT 1'
+         ORDER BY id DESC'
     );
     $stmt->execute(['prefix' => $prefix . '%']);
     $latest = (string)($stmt->fetchColumn() ?: '');
@@ -2477,6 +2885,81 @@ function workflow_generate_tracking_id(PDO $pdo): string
 function workflow_can_create_custom_document_type(string $roleName): bool
 {
     return in_array(app_normalize_role_key($roleName), ['RECORDS_UNIT', 'PENRO_ADMIN_RECORD', 'PAMO_ADMIN'], true);
+}
+
+function workflow_extract_custom_others_document_type(?string $remarks): string
+{
+    $value = trim((string)$remarks);
+    if ($value === '') {
+        return '';
+    }
+
+    if (preg_match('/Specified document type \(Others\):\s*([^|]+)/i', $value, $matches) !== 1) {
+        return '';
+    }
+
+    return trim((string)($matches[1] ?? ''));
+}
+
+function workflow_strip_custom_others_document_type_from_remarks(?string $remarks): string
+{
+    $value = trim((string)$remarks);
+    if ($value === '') {
+        return '';
+    }
+
+    $value = preg_replace('/\s*\|?\s*Specified document type \(Others\):\s*[^|]+/i', '', $value);
+    $value = preg_replace('/\s*\|\s*\|+\s*/', ' | ', (string)$value);
+    $value = trim((string)$value, " \t\n\r\0\x0B|");
+
+    return $value;
+}
+
+function workflow_extract_complexity_category_from_remarks(?string $remarks): string
+{
+    $value = trim((string)$remarks);
+    if ($value === '') {
+        return '';
+    }
+
+    if (stripos($value, 'Highly Technical') !== false) {
+        return 'Highly Technical';
+    }
+    if (preg_match('/Color classification:\s*[^|]*\bSimple\b/i', $value) === 1) {
+        return 'Simple';
+    }
+    if (preg_match('/Color classification:\s*[^|]*\bComplex\b/i', $value) === 1) {
+        return 'Complex';
+    }
+
+    return '';
+}
+
+function workflow_format_document_type_label(string $documentType, string $artaCategory = '', ?string $remarks = null): string
+{
+    $resolvedType = trim($documentType);
+    if ($resolvedType === '') {
+        $resolvedType = 'Uncategorized';
+    }
+
+    $normalizedType = strtolower(preg_replace('/\s+/', ' ', $resolvedType) ?? '');
+    $customOthersType = workflow_extract_custom_others_document_type($remarks);
+    if ($customOthersType !== '' && in_array($normalizedType, ['others', 'other'], true)) {
+        $resolvedType = 'Others: ' . $customOthersType;
+    }
+
+    $resolvedCategory = trim($artaCategory);
+    $normalizedCategory = strtolower(preg_replace('/\s+/', ' ', $resolvedCategory) ?? '');
+    if ($customOthersType !== '' && in_array($normalizedCategory, ['', 'others', 'other'], true)) {
+        $resolvedCategory = workflow_extract_complexity_category_from_remarks($remarks);
+        if ($resolvedCategory === '') {
+            $resolvedCategory = 'Simple';
+        }
+    }
+
+    return $resolvedCategory !== ''
+        ? $resolvedType . ' (' . $resolvedCategory . ')'
+        : $resolvedType;
 }
 
 function workflow_create_document_type(PDO $pdo, array $payload, int $createdByUserId): int
@@ -2524,7 +3007,7 @@ function workflow_log_action(PDO $pdo, array $payload): void
         'INSERT INTO activity_logs (
             document_id, user_id, action_type, action_scope, destination_office_id, destination_user_id, remarks, is_visible_on_slip, created_at
          ) VALUES (
-            :document_id, :user_id, :action_type, :action_scope, :destination_office_id, :destination_user_id, :remarks, :is_visible_on_slip, NOW()
+            :document_id, :user_id, :action_type, :action_scope, :destination_office_id, :destination_user_id, :remarks, :is_visible_on_slip, SYSDATETIME()
          )'
     );
     $stmt->execute([
@@ -2546,8 +3029,11 @@ function workflow_create_document(PDO $pdo, array $payload, int $actorUserId): a
     $subject = trim((string)($payload['subject'] ?? ''));
     $documentTypeId = (int)($payload['document_type_id'] ?? 0);
     $sourceType = workflow_normalize_source_type((string)($payload['source_type'] ?? 'INTERNAL'));
+    $sender = trim((string)($payload['sender'] ?? ''));
     $externalClientName = trim((string)($payload['external_client_name'] ?? ''));
+    $clientAddress = trim((string)($payload['client_address'] ?? ''));
     $originatingOfficeId = (int)($payload['originating_office_id'] ?? $user['office_id']);
+    $originatingEntityName = trim((string)($payload['originating_entity_name'] ?? ''));
     $remarks = trim((string)($payload['remarks'] ?? ''));
     $artaCategoryOverride = trim((string)($payload['arta_category_override'] ?? ''));
     $artaDaysLimitOverride = (int)($payload['arta_days_limit_override'] ?? 0);
@@ -2561,10 +3047,35 @@ function workflow_create_document(PDO $pdo, array $payload, int $actorUserId): a
     if ($sourceType === 'EXTERNAL' && $externalClientName === '') {
         throw new InvalidArgumentException('External client name is required for external intake.');
     }
+    if ($sourceType === 'EXTERNAL' && $clientAddress === '') {
+        throw new InvalidArgumentException('Client address is required for external intake.');
+    }
+    if ($originatingEntityName === '') {
+        $originOffice = workflow_get_office_context($pdo, $originatingOfficeId);
+        $originatingEntityName = trim((string)($originOffice['name'] ?? ''));
+    }
+    if ($originatingEntityName === '') {
+        throw new InvalidArgumentException('Originating office / entity is required.');
+    }
+
+    if ($sender === '') {
+        if ($sourceType === 'EXTERNAL' && $externalClientName !== '') {
+            $sender = $externalClientName;
+        } else {
+            $originOffice = $originOffice ?? workflow_get_office_context($pdo, $originatingOfficeId);
+            $sender = trim((string)($originOffice['name'] ?? ''));
+        }
+    }
+    if ($sender === '') {
+        throw new InvalidArgumentException('Sender is required.');
+    }
 
     $trackingId = workflow_generate_tracking_id($pdo);
     $hasArtaCategoryOverrideColumn = workflow_column_exists($pdo, 'documents', 'arta_category_override');
     $hasArtaDaysOverrideColumn = workflow_column_exists($pdo, 'documents', 'arta_days_limit_override');
+    $hasSenderColumn = workflow_column_exists($pdo, 'documents', 'sender');
+    $hasClientAddressColumn = workflow_column_exists($pdo, 'documents', 'client_address');
+    $hasOriginatingEntityColumn = workflow_column_exists($pdo, 'documents', 'originating_entity_name');
 
     $pdo->beginTransaction();
     try {
@@ -2577,6 +3088,8 @@ function workflow_create_document(PDO $pdo, array $payload, int $actorUserId): a
             'status',
             'source_type',
             'external_client_name',
+            'client_address',
+            'originating_entity_name',
             'created_by_user_id',
             'current_holder_user_id',
             'pending_office_id',
@@ -2591,6 +3104,8 @@ function workflow_create_document(PDO $pdo, array $payload, int $actorUserId): a
             ':status',
             ':source_type',
             ':external_client_name',
+            ':client_address',
+            ':originating_entity_name',
             ':created_by_user_id',
             ':current_holder_user_id',
             ':pending_office_id',
@@ -2604,12 +3119,37 @@ function workflow_create_document(PDO $pdo, array $payload, int $actorUserId): a
             'current_office_id' => $originatingOfficeId,
             'status' => 'Created',
             'source_type' => $sourceType,
-            'external_client_name' => $sourceType === 'EXTERNAL' ? $externalClientName : null,
+            'external_client_name' => $externalClientName !== '' ? $externalClientName : null,
+            'client_address' => $clientAddress !== '' ? $clientAddress : null,
+            'originating_entity_name' => $originatingEntityName !== '' ? $originatingEntityName : null,
             'created_by_user_id' => $actorUserId,
             'current_holder_user_id' => $actorUserId,
             'pending_office_id' => null,
             'pending_user_id' => null,
         ];
+
+        if (!$hasClientAddressColumn) {
+            $clientAddressColumnIndex = array_search('client_address', $insertColumns, true);
+            if ($clientAddressColumnIndex !== false) {
+                unset($insertColumns[$clientAddressColumnIndex], $insertPlaceholders[$clientAddressColumnIndex], $insertParams['client_address']);
+                $insertColumns = array_values($insertColumns);
+                $insertPlaceholders = array_values($insertPlaceholders);
+            }
+        }
+        if (!$hasOriginatingEntityColumn) {
+            $originatingEntityColumnIndex = array_search('originating_entity_name', $insertColumns, true);
+            if ($originatingEntityColumnIndex !== false) {
+                unset($insertColumns[$originatingEntityColumnIndex], $insertPlaceholders[$originatingEntityColumnIndex], $insertParams['originating_entity_name']);
+                $insertColumns = array_values($insertColumns);
+                $insertPlaceholders = array_values($insertPlaceholders);
+            }
+        }
+
+        if ($hasSenderColumn) {
+            $insertColumns[] = 'sender';
+            $insertPlaceholders[] = ':sender';
+            $insertParams['sender'] = $sender;
+        }
 
         if ($hasArtaCategoryOverrideColumn) {
             $insertColumns[] = 'arta_category_override';
@@ -2672,13 +3212,27 @@ function workflow_route_document_internal(
         $document = workflow_get_document_context($pdo, $documentId, true);
         $currentOfficeId = (int)($document['current_office_id'] ?? 0);
         $currentPendingOfficeId = (int)($document['pending_office_id'] ?? 0);
+        $currentHolderUserId = (int)($document['current_holder_user_id'] ?? 0);
 
-        if ($currentPendingOfficeId > 0 && $currentPendingOfficeId === $destinationOfficeId) {
+        $sameOfficeUserHandoff = $currentOfficeId > 0
+            && $currentOfficeId === $destinationOfficeId
+            && $destinationUserId !== null
+            && $destinationUserId > 0
+            && $destinationUserId !== $currentHolderUserId;
+
+        if (
+            $currentPendingOfficeId > 0
+            && $currentPendingOfficeId === $destinationOfficeId
+            && (
+                !$sameOfficeUserHandoff
+                || (int)($document['pending_user_id'] ?? 0) === (int)$destinationUserId
+            )
+        ) {
             // Idempotent routing guard: destination already pending for receive.
             $pdo->commit();
             return;
         }
-        if ($currentPendingOfficeId <= 0 && $currentOfficeId > 0 && $currentOfficeId === $destinationOfficeId) {
+        if ($currentPendingOfficeId <= 0 && $currentOfficeId > 0 && $currentOfficeId === $destinationOfficeId && !$sameOfficeUserHandoff) {
             throw new RuntimeException('Destination office must be different from current office.');
         }
 
@@ -2756,7 +3310,8 @@ function workflow_forward_document(
     ?int $destinationUserId = null,
     string $remarks = '',
     string $bypassReason = '',
-    bool $hasRouteAttachment = false
+    bool $hasRouteAttachment = false,
+    string $routeMode = ''
 ): void
 {
     $documentStatus = 'Forwarded';
@@ -2764,10 +3319,79 @@ function workflow_forward_document(
 
     $actor = workflow_get_user_context($pdo, $actorUserId);
     $actorRoleKey = app_normalize_role_key((string)($actor['role_name'] ?? ''));
+    $actorIsRegionalOred = workflow_is_regional_ored_role_key($actorRoleKey);
+    $actorIsOredSigner = $actorIsRegionalOred && workflow_actor_is_ored_signer($pdo, $actor);
+    $actorIsOredReviewer = $actorRoleKey === 'ORED' && !$actorIsOredSigner;
     $documentSnapshot = workflow_get_document_context($pdo, $documentId, false);
+    $regionalOredSignedStage = false;
+    if ($actorIsRegionalOred) {
+        $regionalOredSignedStage = workflow_document_has_local_sign_stage(
+            $pdo,
+            $documentSnapshot,
+            (int)($actor['office_id'] ?? 0),
+            'ORED_SIGN'
+        );
+    }
+    $normalizedRouteMode = strtolower(trim($routeMode));
+    if ($normalizedRouteMode === 'admin_record_back') {
+        $resolvedAdminDestinationOfficeId = workflow_resolve_officer_admin_record_back_destination(
+            $pdo,
+            $actorRoleKey,
+            $actor,
+            $documentSnapshot
+        );
+        if ($resolvedAdminDestinationOfficeId > 0) {
+            $destinationOfficeId = $resolvedAdminDestinationOfficeId;
+            $destinationUserId = null;
+        }
+    } elseif ($normalizedRouteMode === 'records_unit_back') {
+        $recordsUnitOffice = workflow_find_records_unit_office($pdo);
+        $resolvedRecordsUnitOfficeId = (int)($recordsUnitOffice['id'] ?? 0);
+        if ($resolvedRecordsUnitOfficeId > 0) {
+            $destinationOfficeId = $resolvedRecordsUnitOfficeId;
+            $destinationUserId = null;
+        }
+    }
+
+    $destinationOffice = workflow_get_office_context($pdo, $destinationOfficeId);
+    $destinationIsRegionalOred = is_array($destinationOffice) && workflow_office_is_ored($destinationOffice);
+    if ($actorRoleKey === 'RECORDS_UNIT' && $destinationIsRegionalOred && ($destinationUserId === null || $destinationUserId <= 0)) {
+        $destinationUserId = workflow_ored_resolve_reviewer_user_id($pdo, $destinationOfficeId);
+    }
+    if (
+        in_array($actorRoleKey, ['ARD_TS', 'ARD_MS', 'DIVISION_CHIEF'], true)
+        && $destinationIsRegionalOred
+        && ($destinationUserId === null || $destinationUserId <= 0)
+    ) {
+        $destinationUserId = workflow_ored_resolve_signer_user_id($pdo, $destinationOfficeId);
+    }
+    if ($actorIsOredReviewer && !$regionalOredSignedStage) {
+        $destinationOfficeId = (int)($actor['office_id'] ?? 0);
+        $destinationOffice = $destinationOfficeId > 0 ? workflow_get_office_context($pdo, $destinationOfficeId) : $destinationOffice;
+        $destinationUserId = workflow_ored_resolve_signer_user_id(
+            $pdo,
+            $destinationOfficeId,
+            (int)($actor['id'] ?? 0) > 0 ? (int)$actor['id'] : null
+        );
+        if ($destinationOfficeId <= 0 || $destinationUserId === null || $destinationUserId <= 0) {
+            throw new RuntimeException('No ORED signatory account is configured for this office yet.');
+        }
+    } elseif ($actorIsOredSigner && $regionalOredSignedStage) {
+        $destinationOfficeId = (int)($actor['office_id'] ?? 0);
+        $destinationOffice = $destinationOfficeId > 0 ? workflow_get_office_context($pdo, $destinationOfficeId) : $destinationOffice;
+        $destinationUserId = workflow_ored_resolve_reviewer_user_id(
+            $pdo,
+            $destinationOfficeId,
+            (int)($actor['id'] ?? 0) > 0 ? (int)$actor['id'] : null
+        );
+        if ($destinationOfficeId <= 0 || $destinationUserId === null || $destinationUserId <= 0) {
+            throw new RuntimeException('No ORED review account is configured for this office yet.');
+        }
+    }
+
     $currentStatus = strtolower(trim((string)($documentSnapshot['status'] ?? '')));
     $canForwardOredToPacdoCorrectionWithoutApproval = false;
-    if ($actorRoleKey === 'ORED') {
+    if ($actorIsRegionalOred) {
         $oredActorOfficeId = (int)($actor['office_id'] ?? 0);
         $documentCurrentOfficeId = (int)($documentSnapshot['current_office_id'] ?? 0);
         $documentPendingOfficeId = (int)($documentSnapshot['pending_office_id'] ?? 0);
@@ -2818,50 +3442,23 @@ function workflow_forward_document(
             );
         if ($isActorCustodyReceived) {
             $returnActionStmt = $pdo->prepare(
-                'SELECT 1
+                'SELECT TOP (1) 1
                  FROM activity_logs
                  WHERE document_id = :document_id
-                   AND LOWER(COALESCE(action_type, \'\')) IN (\'return\', \'returned\')
-                 LIMIT 1'
+                   AND LOWER(COALESCE(action_type, \'\')) IN (\'return\', \'returned\')'
             );
             $returnActionStmt->execute(['document_id' => $documentId]);
             $canForwardReturnedCorrectionWithoutApproval = (bool)$returnActionStmt->fetchColumn();
         }
     }
 
-    $isPostSignStage = str_contains($currentStatus, 'signed')
-        || str_contains($currentStatus, 'completed')
-        || ($actorRoleKey === 'ORED' && $canForwardOredToPacdoCorrectionWithoutApproval);
-    $approvalRequiredRoles = [
-        'RECORDS_UNIT',
-        'DIVISION_CHIEF',
-        'SECTION_STAFF',
-        'ORED',
-        'ARD_TS',
-        'ARD_MS',
-        'CENRO_ADMIN_RECORD',
-        'CENRO_OFFICER',
-        'CENRO_SECTION',
-        'CENRO_UNIT',
-        'PAMO_ADMIN',
-        'PASU_OFFICER',
-        'PAMO_UNIT',
-        'PENRO_ADMIN_RECORD',
-        'PENRO_OFFICER',
-        'PENRO_DIVISION',
-        'PENRO_SECTION',
-        'PENRO_SECTION_UNIT',
-    ];
-    if (in_array($actorRoleKey, $approvalRequiredRoles, true)) {
-        $requiresApprovedStatus = !(in_array($actorRoleKey, ['ORED', 'CENRO_OFFICER', 'PENRO_OFFICER', 'PASU_OFFICER'], true) && $isPostSignStage);
-        if ($canForwardCreatedIntakeWithoutApproval || $canForwardReturnedCorrectionWithoutApproval) {
-            $requiresApprovedStatus = false;
-        }
-        if ($requiresApprovedStatus && !str_contains($currentStatus, 'approved')) {
-            throw new RuntimeException($actorRoleKey . ' must approve the document before forwarding.');
-        }
-    }
-
+    $isPostSignStage = workflow_document_has_local_sign_stage(
+        $pdo,
+        $documentSnapshot,
+        (int)($actor['office_id'] ?? 0),
+        $actorRoleKey
+    ) || ($actorIsRegionalOred && $regionalOredSignedStage)
+      || ($actorIsOredSigner && $canForwardOredToPacdoCorrectionWithoutApproval);
     if ($actorRoleKey === 'CENRO_ADMIN_RECORD') {
         $originatingOfficeId = (int)($documentSnapshot['originating_office_id'] ?? 0);
         if ($originatingOfficeId <= 0) {
@@ -2872,7 +3469,7 @@ function workflow_forward_document(
             $destinationRoleId = workflow_resolve_destination_role_id($pdo, $destinationUserId, $destinationOfficeId);
             $destinationRoleKey = '';
             if ($destinationRoleId !== null) {
-                $destinationRoleStmt = $pdo->prepare('SELECT name FROM roles WHERE id = :id LIMIT 1');
+                $destinationRoleStmt = $pdo->prepare('SELECT TOP (1) name FROM roles WHERE id = :id');
                 $destinationRoleStmt->execute(['id' => $destinationRoleId]);
                 $destinationRoleKey = app_normalize_role_key((string)($destinationRoleStmt->fetchColumn() ?: ''));
             }
@@ -2908,9 +3505,7 @@ function workflow_forward_document(
 
         $penroDestinationOffice = workflow_get_office_context($pdo, $destinationOfficeId);
         $penroDestinationName = strtoupper(trim((string)($penroDestinationOffice['name'] ?? '')));
-        if (workflow_name_matches_records_unit($penroDestinationName) && !$hasRouteAttachment) {
-            throw new RuntimeException('Endorsement letter attachment is required before forwarding to PACDO/RECORDS-UNIT.');
-        }
+        // Endorsement attachment is optional for this route.
     }
 
     if ($actorRoleKey === 'SECTION_STAFF') {
@@ -3000,7 +3595,7 @@ function workflow_forward_document(
         $destinationRoleId = workflow_resolve_destination_role_id($pdo, $destinationUserId, $destinationOfficeId);
         $destinationRoleKey = '';
         if ($destinationRoleId !== null) {
-            $roleStmt = $pdo->prepare('SELECT name FROM roles WHERE id = :id LIMIT 1');
+            $roleStmt = $pdo->prepare('SELECT TOP (1) name FROM roles WHERE id = :id');
             $roleStmt->execute(['id' => $destinationRoleId]);
             $destinationRoleKey = app_normalize_role_key((string)($roleStmt->fetchColumn() ?: ''));
         }
@@ -3038,7 +3633,7 @@ function workflow_forward_document(
         $destinationRoleId = workflow_resolve_destination_role_id($pdo, $destinationUserId, $destinationOfficeId);
         $destinationRoleKey = '';
         if ($destinationRoleId !== null) {
-            $roleStmt = $pdo->prepare('SELECT name FROM roles WHERE id = :id LIMIT 1');
+            $roleStmt = $pdo->prepare('SELECT TOP (1) name FROM roles WHERE id = :id');
             $roleStmt->execute(['id' => $destinationRoleId]);
             $destinationRoleKey = app_normalize_role_key((string)($roleStmt->fetchColumn() ?: ''));
         }
@@ -3077,7 +3672,7 @@ function workflow_forward_document(
         $destinationRoleId = workflow_resolve_destination_role_id($pdo, $destinationUserId, $destinationOfficeId);
         $destinationRoleKey = '';
         if ($destinationRoleId !== null) {
-            $roleStmt = $pdo->prepare('SELECT name FROM roles WHERE id = :id LIMIT 1');
+            $roleStmt = $pdo->prepare('SELECT TOP (1) name FROM roles WHERE id = :id');
             $roleStmt->execute(['id' => $destinationRoleId]);
             $destinationRoleKey = app_normalize_role_key((string)($roleStmt->fetchColumn() ?: ''));
         }
@@ -3090,9 +3685,10 @@ function workflow_forward_document(
         $actorRootId = (int)($actorRoot['id'] ?? 0);
         $destinationRootId = (int)($destinationRoot['id'] ?? 0);
         $isSameCenroRoot = $actorRootId > 0 && $destinationRootId > 0 && $actorRootId === $destinationRootId;
+        $destinationLevelKey = workflow_office_level_key((string)($destinationOffice['level'] ?? ''));
         if ($isPostSignStage) {
-            $isOriginAdminRecord = $destinationRoleKey === 'CENRO_ADMIN_RECORD'
-                && workflow_is_cenro_admin_record_level((string)($destinationOffice['level'] ?? ''))
+            $isOriginAdminRecord = ($destinationRoleKey === 'CENRO_ADMIN_RECORD' || $destinationLevelKey === 'CENRO_ADMIN_RECORD')
+                && workflow_is_cenro_admin_record_level($destinationLevelKey)
                 && (
                     ($originatingOfficeId > 0 && $destinationOfficeId === $originatingOfficeId)
                     || ($actorParentOfficeId > 0 && (int)($destinationOffice['parent_office_id'] ?? 0) === $actorParentOfficeId)
@@ -3106,18 +3702,30 @@ function workflow_forward_document(
             }
             $documentStatus = workflow_build_assigned_status((string)($destinationOffice['name'] ?? 'CENRO Admin Record'));
         } else {
-            $isSectionTarget = $destinationRoleKey === 'CENRO_SECTION'
-                && workflow_is_cenro_section_level((string)($destinationOffice['level'] ?? ''))
+            $isSectionTarget = ($destinationRoleKey === 'CENRO_SECTION' || $destinationLevelKey === 'CENRO_SECTION')
+                && workflow_is_cenro_section_level($destinationLevelKey)
                 && (int)($destinationOffice['parent_office_id'] ?? 0) === (int)($actor['office_id'] ?? 0);
-            $isUnitBypassTarget = $destinationRoleKey === 'CENRO_UNIT'
-                && workflow_is_cenro_unit_level((string)($destinationOffice['level'] ?? ''))
+            $isUnitBypassTarget = ($destinationRoleKey === 'CENRO_UNIT' || $destinationLevelKey === 'CENRO_UNIT')
+                && workflow_is_cenro_unit_level($destinationLevelKey)
                 && workflow_cenro_internal_is_valid_unit_name((string)($destinationOffice['name'] ?? ''))
                 && $isSameCenroRoot;
-            if (!$isSectionTarget && !$isUnitBypassTarget) {
-                throw new RuntimeException('CENRO Officer can forward only to child CENRO Section, or bypass to same-chain CENRO Unit.');
+            $isAdminRecordTarget = ($destinationRoleKey === 'CENRO_ADMIN_RECORD' || $destinationLevelKey === 'CENRO_ADMIN_RECORD')
+                && workflow_is_cenro_admin_record_level($destinationLevelKey)
+                && (
+                    ($originatingOfficeId > 0 && $destinationOfficeId === $originatingOfficeId)
+                    || ($actorParentOfficeId > 0 && (int)($destinationOffice['parent_office_id'] ?? 0) === $actorParentOfficeId)
+                    || $isSameCenroRoot
+                );
+            if (!$isSectionTarget && !$isUnitBypassTarget && !$isAdminRecordTarget) {
+                throw new RuntimeException('CENRO Officer can forward only to child CENRO Section, bypass to same-chain CENRO Unit, or send back to CENRO Admin Record.');
             }
 
-            if ($isUnitBypassTarget) {
+            if ($isAdminRecordTarget) {
+                if ($finalRemarks === '') {
+                    $finalRemarks = 'CENRO Officer instruction: sent back to CENRO Admin Record.';
+                }
+                $documentStatus = workflow_build_assigned_status((string)($destinationOffice['name'] ?? 'CENRO Admin Record'));
+            } elseif ($isUnitBypassTarget) {
                 $normalizedBypassReason = trim($bypassReason);
                 if ($normalizedBypassReason === '') {
                     throw new RuntimeException('Bypass reason is required when CENRO Officer forwards directly to CENRO Unit.');
@@ -3148,7 +3756,7 @@ function workflow_forward_document(
         $destinationRoleId = workflow_resolve_destination_role_id($pdo, $destinationUserId, $destinationOfficeId);
         $destinationRoleKey = '';
         if ($destinationRoleId !== null) {
-            $roleStmt = $pdo->prepare('SELECT name FROM roles WHERE id = :id LIMIT 1');
+            $roleStmt = $pdo->prepare('SELECT TOP (1) name FROM roles WHERE id = :id');
             $roleStmt->execute(['id' => $destinationRoleId]);
             $destinationRoleKey = app_normalize_role_key((string)($roleStmt->fetchColumn() ?: ''));
         }
@@ -3161,9 +3769,10 @@ function workflow_forward_document(
         $actorRootId = (int)($actorRoot['id'] ?? 0);
         $destinationRootId = (int)($destinationRoot['id'] ?? 0);
         $isSamePenroRoot = $actorRootId > 0 && $destinationRootId > 0 && $actorRootId === $destinationRootId;
+        $destinationLevelKey = workflow_office_level_key((string)($destinationOffice['level'] ?? ''));
         if ($isPostSignStage) {
-            $isOriginAdminRecord = $destinationRoleKey === 'PENRO_ADMIN_RECORD'
-                && workflow_is_cenro_admin_record_level((string)($destinationOffice['level'] ?? ''))
+            $isOriginAdminRecord = ($destinationRoleKey === 'PENRO_ADMIN_RECORD' || $destinationLevelKey === 'PENRO_ADMIN_RECORD')
+                && workflow_is_cenro_admin_record_level($destinationLevelKey)
                 && (
                     ($originatingOfficeId > 0 && $destinationOfficeId === $originatingOfficeId)
                     || ($actorParentOfficeId > 0 && (int)($destinationOffice['parent_office_id'] ?? 0) === $actorParentOfficeId)
@@ -3177,17 +3786,29 @@ function workflow_forward_document(
             }
             $documentStatus = workflow_build_assigned_status((string)($destinationOffice['name'] ?? 'PENRO Admin Record'));
         } else {
-            $isDivisionTarget = $destinationRoleKey === 'PENRO_DIVISION'
-                && workflow_is_cenro_section_level((string)($destinationOffice['level'] ?? ''))
+            $isDivisionTarget = ($destinationRoleKey === 'PENRO_DIVISION' || $destinationLevelKey === 'PENRO_DIVISION')
+                && workflow_is_cenro_section_level($destinationLevelKey)
                 && (int)($destinationOffice['parent_office_id'] ?? 0) === (int)($actor['office_id'] ?? 0);
-            $isSectionBypassTarget = $destinationRoleKey === 'PENRO_SECTION'
-                && workflow_is_cenro_unit_level((string)($destinationOffice['level'] ?? ''))
+            $isSectionBypassTarget = ($destinationRoleKey === 'PENRO_SECTION' || $destinationLevelKey === 'PENRO_SECTION' || $destinationLevelKey === 'PENRO_UNIT')
+                && workflow_is_cenro_unit_level($destinationLevelKey)
                 && $isSamePenroRoot;
-            if (!$isDivisionTarget && !$isSectionBypassTarget) {
-                throw new RuntimeException('PENRO Officer can forward only to child PENRO Division, or bypass to same-chain PENRO Section.');
+            $isAdminRecordTarget = ($destinationRoleKey === 'PENRO_ADMIN_RECORD' || $destinationLevelKey === 'PENRO_ADMIN_RECORD')
+                && workflow_is_cenro_admin_record_level($destinationLevelKey)
+                && (
+                    ($originatingOfficeId > 0 && $destinationOfficeId === $originatingOfficeId)
+                    || ($actorParentOfficeId > 0 && (int)($destinationOffice['parent_office_id'] ?? 0) === $actorParentOfficeId)
+                    || $isSamePenroRoot
+                );
+            if (!$isDivisionTarget && !$isSectionBypassTarget && !$isAdminRecordTarget) {
+                throw new RuntimeException('PENRO Officer can forward only to child PENRO Division, bypass to same-chain PENRO Section, or send back to PENRO Admin Record.');
             }
 
-            if ($isSectionBypassTarget) {
+            if ($isAdminRecordTarget) {
+                if ($finalRemarks === '') {
+                    $finalRemarks = 'PENRO Officer instruction: sent back to PENRO Admin Record.';
+                }
+                $documentStatus = workflow_build_assigned_status((string)($destinationOffice['name'] ?? 'PENRO Admin Record'));
+            } elseif ($isSectionBypassTarget) {
                 $normalizedBypassReason = trim($bypassReason);
                 if ($normalizedBypassReason === '') {
                     throw new RuntimeException('Bypass reason is required when PENRO Officer forwards directly to PENRO Section.');
@@ -3219,7 +3840,7 @@ function workflow_forward_document(
         $destinationRoleId = workflow_resolve_destination_role_id($pdo, $destinationUserId, $destinationOfficeId);
         $destinationRoleKey = '';
         if ($destinationRoleId !== null) {
-            $roleStmt = $pdo->prepare('SELECT name FROM roles WHERE id = :id LIMIT 1');
+            $roleStmt = $pdo->prepare('SELECT TOP (1) name FROM roles WHERE id = :id');
             $roleStmt->execute(['id' => $destinationRoleId]);
             $destinationRoleKey = app_normalize_role_key((string)($roleStmt->fetchColumn() ?: ''));
         }
@@ -3231,9 +3852,10 @@ function workflow_forward_document(
         $actorRootId = (int)($actorRoot['id'] ?? 0);
         $destinationRootId = (int)($destinationRoot['id'] ?? 0);
         $isSamePamoRoot = $actorRootId > 0 && $destinationRootId > 0 && $actorRootId === $destinationRootId;
+        $destinationLevelKey = workflow_office_level_key((string)($destinationOffice['level'] ?? ''));
         if ($isPostSignStage) {
-            $isOriginAdmin = $destinationRoleKey === 'PAMO_ADMIN'
-                && workflow_office_level_key((string)($destinationOffice['level'] ?? '')) === 'PAMO_ADMIN'
+            $isOriginAdmin = ($destinationRoleKey === 'PAMO_ADMIN' || $destinationLevelKey === 'PAMO_ADMIN')
+                && $destinationLevelKey === 'PAMO_ADMIN'
                 && (
                     ($originatingOfficeId > 0 && $destinationOfficeId === $originatingOfficeId)
                     || $isSamePamoRoot
@@ -3246,11 +3868,11 @@ function workflow_forward_document(
             }
             $documentStatus = workflow_build_assigned_status((string)($destinationOffice['name'] ?? 'PAMO Admin'));
         } else {
-            $isUnitTarget = $destinationRoleKey === 'PAMO_UNIT'
-                && workflow_office_level_key((string)($destinationOffice['level'] ?? '')) === 'PAMO_UNIT'
+            $isUnitTarget = ($destinationRoleKey === 'PAMO_UNIT' || $destinationLevelKey === 'PAMO_UNIT')
+                && $destinationLevelKey === 'PAMO_UNIT'
                 && (int)($destinationOffice['parent_office_id'] ?? 0) === (int)($actorOffice['id'] ?? 0);
-            $isAdminTarget = $destinationRoleKey === 'PAMO_ADMIN'
-                && workflow_office_level_key((string)($destinationOffice['level'] ?? '')) === 'PAMO_ADMIN'
+            $isAdminTarget = ($destinationRoleKey === 'PAMO_ADMIN' || $destinationLevelKey === 'PAMO_ADMIN')
+                && $destinationLevelKey === 'PAMO_ADMIN'
                 && $isSamePamoRoot;
             if (!$isUnitTarget && !$isAdminTarget) {
                 throw new RuntimeException('PASU can forward only to child PAMO Unit or back to PAMO Admin.');
@@ -3277,7 +3899,7 @@ function workflow_forward_document(
         $destinationRoleId = workflow_resolve_destination_role_id($pdo, $destinationUserId, $destinationOfficeId);
         $destinationRoleKey = '';
         if ($destinationRoleId !== null) {
-            $roleStmt = $pdo->prepare('SELECT name FROM roles WHERE id = :id LIMIT 1');
+            $roleStmt = $pdo->prepare('SELECT TOP (1) name FROM roles WHERE id = :id');
             $roleStmt->execute(['id' => $destinationRoleId]);
             $destinationRoleKey = app_normalize_role_key((string)($roleStmt->fetchColumn() ?: ''));
         }
@@ -3315,7 +3937,7 @@ function workflow_forward_document(
         $destinationRoleId = workflow_resolve_destination_role_id($pdo, $destinationUserId, $destinationOfficeId);
         $destinationRoleKey = '';
         if ($destinationRoleId !== null) {
-            $roleStmt = $pdo->prepare('SELECT name FROM roles WHERE id = :id LIMIT 1');
+            $roleStmt = $pdo->prepare('SELECT TOP (1) name FROM roles WHERE id = :id');
             $roleStmt->execute(['id' => $destinationRoleId]);
             $destinationRoleKey = app_normalize_role_key((string)($roleStmt->fetchColumn() ?: ''));
         }
@@ -3337,9 +3959,6 @@ function workflow_forward_document(
                 $finalRemarks = 'CENRO Admin Record endorsement: forwarded to PENRO Admin Record.';
             }
         } elseif ($destinationRoleKey === 'RECORDS_UNIT') {
-            if (!$hasRouteAttachment) {
-                throw new RuntimeException('Endorsement letter attachment is required before forwarding directly to PACDO/RECORDS-UNIT.');
-            }
             if ($finalRemarks === '') {
                 $finalRemarks = 'CENRO Admin Record endorsement: forwarded directly to PACDO/RECORDS-UNIT.';
             }
@@ -3356,7 +3975,7 @@ function workflow_forward_document(
         $destinationRoleId = workflow_resolve_destination_role_id($pdo, $destinationUserId, $destinationOfficeId);
         $destinationRoleKey = '';
         if ($destinationRoleId !== null) {
-            $roleStmt = $pdo->prepare('SELECT name FROM roles WHERE id = :id LIMIT 1');
+            $roleStmt = $pdo->prepare('SELECT TOP (1) name FROM roles WHERE id = :id');
             $roleStmt->execute(['id' => $destinationRoleId]);
             $destinationRoleKey = app_normalize_role_key((string)($roleStmt->fetchColumn() ?: ''));
         }
@@ -3383,9 +4002,6 @@ function workflow_forward_document(
                 $finalRemarks = 'PENRO Admin Record endorsement: forwarded to CENRO Admin Record.';
             }
         } elseif ($destinationRoleKey === 'RECORDS_UNIT') {
-            if (!$hasRouteAttachment) {
-                throw new RuntimeException('Endorsement letter attachment is required before forwarding directly to PACDO/RECORDS-UNIT.');
-            }
             if ($finalRemarks === '') {
                 $finalRemarks = 'PENRO Admin Record endorsement: forwarded directly to PACDO/RECORDS-UNIT.';
             }
@@ -3428,27 +4044,36 @@ function workflow_forward_document(
                 $finalRemarks = 'ARD endorsement: elevated to ORED.';
             }
         } else {
-            if ($destinationLevel !== 'DIVISION') {
-                throw new RuntimeException('ARD can forward only to concerned Division or back to ORED.');
+            $isDivisionDestination = $destinationLevel === 'DIVISION';
+            $isRbcoDestination = workflow_office_is_rbco($destinationOffice);
+            if (!$isDivisionDestination && !$isRbcoDestination) {
+                throw new RuntimeException('ARD can forward only to concerned Division, RBCO, or back to ORED.');
             }
 
             $actorTrack = workflow_ard_track_from_role_key($actorRoleKey);
-            $divisionTrack = workflow_division_track_from_name($destinationName);
-            if ($actorTrack !== null && $divisionTrack === null) {
-                throw new RuntimeException('Unable to determine ARD cluster mapping for the selected division.');
+            $destinationTrack = workflow_office_track_from_context($pdo, $destinationOffice);
+            if ($actorTrack !== null && $destinationTrack === null) {
+                throw new RuntimeException('Unable to determine ARD cluster mapping for the selected office.');
             }
-            if ($actorTrack !== null && $divisionTrack !== null && $actorTrack !== $divisionTrack) {
-                throw new RuntimeException('ARD can route only to divisions under their assigned cluster.');
+            if ($actorTrack !== null && $destinationTrack !== null && $actorTrack !== $destinationTrack) {
+                throw new RuntimeException('ARD can route only to offices under their assigned cluster.');
             }
 
-            $documentStatus = workflow_build_assigned_status($destinationName !== '' ? $destinationName : 'Division');
-            if ($remarks === '') {
-                $finalRemarks = 'ARD instruction: assigned to concerned division.';
+            if ($isRbcoDestination) {
+                $documentStatus = workflow_build_assigned_status($destinationName !== '' ? $destinationName : 'RBCO');
+                if ($remarks === '') {
+                    $finalRemarks = 'ARD instruction: assigned directly to RBCO.';
+                }
+            } else {
+                $documentStatus = workflow_build_assigned_status($destinationName !== '' ? $destinationName : 'Division');
+                if ($remarks === '') {
+                    $finalRemarks = 'ARD instruction: assigned to concerned division.';
+                }
             }
         }
     }
 
-    if ($actorRoleKey === 'ORED') {
+    if (workflow_is_regional_ored_role_key($actorRoleKey)) {
         $destinationOffice = workflow_get_office_context($pdo, $destinationOfficeId);
         if (!$destinationOffice) {
             throw new InvalidArgumentException('Destination office is not valid.');
@@ -3461,19 +4086,59 @@ function workflow_forward_document(
         $isSectionDestination = $destinationLevel === 'SECTION' || str_contains($destinationName, 'SECTION');
         $normalizedBypassReason = trim($bypassReason);
 
-        if ($isPostSignStage) {
-            if (!$isPacdoDestination) {
-                throw new RuntimeException('After signing, ORED can forward only to RECORDS-UNIT.');
+        if ($actorIsOredReviewer && !$regionalOredSignedStage) {
+            $actorOfficeId = (int)($actor['office_id'] ?? 0);
+            if ((int)($destinationOffice['id'] ?? 0) !== $actorOfficeId) {
+                throw new RuntimeException('ORED review can forward only to the ORED signing account in the same office.');
             }
-        } else {
-            if ($isPacdoDestination) {
-                throw new RuntimeException('ORED can forward to RECORDS-UNIT only after signing.');
-            }
-            if (!$isArdDestination && !$isDivisionDestination && !$isSectionDestination) {
-                throw new RuntimeException('Before signing, ORED can forward only to ARD, Division, or Section.');
+            if ($destinationUserId === null || $destinationUserId <= 0 || $destinationUserId === (int)($actor['id'] ?? 0)) {
+                throw new RuntimeException('A different ORED signing account is required for this handoff.');
             }
 
-            if ($isDivisionDestination || $isSectionDestination) {
+            $destinationUser = workflow_get_user_context($pdo, $destinationUserId);
+            if (!workflow_actor_is_ored_signer($pdo, $destinationUser)) {
+                throw new RuntimeException('Selected destination user is not the ORED signing account.');
+            }
+
+            $documentStatus = workflow_build_assigned_status('ORED Sign');
+            if ($finalRemarks === '') {
+                $finalRemarks = 'ORED review endorsement: forwarded to ORED Sign.';
+            }
+        } elseif ($actorIsOredSigner && $isPostSignStage) {
+            $actorOfficeId = (int)($actor['office_id'] ?? 0);
+            if ((int)($destinationOffice['id'] ?? 0) !== $actorOfficeId) {
+                throw new RuntimeException('ORED signing account can forward only back to the ORED review account in the same office.');
+            }
+            if ($destinationUserId === null || $destinationUserId <= 0 || $destinationUserId === (int)($actor['id'] ?? 0)) {
+                throw new RuntimeException('A different ORED review account is required for this handoff.');
+            }
+
+            $destinationUser = workflow_get_user_context($pdo, $destinationUserId);
+            if (workflow_actor_is_ored_signer($pdo, $destinationUser)) {
+                throw new RuntimeException('Selected destination user must be the non-signing ORED review account.');
+            }
+
+            $documentStatus = workflow_build_assigned_status('ORED Review');
+            if ($finalRemarks === '') {
+                $finalRemarks = 'ORED signing endorsement: returned to ORED review for onward routing.';
+            }
+        } else {
+            $reviewerPostSignRoute = $actorIsOredReviewer && $regionalOredSignedStage;
+            if ($isPacdoDestination) {
+                if (!$reviewerPostSignRoute) {
+                    throw new RuntimeException('ORED forward must go to ARD, Division, or Section. Use Return instead of forwarding to PACDO/RECORDS-UNIT.');
+                }
+                $documentStatus = workflow_build_assigned_status((string)($destinationOffice['name'] ?? 'RECORDS-UNIT'));
+                if ($finalRemarks === '') {
+                    $finalRemarks = 'ORED review release: sent back to RECORDS-UNIT.';
+                }
+            } elseif (!$isArdDestination && !$isDivisionDestination && !$isSectionDestination) {
+                throw new RuntimeException(
+                    $isPostSignStage
+                        ? 'After signing, ORED can forward only to ARD, Division, Section, or RECORDS-UNIT.'
+                        : 'Before signing, ORED can forward only to ARD, Division, or Section.'
+                );
+            } elseif ($isDivisionDestination || $isSectionDestination) {
                 if ($normalizedBypassReason === '') {
                     throw new RuntimeException('Bypass reason is required when ORED forwards directly to Division/Section.');
                 }
@@ -3604,7 +4269,23 @@ function workflow_return_document(PDO $pdo, int $documentId, int $actorUserId, i
             throw new RuntimeException('RECORDS-UNIT return can target only the originating office.');
         }
     }
-    if ($actorRoleKey === 'ORED') {
+    if ($actorIsOredReviewer) {
+        $destinationOffice = workflow_get_office_context($pdo, $destinationOfficeId);
+        if (!$destinationOffice) {
+            throw new InvalidArgumentException('Destination office is not valid.');
+        }
+        if ((int)($destinationOffice['id'] ?? 0) !== (int)($actor['office_id'] ?? 0)) {
+            throw new RuntimeException('ORED review can forward only to the ORED signing account.');
+        }
+        if ($destinationUserId === null || $destinationUserId <= 0 || $destinationUserId === (int)($actor['id'] ?? 0)) {
+            throw new RuntimeException('A different ORED signing account is required for this handoff.');
+        }
+
+        $documentStatus = workflow_build_assigned_status('ORED Sign');
+        if ($finalRemarks === '') {
+            $finalRemarks = 'ORED review endorsement: forwarded to ORED Sign.';
+        }
+    } elseif ($actorIsRegionalOred) {
         $destinationOffice = workflow_get_office_context($pdo, $destinationOfficeId);
         if (!$destinationOffice) {
             throw new InvalidArgumentException('Destination office is not valid.');
@@ -3674,25 +4355,7 @@ function workflow_complete_document(PDO $pdo, int $documentId, int $actorUserId,
 
 function workflow_approve_document(PDO $pdo, int $documentId, int $actorUserId, string $remarks = ''): void
 {
-    $document = workflow_get_document_context($pdo, $documentId, false);
-    $status = strtolower(trim((string)($document['status'] ?? '')));
-    if (str_contains($status, 'approved')) {
-        return;
-    }
-    if (!str_contains($status, 'received')) {
-        throw new RuntimeException('Document must be received before approval.');
-    }
-
-    workflow_update_document_status_internal(
-        $pdo,
-        $documentId,
-        $actorUserId,
-        'APPROVE',
-        'Approved',
-        'Approved',
-        'Document approved.',
-        $remarks
-    );
+    throw new RuntimeException('Approve action is no longer available.');
 }
 
 function workflow_sign_document(PDO $pdo, int $documentId, int $actorUserId, string $remarks = ''): void
@@ -3756,26 +4419,16 @@ function workflow_assert_internal_release_destination_matches_forward_policy(
     $destinationRoleId = workflow_resolve_destination_role_id($pdo, $destinationUserId, $destinationOfficeId);
     $destinationRoleKey = '';
     if ($destinationRoleId !== null) {
-        $roleStmt = $pdo->prepare('SELECT name FROM roles WHERE id = :id LIMIT 1');
+        $roleStmt = $pdo->prepare('SELECT TOP (1) name FROM roles WHERE id = :id');
         $roleStmt->execute(['id' => $destinationRoleId]);
         $destinationRoleKey = app_normalize_role_key((string)($roleStmt->fetchColumn() ?: ''));
     }
 
     if ($actorRoleKey === 'PAMO_ADMIN') {
-        if ($destinationRoleKey === 'PASU_OFFICER') {
-            $actorRoot = workflow_find_pamo_root_office($pdo, (int)($actor['office_id'] ?? 0));
-            $destinationRoot = workflow_find_pamo_root_office($pdo, $destinationOfficeId);
-            $actorRootId = (int)($actorRoot['id'] ?? 0);
-            $destinationRootId = (int)($destinationRoot['id'] ?? 0);
-            if ($actorRootId <= 0 || $destinationRootId <= 0 || $actorRootId !== $destinationRootId) {
-                throw new RuntimeException('PAMO Admin can release only to PASU under the same PAMO office.');
-            }
-            return;
-        }
         if (in_array($destinationRoleKey, ['CENRO_ADMIN_RECORD', 'PENRO_ADMIN_RECORD'], true)) {
             return;
         }
-        throw new RuntimeException('PAMO Admin can release only to PASU, CENRO Admin Record, or PENRO Admin Record.');
+        throw new RuntimeException('PAMO Admin can release only to CENRO Admin Record or PENRO Admin Record.');
     }
 
     if ($actorRoleKey === 'CENRO_ADMIN_RECORD') {
@@ -3933,12 +4586,53 @@ function workflow_release_document(
             throw new RuntimeException('Destination office must be different from current office.');
         }
 
-        workflow_assert_internal_release_destination_matches_forward_policy(
-            $pdo,
-            $actor,
-            $destinationOfficeId,
-            $destinationUserId
-        );
+        $isOriginDestination = $originatingOfficeId > 0 && $destinationOfficeId === $originatingOfficeId;
+
+        if (in_array($actorRoleKey, ['CENRO_ADMIN_RECORD', 'PENRO_ADMIN_RECORD'], true)) {
+            $destinationOffice = workflow_get_office_context($pdo, $destinationOfficeId);
+            $destinationName = (string)($destinationOffice['name'] ?? '');
+            $destinationLevel = strtoupper(trim((string)($destinationOffice['level'] ?? '')));
+            $destinationParentOfficeId = (int)($destinationOffice['parent_office_id'] ?? 0);
+            $isRegionalDestination = workflow_name_matches_records_unit($destinationName);
+            $isReleaseChainDestination = false;
+
+            if ($actorRoleKey === 'CENRO_ADMIN_RECORD') {
+                $actorParentPenro = workflow_find_parent_office_by_level($pdo, $actorOfficeId, 'PROVINCIAL');
+                $actorParentPenroId = (int)($actorParentPenro['id'] ?? 0);
+                $isReleaseChainDestination = $destinationLevel === 'PENRO_ADMIN_RECORD'
+                    && $actorParentPenroId > 0
+                    && $destinationParentOfficeId === $actorParentPenroId;
+            } else {
+                if (
+                    $originatingOfficeId > 0
+                    && $destinationLevel === 'CENRO_ADMIN_RECORD'
+                    && !$isOriginDestination
+                ) {
+                    throw new RuntimeException('PENRO Admin Record release can target only the originating CENRO office.');
+                }
+                $actorPenroRoot = workflow_find_penro_root_office($pdo, $actorOfficeId);
+                $actorPenroRootId = (int)($actorPenroRoot['id'] ?? 0);
+                $isReleaseChainDestination = $destinationLevel === 'CENRO_ADMIN_RECORD'
+                    && $actorPenroRootId > 0
+                    && workflow_cenro_belongs_to_penro($pdo, $actorPenroRootId, $destinationOfficeId);
+            }
+
+            if (!$isOriginDestination && !$isReleaseChainDestination && !$isRegionalDestination) {
+                if ($actorRoleKey === 'CENRO_ADMIN_RECORD') {
+                    throw new RuntimeException('Released documents can be sent only to the originating office, PENRO Admin Record, or PACDO/RECORDS-UNIT.');
+                }
+                throw new RuntimeException('Released documents can be sent only to the originating office, CENRO Admin Record, or PACDO/RECORDS-UNIT.');
+            }
+        }
+
+        if (!$isOriginDestination) {
+            workflow_assert_internal_release_destination_matches_forward_policy(
+                $pdo,
+                $actor,
+                $destinationOfficeId,
+                $destinationUserId
+            );
+        }
     } elseif (in_array($actorRoleKey, ['RECORDS_UNIT'], true)) {
         if ($releaseModeKey !== '') {
             throw new RuntimeException('This release mode is not available for RECORDS-UNIT.');
@@ -4040,14 +4734,13 @@ function workflow_resolve_tracking_action_required(
 
     if ($documentId > 0 && $destinationOfficeId > 0) {
         $routeRemarksStmt = $pdo->prepare(
-            'SELECT remarks
+            'SELECT TOP (1) remarks
              FROM activity_logs
              WHERE document_id = :document_id
                AND action_scope = :action_scope
                AND destination_office_id = :destination_office_id
                AND action_type IN (\'Forwarded\', \'Rerouted\', \'Sent\', \'Returned\', \'Released\', \'Overridden\')
-             ORDER BY created_at DESC, id DESC
-             LIMIT 1'
+             ORDER BY created_at DESC, id DESC'
         );
         $routeRemarksStmt->execute([
             'document_id' => $documentId,
@@ -4085,7 +4778,7 @@ function workflow_mark_received(PDO $pdo, int $documentId, int $receivedByUserId
     $pdo->beginTransaction();
     try {
         $document = workflow_get_document_context($pdo, $documentId, true);
-        workflow_assert_receive_permission($document, $receiver);
+        workflow_assert_receive_permission($pdo, $document, $receiver);
 
         $fromOfficeId = (int)$document['current_office_id'];
         $toOfficeId = $receivingOfficeId ?? (int)($document['pending_office_id'] ?: $receiver['office_id']);
@@ -4197,7 +4890,7 @@ function workflow_mark_received(PDO $pdo, int $documentId, int $receivedByUserId
             'INSERT INTO tracking_slips (
                 document_id, from_office_id, receiving_office_id, received_by, date_time_received, action_required, receive_method
              ) VALUES (
-                :document_id, :from_office_id, :receiving_office_id, :received_by, NOW(), :action_required, :receive_method
+                :document_id, :from_office_id, :receiving_office_id, :received_by, SYSDATETIME(), :action_required, :receive_method
              )'
         );
         $slip->execute([

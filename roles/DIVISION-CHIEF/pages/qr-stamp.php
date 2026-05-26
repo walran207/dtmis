@@ -2,7 +2,7 @@
 $roleBasePath = dirname(__DIR__);
 $roleName = 'Division Chief';
 $initialsFallback = 'DC';
-$pageTitle = 'QR Stamp Workspace | DENR Region XII eDATS';
+$pageTitle = 'QR Stamp Workspace | DENR Region XII DTMIS';
 $activeMenu = 'qr_stamp';
 $brandSubtitle = 'Division Chief Portal';
 $pageHeading = 'QR Stamp Workspace';

@@ -17,7 +17,7 @@ if (empty($_SESSION['user_id'])) {
 
 $roleName = 'ORED';
 $initialsFallback = 'OR';
-$pageTitle = 'Regional Summary Reports | DENR Region XII eDATS';
+$pageTitle = 'Regional Summary Reports | DENR Region XII DTMIS';
 $activeMenu = 'regional_reports';
 $brandSubtitle = 'ORED Portal';
 $pageHeading = 'Regional Summary Reports';
@@ -74,36 +74,8 @@ $healthRiskWidth = (string)(int)round(($unitsWithRisk / $healthBase) * 100) . '%
 $healthStableWidth = (string)(int)round(($stableUnits / $healthBase) * 100) . '%';
 $healthPressureWidth = (string)(int)round(($highPressureUnits / $healthBase) * 100) . '%';
 
-$kpiCards = [
-    ['label' => 'Units Reporting', 'icon' => 'blue', 'value' => (string)$totalUnits],
-    ['label' => 'Regional Backlog', 'icon' => 'orange', 'value' => (string)$regionalPending],
-    ['label' => 'SLA Risk Cases', 'icon' => 'violet', 'value' => (string)$regionalRisk, 'pill' => 'ARTA'],
-    ['label' => 'Closed Transactions', 'icon' => 'green', 'value' => (string)$regionalCompleted],
-];
-
-$panels = [
-    [
-        'title' => 'Regional Workload Signals',
-        'rows' => [
-            ['label' => 'Backlog Cases', 'width' => $workloadPendingWidth, 'value' => (string)$regionalPending],
-            ['label' => 'SLA Risk Cases', 'width' => $workloadRiskWidth, 'value' => (string)$regionalRisk],
-            ['label' => 'Closed Transactions', 'width' => $workloadClosedWidth, 'value' => (string)$regionalCompleted],
-        ],
-    ],
-    [
-        'title' => 'Office Health Signals',
-        'rows' => [
-            ['label' => 'Units Reporting', 'width' => $healthUnitsWidth, 'value' => (string)$totalUnits],
-            ['label' => 'Units with Risk', 'width' => $healthRiskWidth, 'value' => (string)$unitsWithRisk],
-            ['label' => 'Stable Units', 'width' => $healthStableWidth, 'value' => (string)$stableUnits],
-            ['label' => 'High Pressure Units', 'width' => $healthPressureWidth, 'value' => (string)$highPressureUnits],
-        ],
-    ],
-    [
-        'title' => 'Report Focus',
-        'chips' => ['Regional aggregation', 'ARTA-driven risk view', 'Office-level comparison', 'CSV-ready rows'],
-    ],
-];
+$kpiCards = [];
+$panels = [];
 
 $tableTitle = 'Regional Office Summary';
 $tableColumns = ['Office / Unit', 'Pending', 'Due Soon', 'Overdue', 'Completed', 'Export'];

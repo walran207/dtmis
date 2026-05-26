@@ -1,5 +1,5 @@
 (function () {
-    const THEME_KEY = 'edats_theme';
+    const THEME_KEY = 'DTMIS_theme';
     const html = document.documentElement;
 
     function getTheme() {

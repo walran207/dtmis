@@ -37,22 +37,27 @@ function format_date_only(?string $value): string
     }
 }
 
-function attachment_public_path(?string $filePath): ?string
+function attachment_public_path(array $attachment): ?string
 {
-    if ($filePath === null || trim($filePath) === '') {
+    $attachmentId = (int)($attachment['id'] ?? 0);
+    if ($attachmentId > 0) {
+        return app_url('actions/attachment-file.php?attachment_id=' . $attachmentId);
+    }
+
+    $filePath = trim((string)($attachment['file_path'] ?? ''));
+    if ($filePath === '') {
         return null;
     }
 
-    $path = trim($filePath);
-    if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
-        return $path;
+    if (str_starts_with($filePath, 'http://') || str_starts_with($filePath, 'https://')) {
+        return $filePath;
     }
 
-    if (str_starts_with($path, '/')) {
-        return $path;
+    if (str_starts_with($filePath, '/')) {
+        return $filePath;
     }
 
-    return app_url(ltrim($path, '/'));
+    return app_url(ltrim($filePath, '/'));
 }
 
 function attachment_is_image(array $attachment): bool
@@ -70,15 +75,13 @@ function attachment_is_image(array $attachment): bool
 
 function print_package_column_exists(PDO $pdo, string $table, string $column): bool
 {
-    $safeTable = str_replace('`', '', trim($table));
-    $safeColumn = str_replace(['\\', "'"], ['\\\\', "\\'"], trim($column));
+    $safeTable = trim($table);
+    $safeColumn = trim($column);
     if ($safeTable === '' || $safeColumn === '') {
         return false;
     }
 
-    $sql = "SHOW COLUMNS FROM `{$safeTable}` LIKE '{$safeColumn}'";
-    $stmt = $pdo->query($sql);
-    return $stmt ? (bool)$stmt->fetch() : false;
+    return db_column_exists($pdo, $safeTable, $safeColumn);
 }
 
 function print_package_arta_category_expr(PDO $pdo): string
@@ -99,6 +102,15 @@ function print_package_arta_days_expr(PDO $pdo): string
     return 'COALESCE(dt.arta_days_limit, 3)';
 }
 
+function print_package_originating_entity_expr(PDO $pdo): string
+{
+    if (db_column_exists($pdo, 'documents', 'originating_entity_name')) {
+        return "COALESCE(NULLIF(TRIM(d.originating_entity_name), ''), o.name)";
+    }
+
+    return 'o.name';
+}
+
 $pdo = getDatabaseConnection();
 $trackingId = trim((string)($_GET['tracking_id'] ?? ''));
 $autoPrint = ((string)($_GET['autoprint'] ?? '') === '1');
@@ -115,7 +127,7 @@ $stampToolUrl = '';
 $generatedAt = (new DateTimeImmutable('now'))->format('M d, Y h:i A');
 
 if ($trackingId === '') {
-    $latestStmt = $pdo->query('SELECT tracking_id FROM documents ORDER BY id DESC LIMIT 1');
+    $latestStmt = $pdo->query('SELECT TOP (1) tracking_id FROM documents ORDER BY id DESC');
     $trackingId = (string)($latestStmt->fetchColumn() ?: '');
 }
 
@@ -125,6 +137,7 @@ if ($trackingId === '') {
     try {
         $artaCategoryExpr = print_package_arta_category_expr($pdo);
         $artaDaysExpr = print_package_arta_days_expr($pdo);
+        $originatingEntityExpr = print_package_originating_entity_expr($pdo);
         $docStmt = $pdo->prepare(
             'SELECT
                 d.id,
@@ -137,12 +150,12 @@ if ($trackingId === '') {
                 dt.name AS document_type,
                 ' . $artaCategoryExpr . ' AS arta_category,
                 ' . $artaDaysExpr . ' AS arta_days_limit,
-                o.name AS originating_office,
+                ' . $originatingEntityExpr . ' AS originating_office,
+                o.name AS routing_office,
                 (
-                    SELECT CONCAT(COALESCE(u.first_name, \'\'), \' \', COALESCE(u.last_name, \'\'))
+                    SELECT TOP (1) CONCAT(COALESCE(u.first_name, \'\'), \' \', COALESCE(u.last_name, \'\'))
                     FROM users u
                     WHERE u.id = d.created_by_user_id
-                    LIMIT 1
                 ) AS created_by_name,
                 (
                     SELECT COUNT(*)
@@ -152,8 +165,7 @@ if ($trackingId === '') {
              FROM documents d
              LEFT JOIN document_types dt ON dt.id = d.document_type_id
              LEFT JOIN offices o ON o.id = d.originating_office_id
-             WHERE d.tracking_id = :tracking_id
-             LIMIT 1'
+             WHERE d.tracking_id = :tracking_id'
         );
         $docStmt->execute(['tracking_id' => $trackingId]);
         $document = $docStmt->fetch();
@@ -256,7 +268,7 @@ if ($trackingId === '') {
 
 $publicTrackingSlipUrl = $trackingId === ''
     ? ''
-    : app_url('tracking-slip.php') . '?tracking_id=' . rawurlencode($trackingId) . '&public=1';
+    : app_public_url('tracking-slip.php') . '?tracking_id=' . rawurlencode($trackingId) . '&public=1';
 $qrText = $trackingId === ''
     ? ''
     : ($publicTrackingSlipUrl !== '' ? $publicTrackingSlipUrl : $trackingId);
@@ -594,7 +606,7 @@ if ($trackingId !== '' && !empty($imageAttachments)) {
     </style>
     <script>
         (function() {
-            const theme = localStorage.getItem('edats_theme') || 'light';
+            const theme = localStorage.getItem('DTMIS_theme') || 'light';
             document.documentElement.setAttribute('data-theme', theme);
         })();
         
@@ -603,7 +615,7 @@ if ($trackingId !== '' && !empty($imageAttachments)) {
             const current = html.getAttribute('data-theme') || 'light';
             const next = current === 'light' ? 'dark' : 'light';
             html.setAttribute('data-theme', next);
-            localStorage.setItem('edats_theme', next);
+            localStorage.setItem('DTMIS_theme', next);
         }
     </script>
 </head>
@@ -673,7 +685,7 @@ if ($trackingId !== '' && !empty($imageAttachments)) {
             <div class="meta-cell label">Status</div>
             <div class="meta-cell"><?php echo e((string)$document['status']); ?></div>
 
-            <div class="meta-cell label">Originating Office</div>
+            <div class="meta-cell label">Originating Office / Entity</div>
             <div class="meta-cell"><?php echo e((string)($document['originating_office'] ?? '-')); ?></div>
             <div class="meta-cell label">Created Date</div>
             <div class="meta-cell"><?php echo e(format_date_only((string)($document['created_at'] ?? null))); ?></div>
@@ -736,7 +748,7 @@ if ($trackingId !== '' && !empty($imageAttachments)) {
             <div class="section-body">
                 <?php if ($latestAttachment): ?>
                 <?php
-                    $latestPath = attachment_public_path((string)($latestAttachment['file_path'] ?? ''));
+                    $latestPath = attachment_public_path($latestAttachment);
                     $latestFileName = (string)($latestAttachment['file_name'] ?? '-');
                     $latestIsImage = attachment_is_image($latestAttachment);
                     $latestStampUrl = $latestIsImage
@@ -798,7 +810,7 @@ if ($trackingId !== '' && !empty($imageAttachments)) {
                         </tr>
                         <?php else: ?>
                             <?php foreach ($keyAttachments as $index => $attachment): ?>
-                            <?php $attachmentPath = attachment_public_path((string)($attachment['file_path'] ?? '')); ?>
+                            <?php $attachmentPath = attachment_public_path($attachment); ?>
                             <tr>
                                 <td><?php echo e((string)($index + 1)); ?></td>
                                 <td><?php echo e((string)($attachment['file_name'] ?? '-')); ?></td>
@@ -835,7 +847,7 @@ if ($trackingId !== '' && !empty($imageAttachments)) {
     <script>
         (function () {
             const printQrImage = document.getElementById('printPackageQrImage');
-            if (!printQrImage || !window.edatsLocalQr || typeof window.edatsLocalQr.renderImage !== 'function') {
+            if (!printQrImage || !window.DTMISLocalQr || typeof window.DTMISLocalQr.renderImage !== 'function') {
                 return;
             }
 
@@ -845,7 +857,7 @@ if ($trackingId !== '' && !empty($imageAttachments)) {
             }
 
             try {
-                window.edatsLocalQr.renderImage(printQrImage, qrPayload, {
+                window.DTMISLocalQr.renderImage(printQrImage, qrPayload, {
                     size: 360,
                     margin: 2,
                     errorCorrection: 'M',

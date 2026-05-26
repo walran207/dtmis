@@ -73,7 +73,7 @@ $atRiskWidth = (string)(int)round(($metrics['at_risk_total'] / $riskBase) * 100)
 $dueSoonWidth = (string)(int)round((($metrics['due_today_total'] + $metrics['due_soon_total']) / $riskBase) * 100) . '%';
 $overdueWidth = (string)(int)round(($metrics['overdue_total'] / $riskBase) * 100) . '%';
 
-$pageTitle = 'PENRO Admin Record Dashboard | DENR Region XII eDATS';
+$pageTitle = 'PENRO Admin Record Dashboard | DENR Region XII DTMIS';
 $brandSubtitle = 'PENRO Admin Record Portal';
 $pageHeading = 'PENRO Admin Record Management Dashboard';
 $pageSubtitle = 'PENRO internal records gatekeeping, clearance checks, and ARTA monitoring.';

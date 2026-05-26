@@ -2,6 +2,8 @@
 declare(strict_types=1);
 
 require_once dirname(__DIR__, 2) . '/config/app.php';
+require_once dirname(__DIR__, 2) . '/config/database.php';
+require_once dirname(__DIR__, 2) . '/config/workflow.php';
 
 if (session_status() !== PHP_SESSION_ACTIVE) {
     session_start();
@@ -15,10 +17,20 @@ if (empty($_SESSION['user_id'])) {
 }
 
 $roleKey = app_normalize_role_key((string)($_SESSION['role_name'] ?? ''));
-if (!in_array($roleKey, ['ORED', 'CENRO_OFFICER', 'PENRO_OFFICER', 'PASU_OFFICER'], true)) {
+$canUseDigitalSignatureWorkspace = in_array($roleKey, ['CENRO_OFFICER', 'PENRO_OFFICER', 'PASU_OFFICER'], true);
+if (!$canUseDigitalSignatureWorkspace) {
+    try {
+        $pdo = getDatabaseConnection();
+        $actorContext = workflow_get_user_context($pdo, (int)($_SESSION['user_id'] ?? 0));
+        $canUseDigitalSignatureWorkspace = workflow_actor_is_ored_signer($pdo, $actorContext);
+    } catch (Throwable $exception) {
+        $canUseDigitalSignatureWorkspace = false;
+    }
+}
+if (!$canUseDigitalSignatureWorkspace) {
     http_response_code(403);
     header('Content-Type: text/plain; charset=utf-8');
-    echo 'Digital signature workspace is available for ORED, CENRO Officer, PENRO Officer, and PASU only.';
+    echo 'Digital signature workspace is available only for the ORED signing account, CENRO Officer, PENRO Officer, and PASU.';
     exit;
 }
 

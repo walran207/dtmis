@@ -2,7 +2,7 @@
 $roleBasePath = dirname(__DIR__);
 $roleName = 'CENRO_UNIT';
 $initialsFallback = 'SS';
-$pageTitle = 'QR Stamp Workspace | DENR Region XII eDATS';
+$pageTitle = 'QR Stamp Workspace | DENR Region XII DTMIS';
 $activeMenu = 'qr_stamp';
 $brandSubtitle = 'CENRO Unit Portal';
 $pageHeading = 'QR Stamp Workspace';

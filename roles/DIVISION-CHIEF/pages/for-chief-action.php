@@ -4,7 +4,7 @@ require_once dirname(__DIR__, 3) . '/config/app.php';
 $roleBasePath = dirname(__DIR__);
 $roleName = 'Division Chief';
 $initialsFallback = 'DC';
-$pageTitle = 'For Chief Action | DENR Region XII eDATS';
+$pageTitle = 'For Chief Action | DENR Region XII DTMIS';
 $activeMenu = 'for_chief_action';
 $brandSubtitle = 'Division Chief Portal';
 $pageHeading = 'For Chief Action';
@@ -58,6 +58,9 @@ $statusFilterOptions = [
     ['value' => 'forward', 'label' => 'Forwarded'],
 ];
 $notifications = json_decode('[{"title":"Queue updated","timeLabel":"Now","message":"For Chief Action has a new routed document.","unread":true,"datetime":"2026-03-14T10:30:00"},{"title":"Tracking slip updated","timeLabel":"48m ago","message":"Custody timeline received a new event.","unread":true,"datetime":"2026-03-14T09:42:00"},{"title":"ARTA reminder","timeLabel":"2h ago","message":"Review due-soon and overdue items.","unread":false,"datetime":"2026-03-14T08:05:00"}]', true);
+
+$kpiCards = [];
+$panels = [];
 
 require dirname(__DIR__, 3) . '/app/templates/role-page-template.php';
 

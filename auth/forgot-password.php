@@ -23,15 +23,17 @@ $pwaManifestPath = app_url('manifest.webmanifest');
 $offlineReadCacheScript = app_url('assets/js/offline-read-cache.js');
 $offlineOutboxScript = app_url('assets/js/offline-outbox.js');
 $pwaBootstrapScript = app_url('assets/js/pwa-init.js');
+$forgotPasswordUrl = app_url('auth/forgot-password.php');
+$loginUrl = app_url('auth/login.php');
 $pwaBasePath = rtrim((string)app_url(''), '/');
 if ($pwaBasePath === '') {
     $pwaBasePath = '/';
 }
 
-$email = '';
+$username = '';
 $otpCode = '';
 $fieldErrors = [
-    'email' => '',
+    'username' => '',
     'otp_code' => '',
     'password' => '',
     'confirm_password' => '',
@@ -40,36 +42,53 @@ $formError = '';
 $infoMessage = '';
 $devOtp = '';
 $showResetForm = false;
+$inlineOtpTestingMode = false;
+
+function forgot_password_identifier_is_valid(string $value): bool
+{
+    if ($value === '') {
+        return false;
+    }
+
+    if (str_contains($value, '@')) {
+        return filter_var($value, FILTER_VALIDATE_EMAIL) !== false;
+    }
+
+    return auth_username_is_valid($value);
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = (string)($_POST['action'] ?? 'request_code');
     $csrfToken = (string)($_POST['csrf_token'] ?? '');
-    $email = strtolower(trim((string)($_POST['email'] ?? '')));
+    $username = auth_normalize_username((string)($_POST['username'] ?? ''));
 
     if (!hash_equals((string)$_SESSION['csrf_token'], $csrfToken)) {
         $formError = 'Your session expired. Please try again.';
     }
 
-    if ($email === '') {
-        $fieldErrors['email'] = 'Email is required.';
-    } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        $fieldErrors['email'] = 'Enter a valid email address.';
-    } elseif (!(str_ends_with($email, '@gmail.com') || str_ends_with($email, '@denr.gov.ph'))) {
-        $fieldErrors['email'] = 'Use a Gmail or DENR email address.';
+    if ($username === '') {
+        $fieldErrors['username'] = 'Username or email is required.';
+    } elseif (!forgot_password_identifier_is_valid($username)) {
+        $fieldErrors['username'] = 'Enter a valid username or email address.';
     }
 
-    if ($formError === '' && $action === 'request_code' && $fieldErrors['email'] === '') {
+    if ($formError === '' && $action === 'request_code' && $fieldErrors['username'] === '') {
         try {
             require_once __DIR__ . '/../config/database.php';
             $pdo = getDatabaseConnection();
 
-            $stmt = $pdo->prepare('SELECT id FROM users WHERE email = :email AND is_active = 1 LIMIT 1');
-            $stmt->execute(['email' => $email]);
+            $stmt = $pdo->prepare(
+                'SELECT TOP (1) id, email
+                 FROM users
+                 WHERE (LOWER(username) = LOWER(:lookup) OR LOWER(email) = LOWER(:lookup))
+                   AND is_active = 1'
+            );
+            $stmt->execute(['lookup' => $username]);
             $user = $stmt->fetch();
 
             if ($user) {
-                $generatedOtp = (string)random_int(100000, 999999);
-                $otpExpiresAt = (new DateTimeImmutable('+10 minutes'))->format('Y-m-d H:i:s');
+                $generatedOtp = auth_generate_otp();
+                $otpExpiresAt = (new DateTimeImmutable('+'. AUTH_PASSWORD_RESET_CODE_TTL_MINUTES . ' minutes'))->format('Y-m-d H:i:s');
 
                 $updateStmt = $pdo->prepare(
                     'UPDATE users
@@ -82,16 +101,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'id' => (int)$user['id'],
                 ]);
 
-                $sent = auth_send_email_otp($email, $generatedOtp, 'Password Reset');
+                $sent = $inlineOtpTestingMode
+                    ? true
+                    : auth_send_email_otp((string)$user['email'], $generatedOtp, 'Password Reset', AUTH_PASSWORD_RESET_CODE_TTL_MINUTES);
                 auth_log_security_event($pdo, [
                     'user_id' => (int)$user['id'],
-                    'email' => $email,
+                    'email' => (string)$user['email'],
                     'event_type' => 'PASSWORD_RESET_OTP_REQUEST',
                     'event_status' => $sent ? 'SUCCESS' : 'FAILED',
-                    'remarks' => $sent ? 'Password reset OTP sent.' : 'Password reset OTP generated but email failed.',
+                    'remarks' => $inlineOtpTestingMode
+                        ? 'Password reset OTP generated in inline testing mode.'
+                        : ($sent ? 'Password reset OTP sent.' : 'Password reset OTP generated but email failed.'),
                 ]);
 
-                if (auth_is_local_environment()) {
+                if ($inlineOtpTestingMode || auth_is_local_environment()) {
                     $devOtp = $generatedOtp;
                 }
             }
@@ -139,15 +162,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo = getDatabaseConnection();
 
                 $stmt = $pdo->prepare(
-                    'SELECT id, otp_expires_at
+                    'SELECT TOP (1) id, email, otp_expires_at
                      FROM users
-                     WHERE email = :email
+                     WHERE (LOWER(username) = LOWER(:lookup) OR LOWER(email) = LOWER(:lookup))
                        AND otp_code = :otp_code
-                       AND is_active = 1
-                     LIMIT 1'
+                       AND is_active = 1'
                 );
                 $stmt->execute([
-                    'email' => $email,
+                    'lookup' => $username,
                     'otp_code' => $otpCode,
                 ]);
                 $user = $stmt->fetch();
@@ -162,7 +184,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $fieldErrors['otp_code'] = 'Invalid or expired verification code.';
                     auth_log_security_event($pdo, [
                         'user_id' => $user ? (int)$user['id'] : null,
-                        'email' => $email,
+                        'email' => $user ? (string)$user['email'] : null,
                         'event_type' => 'PASSWORD_RESET_OTP_VERIFY',
                         'event_status' => 'FAILED',
                         'remarks' => 'Invalid or expired password reset OTP.',
@@ -171,6 +193,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $updateStmt = $pdo->prepare(
                         'UPDATE users
                          SET password_hash = :password_hash,
+                             must_change_password = 0,
+                             password_changed_at = SYSDATETIME(),
                              otp_code = NULL,
                              otp_expires_at = NULL
                          WHERE id = :id'
@@ -182,7 +206,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     auth_log_security_event($pdo, [
                         'user_id' => (int)$user['id'],
-                        'email' => $email,
+                        'email' => (string)$user['email'],
                         'event_type' => 'PASSWORD_RESET_SUCCESS',
                         'event_status' => 'SUCCESS',
                         'remarks' => 'Password reset completed.',
@@ -204,7 +228,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#1f4d7a">
-    <title>Forgot Password | DENR Region XII eDATS</title>
+    <title>Forgot Password | DENR Region XII DTMIS</title>
     <link rel="manifest" href="<?php echo htmlspecialchars((string)$pwaManifestPath, ENT_QUOTES, 'UTF-8'); ?>">
     <link rel="apple-touch-icon" href="<?php echo htmlspecialchars((string)app_url('assets/Logo.png'), ENT_QUOTES, 'UTF-8'); ?>">
     <link rel="stylesheet" href="./css/login.css">
@@ -247,23 +271,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php endif; ?>
 
         <?php if (!$showResetForm): ?>
-            <form id="requestResetForm" method="post" action="./forgot-password.php" novalidate>
+            <form id="requestResetForm" method="post" action="<?= e($forgotPasswordUrl) ?>" novalidate>
                 <input type="hidden" name="csrf_token" value="<?= e((string)$_SESSION['csrf_token']) ?>">
                 <input type="hidden" name="action" value="request_code">
 
                 <div class="form-group">
-                    <label for="email">Email Address</label>
+                    <label for="username">Username or Email</label>
                     <div class="input-wrapper">
                         <span class="input-icon" aria-hidden="true">
                             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <rect x="3" y="5" width="18" height="14" rx="2"></rect>
-                                <polyline points="3 7 12 13 21 7"></polyline>
+                                <path d="M20 21a8 8 0 1 0-16 0"></path>
+                                <circle cx="12" cy="8" r="4"></circle>
                             </svg>
                         </span>
-                        <input id="email" type="email" name="email" placeholder="example@gmail.com or name@denr.gov.ph" value="<?= e($email) ?>" autocomplete="email" required>
+                        <input id="username" type="text" name="username" placeholder="Enter your username or email" value="<?= e($username) ?>" autocomplete="username" required>
                     </div>
-                    <?php if ($fieldErrors['email'] !== ''): ?>
-                        <p class="field-error" role="alert"><?= e($fieldErrors['email']) ?></p>
+                    <?php if ($fieldErrors['username'] !== ''): ?>
+                        <p class="field-error" role="alert"><?= e($fieldErrors['username']) ?></p>
                     <?php endif; ?>
                 </div>
 
@@ -272,23 +296,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </button>
             </form>
         <?php else: ?>
-            <form id="resetForm" method="post" action="./forgot-password.php" novalidate>
+            <form id="resetForm" method="post" action="<?= e($forgotPasswordUrl) ?>" novalidate>
                 <input type="hidden" name="csrf_token" value="<?= e((string)$_SESSION['csrf_token']) ?>">
                 <input type="hidden" name="action" value="reset_password">
 
                 <div class="form-group">
-                    <label for="email">Email Address</label>
+                    <label for="username">Username or Email</label>
                     <div class="input-wrapper">
                         <span class="input-icon" aria-hidden="true">
                             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <rect x="3" y="5" width="18" height="14" rx="2"></rect>
-                                <polyline points="3 7 12 13 21 7"></polyline>
+                                <path d="M20 21a8 8 0 1 0-16 0"></path>
+                                <circle cx="12" cy="8" r="4"></circle>
                             </svg>
                         </span>
-                        <input id="email" type="email" name="email" placeholder="example@gmail.com or name@denr.gov.ph" value="<?= e($email) ?>" autocomplete="email" required>
+                        <input id="username" type="text" name="username" placeholder="Enter your username or email" value="<?= e($username) ?>" autocomplete="username" required>
                     </div>
-                    <?php if ($fieldErrors['email'] !== ''): ?>
-                        <p class="field-error" role="alert"><?= e($fieldErrors['email']) ?></p>
+                    <?php if ($fieldErrors['username'] !== ''): ?>
+                        <p class="field-error" role="alert"><?= e($fieldErrors['username']) ?></p>
                     <?php endif; ?>
                 </div>
 
@@ -365,13 +389,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             <p class="helper-note">
                 Need a new verification code?
-                <a href="./forgot-password.php">Start again</a>
+                <a href="<?= e($forgotPasswordUrl) ?>">Start again</a>
             </p>
         <?php endif; ?>
 
         <p class="auth-switch">
             Remember your password?
-            <a href="./login.php">Sign in</a>
+            <a href="<?= e($loginUrl) ?>">Sign in</a>
         </p>
     </main>
 

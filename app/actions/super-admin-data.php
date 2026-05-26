@@ -53,27 +53,17 @@ try {
     }
 
     $action = strtoupper(trim((string)($_POST['action'] ?? '')));
-    if ($action !== 'UPDATE_DOCUMENT_TYPE') {
+    $supportedActions = ['UPDATE_DOCUMENT_TYPE', 'DELETE_DOCUMENT_TYPE'];
+    if (!in_array($action, $supportedActions, true)) {
         http_response_code(422);
         echo json_encode(['ok' => false, 'message' => 'Unsupported action.']);
         exit;
     }
 
     $documentTypeId = (int)($_POST['document_type_id'] ?? 0);
-    $category = trim((string)($_POST['category'] ?? 'Simple'));
-    $daysLimit = max(1, min(365, (int)($_POST['arta_days_limit'] ?? 3)));
-    $isActive = (int)($_POST['is_active'] ?? 0) === 1 ? 1 : 0;
-
     if ($documentTypeId <= 0) {
         http_response_code(422);
         echo json_encode(['ok' => false, 'message' => 'A valid document type is required.']);
-        exit;
-    }
-
-    $allowedCategories = ['Simple', 'Complex', 'Highly Technical'];
-    if (!in_array($category, $allowedCategories, true)) {
-        http_response_code(422);
-        echo json_encode(['ok' => false, 'message' => 'Invalid complexity category.']);
         exit;
     }
 
@@ -85,44 +75,80 @@ try {
         exit;
     }
 
-    $hasIsActive = super_admin_column_exists($pdo, 'document_types', 'is_active');
-    if ($hasIsActive) {
-        $stmt = $pdo->prepare(
-            'UPDATE document_types
-             SET category = :category,
-                 arta_days_limit = :arta_days_limit,
-                 is_active = :is_active
-             WHERE id = :id
-             LIMIT 1'
-        );
-        $stmt->execute([
-            'category' => $category,
-            'arta_days_limit' => $daysLimit,
-            'is_active' => $isActive,
-            'id' => $documentTypeId,
+    if ($action === 'UPDATE_DOCUMENT_TYPE') {
+        $category = trim((string)($_POST['category'] ?? 'Simple'));
+        $daysLimit = max(1, min(365, (int)($_POST['arta_days_limit'] ?? 3)));
+        $isActive = (int)($_POST['is_active'] ?? 0) === 1 ? 1 : 0;
+
+        $allowedCategories = ['Simple', 'Complex', 'Highly Technical'];
+        if (!in_array($category, $allowedCategories, true)) {
+            http_response_code(422);
+            echo json_encode(['ok' => false, 'message' => 'Invalid complexity category.']);
+            exit;
+        }
+
+        $hasIsActive = super_admin_column_exists($pdo, 'document_types', 'is_active');
+        if ($hasIsActive) {
+            $stmt = $pdo->prepare(
+                'UPDATE document_types
+                 SET category = :category,
+                     arta_days_limit = :arta_days_limit,
+                     is_active = :is_active
+                 WHERE id = :id'
+            );
+            $stmt->execute([
+                'category' => $category,
+                'arta_days_limit' => $daysLimit,
+                'is_active' => $isActive,
+                'id' => $documentTypeId,
+            ]);
+        } else {
+            $stmt = $pdo->prepare(
+                'UPDATE document_types
+                 SET category = :category,
+                     arta_days_limit = :arta_days_limit
+                 WHERE id = :id'
+            );
+            $stmt->execute([
+                'category' => $category,
+                'arta_days_limit' => $daysLimit,
+                'id' => $documentTypeId,
+            ]);
+        }
+
+        echo json_encode([
+            'ok' => true,
+            'message' => 'Document type updated successfully.',
+            'overview' => super_admin_fetch_global_overview($pdo),
+            'document_types' => super_admin_fetch_document_types($pdo, 600),
+            'server_time' => date('c'),
         ]);
-    } else {
-        $stmt = $pdo->prepare(
-            'UPDATE document_types
-             SET category = :category,
-                 arta_days_limit = :arta_days_limit
-             WHERE id = :id
-             LIMIT 1'
-        );
-        $stmt->execute([
-            'category' => $category,
-            'arta_days_limit' => $daysLimit,
-            'id' => $documentTypeId,
-        ]);
+        exit;
     }
+
+    $linkedDocumentsStmt = $pdo->prepare('SELECT COUNT(*) FROM documents WHERE document_type_id = :id');
+    $linkedDocumentsStmt->execute(['id' => $documentTypeId]);
+    $linkedDocuments = (int)$linkedDocumentsStmt->fetchColumn();
+    if ($linkedDocuments > 0) {
+        http_response_code(422);
+        echo json_encode([
+            'ok' => false,
+            'message' => 'Cannot delete this document type because it is already used by existing documents. Set it inactive instead.',
+        ]);
+        exit;
+    }
+
+    $deleteStmt = $pdo->prepare('DELETE FROM document_types WHERE id = :id');
+    $deleteStmt->execute(['id' => $documentTypeId]);
 
     echo json_encode([
         'ok' => true,
-        'message' => 'Document type updated successfully.',
+        'message' => 'Document type deleted successfully.',
         'overview' => super_admin_fetch_global_overview($pdo),
         'document_types' => super_admin_fetch_document_types($pdo, 600),
         'server_time' => date('c'),
     ]);
+    exit;
 } catch (Throwable $exception) {
     http_response_code(500);
     echo json_encode([

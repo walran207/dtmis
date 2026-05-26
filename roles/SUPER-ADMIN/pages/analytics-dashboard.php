@@ -49,7 +49,7 @@ foreach ($officeAnalytics as $office) {
     ];
 }
 
-$pageTitle = 'Analytics Dashboard | DENR Region XII eDATS';
+$pageTitle = 'Analytics Dashboard | DENR Region XII DTMIS';
 $brandSubtitle = 'Super Admin Portal';
 $pageHeading = 'Analytics Dashboard';
 $pageSubtitle = 'Cross-office workload, risk, and compliance analytics.';

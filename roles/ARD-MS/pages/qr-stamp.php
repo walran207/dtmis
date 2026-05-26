@@ -2,7 +2,7 @@
 $roleBasePath = dirname(__DIR__);
 $roleName = 'ARD_MS';
 $initialsFallback = 'AM';
-$pageTitle = 'QR Stamp Workspace | DENR Region XII eDATS';
+$pageTitle = 'QR Stamp Workspace | DENR Region XII DTMIS';
 $activeMenu = 'qr_stamp';
 $brandSubtitle = 'ARD MS Portal';
 $pageHeading = 'QR Stamp Workspace';

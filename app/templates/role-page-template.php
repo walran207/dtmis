@@ -17,11 +17,7 @@ include $roleBasePath . '/partials/sidebar.php';
                     <button type="button" class="mobile-nav-toggle" aria-label="Open navigation menu">
                         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
                     </button>
-                    <h1><?php echo e($pageHeading); ?></h1>
-                    <p><?php echo e($pageSubtitle); ?></p>
-                    <?php if ($dashboardAssignmentCaption !== ''): ?>
-                    <p class="assignment-context"><?php echo e($dashboardAssignmentCaption); ?></p>
-                    <?php endif; ?>
+                    <span class="sr-only"><?php echo e($pageHeading); ?></span>
                 </div>
                 <div class="header-actions">
                     <div
@@ -87,7 +83,7 @@ include $roleBasePath . '/partials/sidebar.php';
                                                 }
                                             }
                                             $notificationHref = $notificationTrackingId !== ''
-                                                ? app_url('tracking-slip.php') . '?tracking_id=' . rawurlencode($notificationTrackingId)
+                                                ? app_public_url('tracking-slip.php') . '?tracking_id=' . rawurlencode($notificationTrackingId) . '&public=1'
                                                 : $notificationsPageUrl;
                                         ?>
                                 <article
@@ -170,11 +166,11 @@ include $roleBasePath . '/partials/sidebar.php';
                         <form id="dateFilterDropdown" class="date-range-dropdown" aria-label="Date range filter">
                             <label class="date-field">
                                 <span>From</span>
-                                <input type="date" name="fromDate" title="Show documents dated on or after this date.">
+                                <input type="date" name="fromDate" value="<?php echo e((string)($activeDateFilterRange['from_input'] ?? '')); ?>" title="Show documents dated on or after this date.">
                             </label>
                             <label class="date-field">
                                 <span>To</span>
-                                <input type="date" name="toDate" title="Show documents dated on or before this date.">
+                                <input type="date" name="toDate" value="<?php echo e((string)($activeDateFilterRange['to_input'] ?? '')); ?>" title="Show documents dated on or before this date.">
                             </label>
                             <button type="button" class="date-filter-btn" title="Apply selected date range filters.">Apply</button>
                         </form>
@@ -207,6 +203,104 @@ include $roleBasePath . '/partials/sidebar.php';
             </div>
             <?php endif; ?>
 
+            <?php if ($roleKeyAttr === 'SUPER_ADMIN'): ?>
+            <script>
+                (function () {
+                    if (typeof window.createSuperAdminTablePager === 'function') {
+                        return;
+                    }
+
+                    window.createSuperAdminTablePager = function createSuperAdminTablePager(options) {
+                        const settings = options && typeof options === 'object' ? options : {};
+                        const prevButton = settings.prevButton || null;
+                        const nextButton = settings.nextButton || null;
+                        const infoNode = settings.infoNode || null;
+                        const pageSize = Math.max(1, Number(settings.pageSize || 10));
+                        let currentPage = 1;
+
+                        function updateControls(totalItems) {
+                            const totalPages = totalItems > 0 ? Math.max(1, Math.ceil(totalItems / pageSize)) : 0;
+
+                            if (totalPages === 0) {
+                                currentPage = 1;
+                                if (prevButton) {
+                                    prevButton.disabled = true;
+                                }
+                                if (nextButton) {
+                                    nextButton.disabled = true;
+                                }
+                                if (infoNode) {
+                                    infoNode.textContent = 'Page 0 of 0';
+                                }
+                                return totalPages;
+                            }
+
+                            currentPage = Math.min(Math.max(currentPage, 1), totalPages);
+                            if (prevButton) {
+                                prevButton.disabled = currentPage <= 1;
+                            }
+                            if (nextButton) {
+                                nextButton.disabled = currentPage >= totalPages;
+                            }
+                            if (infoNode) {
+                                infoNode.textContent = 'Page ' + currentPage + ' of ' + totalPages;
+                            }
+
+                            return totalPages;
+                        }
+
+                        return {
+                            reset: function () {
+                                currentPage = 1;
+                            },
+                            ensureItemVisible: function (items, predicate) {
+                                if (!Array.isArray(items) || typeof predicate !== 'function') {
+                                    return;
+                                }
+
+                                const targetIndex = items.findIndex(predicate);
+                                if (targetIndex >= 0) {
+                                    currentPage = Math.floor(targetIndex / pageSize) + 1;
+                                }
+                            },
+                            slice: function (items) {
+                                const rows = Array.isArray(items) ? items : [];
+                                const totalPages = updateControls(rows.length);
+                                if (totalPages === 0) {
+                                    return [];
+                                }
+
+                                const start = (currentPage - 1) * pageSize;
+                                return rows.slice(start, start + pageSize);
+                            },
+                            bind: function (onChange) {
+                                if (prevButton) {
+                                    prevButton.addEventListener('click', function () {
+                                        if (currentPage <= 1) {
+                                            return;
+                                        }
+                                        currentPage -= 1;
+                                        if (typeof onChange === 'function') {
+                                            onChange();
+                                        }
+                                    });
+                                }
+
+                                if (nextButton) {
+                                    nextButton.addEventListener('click', function () {
+                                        currentPage += 1;
+                                        if (typeof onChange === 'function') {
+                                            onChange();
+                                        }
+                                    });
+                                }
+                            }
+                        };
+                    };
+                })();
+            </script>
+            <?php endif; ?>
+
             <?php if ($customSectionInclude !== '' && is_file($customSectionInclude)): ?>
                 <?php include $customSectionInclude; ?>
             <?php endif; ?>
@@ -226,26 +320,45 @@ include $roleBasePath . '/partials/sidebar.php';
                 </article>
                 <?php endforeach; ?>
             </section>
-
             <?php if ($isIntakePage): ?>
-            <section class="card intake-panel" aria-label="Document intake form">
-                <div class="intake-panel-head">
-                    <h2>Create Document Intake</h2>
-                    <p>Submit and route a new document with tracking ID and custody-ready history.</p>
-                </div>
-                <form id="intakeForm" class="intake-form" method="post" enctype="multipart/form-data" novalidate>
+            <div id="createIntakeModal" class="action-modal create-intake-modal" hidden>
+                <button type="button" class="action-modal-backdrop" data-create-intake-close="true" aria-label="Close create intake dialog"></button>
+                <div class="action-modal-dialog details-modal-dialog create-intake-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="createIntakeModalTitle">
+                    <section class="intake-panel intake-modal-panel" aria-label="Document intake form">
+                        <div class="intake-panel-head">
+                            <h2 id="createIntakeModalTitle">Create Document Intake</h2>
+                            <p>Submit and route a new document with tracking ID and custody-ready history.</p>
+                        </div>
+                        <form id="intakeForm" class="intake-form details-modal-form" method="post" enctype="multipart/form-data" novalidate data-current-office-name="<?php echo e(trim((string)($officeContext['name'] ?? 'Current Office'))); ?>">
                     <input type="hidden" name="csrf_token" value="<?php echo e($csrfToken); ?>">
                     <div class="intake-grid">
                         <label class="intake-field">
-                            <span>Source</span>
+                            <span>Sender Source</span>
                             <select id="intakeSourceType" name="source_type">
-                                <?php if ($intakeAllowsExternal): ?>
-                                <option value="INTERNAL">Internal DENR</option>
-                                <option value="EXTERNAL" <?php echo $activeMenu === 'create_external_intake' ? 'selected' : ''; ?>>External Client / NGO</option>
-                                <?php else: ?>
-                                <option value="INTERNAL" selected>Internal DENR</option>
-                                <?php endif; ?>
+                                <option value="INTERNAL" selected>Current Office</option>
+                                <option value="EXTERNAL">Client</option>
                             </select>
+                            <small class="intake-hint">Choose whether the sender should come from your office or from a client.</small>
+                        </label>
+                        <label class="intake-field">
+                            <span>Routing Office</span>
+                            <input type="text" id="intakeRoutingOffice" value="<?php echo e(trim((string)($officeContext['name'] ?? 'Current Office'))); ?>" readonly>
+                            <small class="intake-hint">Used internally for DENR workflow routing and permissions.</small>
+                        </label>
+                        <label class="intake-field intake-field-full">
+                            <span id="intakeOriginatingEntityLabel">Originating Office / Entity</span>
+                            <input type="text" id="intakeOriginatingEntity" name="originating_entity_name" maxlength="255" placeholder="Enter originating office or entity" value="<?php echo e(trim((string)($officeContext['name'] ?? 'Current Office'))); ?>">
+                            <small id="intakeOriginatingEntityHint" class="intake-hint">Shown on the tracking slip, print package, and search tables.</small>
+                        </label>
+                        <label class="intake-field intake-field-full">
+                            <span id="intakeSenderLabel">Sender</span>
+                            <input type="text" id="intakeExternalClient" name="external_client_name" placeholder="Sender name">
+                            <small id="intakeSenderHint" class="intake-hint">Shown on the tracking slip above Encoder.</small>
+                        </label>
+                        <label id="intakeClientAddressField" class="intake-field intake-field-full">
+                            <span id="intakeClientAddressLabel">Address</span>
+                            <input type="text" id="intakeClientAddress" name="client_address" maxlength="255" placeholder="Enter client address">
+                            <small id="intakeClientAddressHint" class="intake-hint">Shown in the tracking slip Address field.</small>
                         </label>
                         <label class="intake-field intake-field-full">
                             <span>Subject / Title</span>
@@ -257,9 +370,18 @@ include $roleBasePath . '/partials/sidebar.php';
                             <select id="intakeDocumentType" name="document_type_id">
                                 <option value="">Select document type</option>
                                 <?php foreach ($documentTypeOptions as $docType): ?>
+                                <?php
+                                $docTypeNameRaw = trim((string)($docType['name'] ?? ''));
+                                $docTypeNameNormalized = strtolower(preg_replace('/\s+/', ' ', $docTypeNameRaw) ?? '');
+                                $docTypeCategoryNormalized = strtolower(trim((string)($docType['category'] ?? '')));
+                                $isOthersDocumentType = $docTypeNameNormalized === 'others'
+                                    || $docTypeNameNormalized === 'other'
+                                    || $docTypeCategoryNormalized === 'others';
+                                ?>
                                 <option
                                     value="<?php echo e((string)($docType['id'] ?? '')); ?>"
                                     data-category="<?php echo e((string)($docType['category'] ?? '')); ?>"
+                                    data-is-others="<?php echo $isOthersDocumentType ? '1' : '0'; ?>"
                                 >
                                     <?php echo e((string)($docType['name'] ?? 'Document Type')); ?>
                                 </option>
@@ -269,6 +391,11 @@ include $roleBasePath . '/partials/sidebar.php';
                             <?php if (empty($documentTypeOptions)): ?>
                             <small class="intake-hint" style="color:#b42318;">No active document types found. Please seed `document_types` in `denr_db` and refresh.</small>
                             <?php endif; ?>
+                        </label>
+                        <label id="intakeOtherDocumentTypeField" class="intake-field" hidden>
+                            <span>Others (Specify Document Type)</span>
+                            <input type="text" id="customDocumentTypeName" name="custom_document_type_name" maxlength="255" placeholder="Enter specific document type name">
+                            <small class="intake-hint">Used for this intake record only. The master Document Type list will not be changed.</small>
                         </label>
                         <label class="intake-field">
                             <span>Type of Complexity</span>
@@ -294,16 +421,10 @@ include $roleBasePath . '/partials/sidebar.php';
                             </select>
                             <small class="intake-hint">Classification guide: Yellow=Urgent, Pink=Simple, Blue=Complex/Highly Technical, Green=Released.</small>
                         </label>
-                <?php if ($canAddCustomType): ?>
-                        <label class="intake-field">
-                            <span>Custom Type (RECORDS-UNIT only)</span>
-                            <input type="text" id="customDocumentTypeName" name="custom_document_type_name" placeholder="Optional custom type name">
-                        </label>
-                        <?php endif; ?>
                         <label class="intake-field intake-field-full">
                             <span>Attachments</span>
                             <input type="file" id="intakeAttachments" name="attachment_files[]" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.webp,.txt" multiple>
-                            <small class="intake-hint">Upload soft copy when available (up to 40 files, max 15 MB each). If no file is uploaded, remarks are required.</small>
+                            <small class="intake-hint">Upload soft copy when available. If no file is uploaded, remarks are required.</small>
                         </label>
                         <?php if ($showIntakeForwardToField): ?>
                         <label class="intake-field">
@@ -316,7 +437,7 @@ include $roleBasePath . '/partials/sidebar.php';
                             >
                                 <option value="" selected>Manual forwarding only (after intake creation)</option>
                             </select>
-                            <small class="intake-hint">Automatic forward on intake is disabled for all roles. Use queue actions (Receive, Approve, Forward) manually.</small>
+                            <small class="intake-hint">Automatic forward on intake is disabled for all roles. Use queue actions (Receive, Forward) manually.</small>
                         </label>
                         <?php endif; ?>
                         <?php if ($showIntakeActionRequiredField): ?>
@@ -331,24 +452,23 @@ include $roleBasePath . '/partials/sidebar.php';
                             <small class="intake-hint">Optional instruction for the receiving office and tracking slip.</small>
                         </label>
                         <?php endif; ?>
-                        <label class="intake-field intake-field-full intake-external-only">
-                            <span>External Client / Organization</span>
-                            <input type="text" id="intakeExternalClient" name="external_client_name" placeholder="Client or organization name">
-                        </label>
                         <label class="intake-field intake-field-full">
                             <span>Remarks</span>
                             <textarea id="intakeRemarks" name="remarks" rows="3" placeholder="Optional remarks for logs"></textarea>
                         </label>
                     </div>
                     <div class="intake-actions">
+                        <button type="button" class="intake-btn intake-btn-muted" data-create-intake-close="true">Close</button>
                         <button type="button" id="intakeSaveDraft" class="intake-btn intake-btn-muted">Save Draft</button>
                         <button type="submit" id="intakeSubmit" class="intake-btn intake-btn-primary">Submit Intake</button>
                         <?php if (!empty($showIntakeForwardButton)): ?>
                         <button type="button" id="intakeSubmitForward" class="intake-btn intake-btn-primary">Submit &amp; Forward</button>
                         <?php endif; ?>
                     </div>
-                </form>
-            </section>
+                        </form>
+                    </section>
+                </div>
+            </div>
             <?php endif; ?>
 
             <?php if (!empty($panels)): ?>
@@ -380,10 +500,39 @@ include $roleBasePath . '/partials/sidebar.php';
 
             <?php if ($enableCharts): ?>
             <section class="charts-grid" aria-label="Dashboard charts">
-                <article class="card panel chart-panel">
+                <article class="card panel chart-panel" data-chart-kind="arta_mix">
                     <div class="chart-head">
-                        <h2>ARTA Workload Mix</h2>
-                        <span class="chart-note">Active workload</span>
+                        <div class="chart-head-main">
+                            <h2>ARTA Workload Mix</h2>
+                        </div>
+                        <div class="chart-head-tools">
+                            <span class="chart-note">Active workload</span>
+                            <span class="chart-filter-caption" data-chart-filter-caption="arta_mix">Page range</span>
+                            <div class="chart-date-filter" data-chart-date-filter="arta_mix">
+                                <button type="button" class="chart-date-filter-toggle" aria-label="Open chart date filter" aria-expanded="false" title="Filter this chart by date range.">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <rect x="3" y="4" width="18" height="18" rx="2"></rect>
+                                        <path d="M16 2v4"></path>
+                                        <path d="M8 2v4"></path>
+                                        <path d="M3 10h18"></path>
+                                    </svg>
+                                </button>
+                                <form class="chart-date-filter-dropdown" aria-label="Chart date range filter">
+                                    <label class="date-field">
+                                        <span>From</span>
+                                        <input type="date" name="fromDate" value="<?php echo e((string)($activeDateFilterRange['from_input'] ?? '')); ?>" title="Show chart data on or after this date.">
+                                    </label>
+                                    <label class="date-field">
+                                        <span>To</span>
+                                        <input type="date" name="toDate" value="<?php echo e((string)($activeDateFilterRange['to_input'] ?? '')); ?>" title="Show chart data on or before this date.">
+                                    </label>
+                                    <div class="chart-date-filter-actions">
+                                        <button type="button" class="chart-date-filter-btn is-secondary" data-chart-date-reset="arta_mix" title="Reset this chart to the page date range.">Reset</button>
+                                        <button type="button" class="chart-date-filter-btn" data-chart-date-apply="arta_mix" title="Apply this date range to the chart.">Apply</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
                     </div>
                     <div class="chart-pie-wrap">
                         <?php if ($chartPieTotal > 0): ?>
@@ -423,10 +572,39 @@ include $roleBasePath . '/partials/sidebar.php';
                     </div>
                 </article>
 
-                <article class="card panel chart-panel">
+                <article class="card panel chart-panel" data-chart-kind="queue_status">
                     <div class="chart-head">
-                        <h2>Queue Status Bars</h2>
-                        <span class="chart-note">Current scope</span>
+                        <div class="chart-head-main">
+                            <h2>Queue Status Bars</h2>
+                        </div>
+                        <div class="chart-head-tools">
+                            <span class="chart-note">Current scope</span>
+                            <span class="chart-filter-caption" data-chart-filter-caption="queue_status">Page range</span>
+                            <div class="chart-date-filter" data-chart-date-filter="queue_status">
+                                <button type="button" class="chart-date-filter-toggle" aria-label="Open chart date filter" aria-expanded="false" title="Filter this chart by date range.">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <rect x="3" y="4" width="18" height="18" rx="2"></rect>
+                                        <path d="M16 2v4"></path>
+                                        <path d="M8 2v4"></path>
+                                        <path d="M3 10h18"></path>
+                                    </svg>
+                                </button>
+                                <form class="chart-date-filter-dropdown" aria-label="Chart date range filter">
+                                    <label class="date-field">
+                                        <span>From</span>
+                                        <input type="date" name="fromDate" value="<?php echo e((string)($activeDateFilterRange['from_input'] ?? '')); ?>" title="Show chart data on or after this date.">
+                                    </label>
+                                    <label class="date-field">
+                                        <span>To</span>
+                                        <input type="date" name="toDate" value="<?php echo e((string)($activeDateFilterRange['to_input'] ?? '')); ?>" title="Show chart data on or before this date.">
+                                    </label>
+                                    <div class="chart-date-filter-actions">
+                                        <button type="button" class="chart-date-filter-btn is-secondary" data-chart-date-reset="queue_status" title="Reset this chart to the page date range.">Reset</button>
+                                        <button type="button" class="chart-date-filter-btn" data-chart-date-apply="queue_status" title="Apply this date range to the chart.">Apply</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
                     </div>
                     <div class="chart-bar-wrap">
                         <?php foreach ($chartBarSeries as $barItem): ?>
@@ -441,10 +619,39 @@ include $roleBasePath . '/partials/sidebar.php';
                     </div>
                 </article>
 
-                <article class="card panel chart-panel chart-panel-wide">
+                <article class="card panel chart-panel chart-panel-wide" data-chart-kind="workflow_trend">
                     <div class="chart-head">
-                        <h2>7-Day Workflow Spline</h2>
-                        <span class="chart-note">Received vs routed vs approved</span>
+                        <div class="chart-head-main">
+                            <h2>7-Day Workflow Spline</h2>
+                        </div>
+                        <div class="chart-head-tools">
+                            <span class="chart-note">Received vs routed vs completed</span>
+                            <span class="chart-filter-caption" data-chart-filter-caption="workflow_trend">Page range</span>
+                            <div class="chart-date-filter" data-chart-date-filter="workflow_trend">
+                                <button type="button" class="chart-date-filter-toggle" aria-label="Open chart date filter" aria-expanded="false" title="Filter this chart by date range.">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <rect x="3" y="4" width="18" height="18" rx="2"></rect>
+                                        <path d="M16 2v4"></path>
+                                        <path d="M8 2v4"></path>
+                                        <path d="M3 10h18"></path>
+                                    </svg>
+                                </button>
+                                <form class="chart-date-filter-dropdown" aria-label="Chart date range filter">
+                                    <label class="date-field">
+                                        <span>From</span>
+                                        <input type="date" name="fromDate" value="<?php echo e((string)($activeDateFilterRange['from_input'] ?? '')); ?>" title="Show chart data on or after this date.">
+                                    </label>
+                                    <label class="date-field">
+                                        <span>To</span>
+                                        <input type="date" name="toDate" value="<?php echo e((string)($activeDateFilterRange['to_input'] ?? '')); ?>" title="Show chart data on or before this date.">
+                                    </label>
+                                    <div class="chart-date-filter-actions">
+                                        <button type="button" class="chart-date-filter-btn is-secondary" data-chart-date-reset="workflow_trend" title="Reset this chart to the page date range.">Reset</button>
+                                        <button type="button" class="chart-date-filter-btn" data-chart-date-apply="workflow_trend" title="Apply this date range to the chart.">Apply</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
                     </div>
                     <div class="chart-spline-wrap">
                         <svg id="workflowSplineChart" class="chart-spline" viewBox="0 0 620 220" preserveAspectRatio="none" aria-label="Workflow trend chart"></svg>
@@ -596,11 +803,11 @@ include $roleBasePath . '/partials/sidebar.php';
                         <form id="dateFilterDropdown" class="date-range-dropdown" aria-label="Date range filter">
                             <label class="date-field">
                                 <span>From</span>
-                                <input type="date" name="fromDate" title="Show documents dated on or after this date.">
+                                <input type="date" name="fromDate" value="<?php echo e((string)($activeDateFilterRange['from_input'] ?? '')); ?>" title="Show documents dated on or after this date.">
                             </label>
                             <label class="date-field">
                                 <span>To</span>
-                                <input type="date" name="toDate" title="Show documents dated on or before this date.">
+                                <input type="date" name="toDate" value="<?php echo e((string)($activeDateFilterRange['to_input'] ?? '')); ?>" title="Show documents dated on or before this date.">
                             </label>
                             <button type="button" class="date-filter-btn" title="Apply selected date range filters.">Apply</button>
                         </form>
@@ -614,52 +821,31 @@ include $roleBasePath . '/partials/sidebar.php';
                 </div>
                 <div id="documentTools" class="document-tools" hidden>
                     <p id="documentToolsMeta" class="document-tools-meta">
-                        <?php if ($showQrStampDocumentTool): ?>
+                        <?php if ($isIntakePage && $showQrStampDocumentTool): ?>
+                        Use Create Intake or select a document row to view details, tracking slip, print package, or QR stamp.
+                        <?php elseif ($isIntakePage): ?>
+                        Use Create Intake or select a document row to view details, tracking slip, or print package.
+                        <?php elseif ($showQrStampDocumentTool): ?>
                         Select a document row to view details, tracking slip, print package, or QR stamp.
                         <?php else: ?>
                         Select a document row to view details, tracking slip, or print package.
                         <?php endif; ?>
                     </p>
                     <div class="document-tools-actions">
+                        <?php if ($isIntakePage): ?>
+                        <button type="button" id="openCreateIntakeModalBtn" class="document-tools-btn" title="Open the create intake form for a new document.">Create Intake</button>
+                        <?php endif; ?>
                         <button type="button" id="selectedDetailsBtn" class="document-tools-btn" disabled title="Open complete document details and attachment preview.">View Details</button>
                         <button type="button" id="selectedViewSlipBtn" class="document-tools-btn" disabled title="Open the tracking slip timeline for the selected document.">View Tracking Slip</button>
                         <button type="button" id="selectedPrintPackageBtn" class="document-tools-btn" disabled title="Print the package for the selected document.">Print Package</button>
                         <?php if ($showQrStampDocumentTool): ?>
                         <button type="button" id="selectedQrStampBtn" class="document-tools-btn" disabled title="Open QR stamp workspace for the selected tracking ID.">QR Stamp</button>
                         <?php endif; ?>
+                        <?php if ($showQrReceiveScanner): ?>
+                        <button type="button" id="openQrReceiveScannerBtn" class="document-tools-btn" title="Open the QR scanner tools and start a camera scan.">QR Scan</button>
+                        <?php endif; ?>
                     </div>
                 </div>
-                <?php if ($showQrReceiveScanner): ?>
-                <div id="qrReceivePanel" class="qr-receive-panel" aria-label="QR quick receive">
-                    <div class="qr-receive-head">
-                        <h3>Fast Receive (QR)</h3>
-                        <p>Scan the tracking slip QR code or paste a tracking ID to receive immediately.</p>
-                    </div>
-                    <div class="qr-receive-row">
-                        <input type="text" id="qrReceiveTrackingInput" class="qr-receive-input" placeholder="Tracking ID or tracking-slip URL" title="Paste a tracking ID or tracking-slip URL to receive quickly.">
-                        <button type="button" id="qrReceiveManualBtn" class="qr-receive-btn" title="Receive the document using the entered tracking ID.">Receive</button>
-                        <button type="button" id="qrReceiveStartBtn" class="qr-receive-btn secondary" title="Start camera scan for QR code receiving.">Start QR Scan</button>
-                        <button type="button" id="qrReceiveStopBtn" class="qr-receive-btn danger" disabled title="Stop QR camera scanning.">Stop</button>
-                    </div>
-                    <div id="qrReceiveViewport" class="qr-receive-viewport" hidden>
-                        <video id="qrReceiveVideo" class="qr-receive-video" playsinline muted></video>
-                        <div class="qr-receive-overlay" aria-hidden="true">
-                            <div class="qr-mask top"></div>
-                            <div class="qr-mask bottom"></div>
-                            <div class="qr-mask left"></div>
-                            <div class="qr-mask right"></div>
-                            <div class="qr-focus-frame">
-                                <span class="qr-corner tl"></span>
-                                <span class="qr-corner tr"></span>
-                                <span class="qr-corner bl"></span>
-                                <span class="qr-corner br"></span>
-                            </div>
-                            <p class="qr-focus-hint">Align QR code within frame to scan</p>
-                        </div>
-                    </div>
-                    <p id="qrReceiveStatus" class="qr-receive-status">Ready. Use camera scan or paste tracking ID.</p>
-                </div>
-                <?php endif; ?>
                 <div class="table-wrap">
                     <table>
                         <thead>
@@ -770,8 +956,7 @@ include $roleBasePath . '/partials/sidebar.php';
                                     <?php foreach ($cells as $cellIndex => $cell): ?>
                                     <?php
                                     $cellText = (string)$cell;
-                                    $isIndicatorCell = $isIntakePage
-                                        && $indicatorColumnIndex >= 0
+                                    $isIndicatorCell = $indicatorColumnIndex >= 0
                                         && (int)$cellIndex === $indicatorColumnIndex;
                                     $isDateCreatedCell = $isIntakePage
                                         && $dateCreatedColumnIndex >= 0
@@ -839,12 +1024,19 @@ include $roleBasePath . '/partials/sidebar.php';
                         </tbody>
                     </table>
                 </div>
+                <div id="queueTablePagination" class="table-pagination" hidden>
+                    <p id="queueTablePaginationMeta" class="table-pagination-meta">Showing 0-0 of 0</p>
+                    <div class="table-pagination-actions">
+                        <button type="button" id="queueTablePrevBtn" class="table-pagination-btn" disabled>Back</button>
+                        <button type="button" id="queueTableNextBtn" class="table-pagination-btn" disabled>Next</button>
+                    </div>
+                </div>
             </section>
             <?php endif; ?>
 
 <?php endif; ?>
 
-<?php include $roleBasePath . '/partials/footer.php'; ?>
+<?php include __DIR__ . '/_dashboard_footer.php'; ?>
         </main>
     </div>
 
@@ -854,6 +1046,46 @@ include $roleBasePath . '/partials/sidebar.php';
             <div class="welcome-loader-spinner" aria-hidden="true"></div>
             <h2><?php echo e($welcomeLoaderMessage); ?></h2>
             <p>Preparing your dashboard...</p>
+        </div>
+    </div>
+    <?php endif; ?>
+
+    <?php if ($showQrReceiveScanner): ?>
+    <div id="qrReceiveModal" class="action-modal" hidden>
+        <button type="button" class="action-modal-backdrop" data-qr-receive-close="true" aria-label="Close QR receive dialog"></button>
+        <div class="action-modal-dialog details-modal-dialog qr-receive-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="qrReceiveModalTitle">
+            <div id="qrReceivePanel" class="qr-receive-panel qr-receive-panel-modal" aria-label="QR quick receive">
+                <div class="qr-receive-head qr-receive-head-row">
+                    <div>
+                        <h3 id="qrReceiveModalTitle">Fast Receive (QR)</h3>
+                        <p>Scan the tracking slip QR code or paste a tracking ID to receive immediately.</p>
+                    </div>
+                    <button type="button" class="qr-receive-close-btn" data-qr-receive-close="true" aria-label="Close QR receive dialog">Close</button>
+                </div>
+                <div class="qr-receive-row">
+                    <input type="text" id="qrReceiveTrackingInput" class="qr-receive-input" placeholder="Tracking ID or tracking-slip URL" title="Paste a tracking ID or tracking-slip URL to receive quickly.">
+                    <button type="button" id="qrReceiveManualBtn" class="qr-receive-btn" title="Receive the document using the entered tracking ID.">Receive</button>
+                    <button type="button" id="qrReceiveStartBtn" class="qr-receive-btn secondary" title="Start camera scan for QR code receiving.">Start QR Scan</button>
+                    <button type="button" id="qrReceiveStopBtn" class="qr-receive-btn danger" disabled title="Stop QR camera scanning.">Stop</button>
+                </div>
+                <div id="qrReceiveViewport" class="qr-receive-viewport" hidden>
+                    <video id="qrReceiveVideo" class="qr-receive-video" playsinline muted></video>
+                    <div class="qr-receive-overlay" aria-hidden="true">
+                        <div class="qr-mask top"></div>
+                        <div class="qr-mask bottom"></div>
+                        <div class="qr-mask left"></div>
+                        <div class="qr-mask right"></div>
+                        <div class="qr-focus-frame">
+                            <span class="qr-corner tl"></span>
+                            <span class="qr-corner tr"></span>
+                            <span class="qr-corner bl"></span>
+                            <span class="qr-corner br"></span>
+                        </div>
+                        <p class="qr-focus-hint">Align QR code within frame to scan</p>
+                    </div>
+                </div>
+                <p id="qrReceiveStatus" class="qr-receive-status">Ready. Use camera scan or paste tracking ID.</p>
+            </div>
         </div>
     </div>
     <?php endif; ?>
@@ -889,20 +1121,20 @@ include $roleBasePath . '/partials/sidebar.php';
                 </div>
                 <div id="routeBypassReasonWrap" hidden>
                     <label class="action-modal-label" for="routeBypassReason">Bypass Reason</label>
-                    <p class="action-modal-meta">Required when ORED forwards directly to Division/Section instead of ARD.</p>
-                    <textarea id="routeBypassReason" class="action-modal-input" rows="3" maxlength="1000" placeholder="Required for ORED direct bypass routing"></textarea>
+                    <p class="action-modal-meta">Required only when this routing path needs a direct-bypass justification.</p>
+                    <textarea id="routeBypassReason" class="action-modal-input" rows="3" maxlength="1000" placeholder="Required when this routing path uses a direct bypass"></textarea>
                 </div>
                 <label class="action-modal-label" for="routeRemarks">Remarks</label>
                 <p class="action-modal-meta">This text appears in the tracking slip under <strong>Action Required / Taken</strong> after the receiving office clicks Receive.</p>
                 <textarea id="routeRemarks" class="action-modal-input" rows="4" maxlength="1000" placeholder="Optional remarks for activity logs"></textarea>
                 <div id="routeNewSubjectWrap" hidden>
-                    <label class="action-modal-label" for="routeNewSubject">New Subject</label>
-                    <p class="action-modal-meta">Optional. Use only when you need to change the current subject while routing.</p>
-                    <input id="routeNewSubject" class="action-modal-input" type="text" maxlength="255" placeholder="Leave blank if there is no subject change">
+                    <label class="action-modal-label" for="routeNewSubject">Response Subject</label>
+                    <p class="action-modal-meta">Optional. Use only when you need to add a response while routing.</p>
+                    <input id="routeNewSubject" class="action-modal-input" type="text" maxlength="255" placeholder="Leave blank if there is no response">
                 </div>
                 <div id="routeAttachmentWrap" hidden>
-                    <label id="routeAttachmentLabel" class="action-modal-label" for="routeAttachmentInput">Prepared of Response (Attachment)</label>
-                    <p id="routeAttachmentMeta" class="action-modal-meta">Attach prepared response file(s) for this return path (optional).</p>
+                    <label id="routeAttachmentLabel" class="action-modal-label" for="routeAttachmentInput">Prepared Response (Attachment)</label>
+                    <p id="routeAttachmentMeta" class="action-modal-meta">Attach prepared response file(s) when this routing path requires them.</p>
                     <input id="routeAttachmentInput" class="action-modal-input" type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.webp,.txt" multiple>
                     <p id="routeExistingAttachmentsMeta" class="action-modal-meta" hidden></p>
                     <ul id="routeExistingAttachmentsList" class="route-existing-attachments" hidden></ul>
@@ -926,12 +1158,21 @@ include $roleBasePath . '/partials/sidebar.php';
 
                 <label class="action-modal-label" for="editIntakeSourceType">Source</label>
                 <select id="editIntakeSourceType" class="action-modal-input" required>
-                    <option value="INTERNAL">Internal DENR</option>
-                    <option value="EXTERNAL">External Client / NGO</option>
+                    <option value="INTERNAL">Current Office</option>
+                    <option value="EXTERNAL">Client</option>
                 </select>
 
-                <label id="editIntakeExternalWrap" class="action-modal-label" for="editIntakeExternalClient" hidden>External Client / Organization</label>
-                <input id="editIntakeExternalClient" class="action-modal-input" type="text" maxlength="255" placeholder="Required when source is External" hidden>
+                <label class="action-modal-label" for="editIntakeRoutingOffice">Routing Office</label>
+                <input id="editIntakeRoutingOffice" class="action-modal-input" type="text" readonly>
+
+                <label class="action-modal-label" for="editIntakeOriginatingEntity">Originating Office / Entity</label>
+                <input id="editIntakeOriginatingEntity" class="action-modal-input" type="text" maxlength="255" placeholder="Enter originating office or entity" required>
+
+                <label id="editIntakeExternalWrap" class="action-modal-label" for="editIntakeExternalClient">Sender Name</label>
+                <input id="editIntakeExternalClient" class="action-modal-input" type="text" maxlength="255" placeholder="Enter sender name" required>
+
+                <label id="editIntakeClientAddressWrap" class="action-modal-label" for="editIntakeClientAddress">Address</label>
+                <input id="editIntakeClientAddress" class="action-modal-input" type="text" maxlength="255" placeholder="Enter address">
 
                 <label class="action-modal-label" for="editIntakeSubject">Subject / Title</label>
                 <textarea id="editIntakeSubject" class="action-modal-input" rows="3" maxlength="255" placeholder="Enter subject" required></textarea>
@@ -999,6 +1240,12 @@ include $roleBasePath . '/partials/sidebar.php';
                                 <button type="button" class="details-attachment-filter-btn" data-details-attachment-filter="endorsement">Endorsement Letter</button>
                                 <button type="button" class="details-attachment-filter-btn" data-details-attachment-filter="response">Response</button>
                             </div>
+                            <div id="documentDetailsAttachmentSourceFilterWrap" class="details-attachment-source-filter" hidden>
+                                <label class="sr-only" for="documentDetailsAttachmentSourceFilter">Filter attachments by workflow source</label>
+                                <select id="documentDetailsAttachmentSourceFilter" class="details-attachment-source-select" aria-label="Filter attachments by workflow source">
+                                    <option value="all">All sources</option>
+                                </select>
+                            </div>
                         </div>
                         <select id="documentDetailsAttachmentSelect" class="details-attachment-select" aria-label="Select attachment">
                             <option value="">No attachment selected</option>
@@ -1031,6 +1278,8 @@ include $roleBasePath . '/partials/sidebar.php';
         </div>
     </div>
 
+    <?php include __DIR__ . '/_support_modals.php'; ?>
+    <script src="<?php echo e(app_url('assets/js/support-modals.js')); ?>"></script>
     <?php include __DIR__ . '/_role_scripts.php'; ?>
 </body>
 </html>

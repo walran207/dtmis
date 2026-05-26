@@ -49,7 +49,7 @@ $yCoordinate = max(0, min(100, round($yRaw, 2)));
 try {
     $pdo = getDatabaseConnection();
 
-    $docStmt = $pdo->prepare('SELECT id FROM documents WHERE id = :id LIMIT 1');
+    $docStmt = $pdo->prepare('SELECT TOP (1) id FROM documents WHERE id = :id');
     $docStmt->execute(['id' => $documentId]);
     if (!$docStmt->fetch()) {
         http_response_code(404);

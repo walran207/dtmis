@@ -10,7 +10,7 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
 $roleBasePath = dirname(__DIR__);
 $roleName = 'ARD_MS';
 $initialsFallback = 'AM';
-$pageTitle = 'Unit Accomplishment Report / Export | DENR Region XII eDATS';
+$pageTitle = 'Unit Accomplishment Report / Export | DENR Region XII DTMIS';
 $activeMenu = 'unit_report';
 $brandSubtitle = 'ARD MS Portal';
 $pageHeading = 'Unit Accomplishment Report / Export';
@@ -47,7 +47,7 @@ try {
     $unitOffices = [];
 
     if ($officeId > 0) {
-        $officeStmt = $pdo->prepare('SELECT id, name, level FROM offices WHERE id = :office_id LIMIT 1');
+        $officeStmt = $pdo->prepare('SELECT TOP (1) id, name, level FROM offices WHERE id = :office_id');
         $officeStmt->execute(['office_id' => $officeId]);
         $currentOffice = $officeStmt->fetch() ?: null;
 

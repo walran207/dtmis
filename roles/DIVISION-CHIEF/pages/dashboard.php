@@ -94,7 +94,7 @@ foreach ($queueRows as $queueRow) {
     ];
 }
 
-$pageTitle = 'Division Chief Dashboard | DENR Region XII eDATS';
+$pageTitle = 'Division Chief Dashboard | DENR Region XII DTMIS';
 $brandSubtitle = 'Division Chief Portal';
 $pageHeading = 'Division Chief Dashboard';
 $pageSubtitle = 'Supervisory review, approvals, and rerouting.';

@@ -7,8 +7,7 @@ require_once __DIR__ . '/database.php';
 if (!function_exists('dtr_table_exists')) {
     function dtr_table_exists(PDO $pdo): bool
     {
-        $stmt = $pdo->query("SHOW TABLES LIKE 'document_type_requests'");
-        return $stmt ? (bool)$stmt->fetchColumn() : false;
+        return db_table_exists($pdo, 'document_type_requests');
     }
 }
 
@@ -16,12 +15,11 @@ if (!function_exists('dtr_user_context')) {
     function dtr_user_context(PDO $pdo, int $userId): array
     {
         $stmt = $pdo->prepare(
-            'SELECT u.id, u.office_id, u.role_id, u.is_active, r.name AS role_name, o.name AS office_name
+            'SELECT TOP (1) u.id, u.office_id, u.role_id, u.is_active, r.name AS role_name, o.name AS office_name
              FROM users u
              LEFT JOIN roles r ON r.id = u.role_id
              LEFT JOIN offices o ON o.id = u.office_id
-             WHERE u.id = :id
-             LIMIT 1'
+             WHERE u.id = :id'
         );
         $stmt->execute(['id' => $userId]);
         $user = $stmt->fetch();
@@ -144,7 +142,7 @@ if (!function_exists('dtr_fetch_requests')) {
                 END ASC,
                 dtr.created_at DESC,
                 dtr.id DESC
-            LIMIT ' . $safeLimit;
+            OFFSET 0 ROWS FETCH NEXT ' . $safeLimit . ' ROWS ONLY';
 
         $stmt = $pdo->prepare($sql);
         $stmt->execute($params);

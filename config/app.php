@@ -1,6 +1,382 @@
 <?php
 declare(strict_types=1);
 
+if (!function_exists('app_storage_path')) {
+    function app_storage_path(string $path = ''): string
+    {
+        $storageRoot = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'storage';
+        $normalizedPath = trim(str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $path), '\\/');
+
+        if ($normalizedPath === '') {
+            return $storageRoot;
+        }
+
+        return $storageRoot . DIRECTORY_SEPARATOR . $normalizedPath;
+    }
+}
+
+if (!function_exists('app_session_heartbeat_storage_path')) {
+    function app_session_heartbeat_storage_path(string $path = ''): string
+    {
+        $heartbeatRoot = app_storage_path('session-heartbeats');
+        $normalizedPath = trim(str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $path), '\\/');
+
+        if ($normalizedPath === '') {
+            return $heartbeatRoot;
+        }
+
+        return $heartbeatRoot . DIRECTORY_SEPARATOR . $normalizedPath;
+    }
+}
+
+if (!function_exists('app_session_heartbeat_session_key')) {
+    function app_session_heartbeat_session_key(?string $sessionId = null): string
+    {
+        $rawSessionId = trim((string)($sessionId ?? session_id()));
+        $sanitized = preg_replace('/[^A-Za-z0-9_-]/', '_', $rawSessionId) ?? '';
+        $sanitized = trim($sanitized, '_');
+
+        return $sanitized !== '' ? $sanitized : 'anonymous';
+    }
+}
+
+if (!function_exists('app_session_heartbeat_file_path')) {
+    function app_session_heartbeat_file_path(?string $sessionId = null): string
+    {
+        return app_session_heartbeat_storage_path(app_session_heartbeat_session_key($sessionId) . '.json');
+    }
+}
+
+if (!function_exists('app_touch_session_heartbeat')) {
+    function app_touch_session_heartbeat(array $overrides = []): bool
+    {
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            return false;
+        }
+
+        $userId = isset($overrides['user_id'])
+            ? (int)$overrides['user_id']
+            : (int)($_SESSION['user_id'] ?? 0);
+        if ($userId <= 0) {
+            return false;
+        }
+
+        $heartbeatDirectory = app_session_heartbeat_storage_path();
+        if (!app_prepare_writable_directory($heartbeatDirectory)) {
+            return false;
+        }
+
+        $now = time();
+        $roleName = isset($overrides['role_name'])
+            ? (string)$overrides['role_name']
+            : (string)($_SESSION['role_name'] ?? '');
+        $payload = [
+            'session_id' => (string)session_id(),
+            'session_key' => app_session_heartbeat_session_key(),
+            'user_id' => $userId,
+            'username' => isset($overrides['username'])
+                ? (string)$overrides['username']
+                : (string)($_SESSION['username'] ?? ''),
+            'email' => isset($overrides['email'])
+                ? (string)$overrides['email']
+                : (string)($_SESSION['email'] ?? ''),
+            'first_name' => isset($overrides['first_name'])
+                ? (string)$overrides['first_name']
+                : (string)($_SESSION['first_name'] ?? ''),
+            'last_name' => isset($overrides['last_name'])
+                ? (string)$overrides['last_name']
+                : (string)($_SESSION['last_name'] ?? ''),
+            'role_id' => isset($overrides['role_id'])
+                ? (int)$overrides['role_id']
+                : (int)($_SESSION['role_id'] ?? 0),
+            'role_name' => $roleName,
+            'role_key' => app_normalize_role_key($roleName),
+            'office_id' => isset($overrides['office_id'])
+                ? (int)$overrides['office_id']
+                : (int)($_SESSION['office_id'] ?? 0),
+            'authenticated_at' => isset($overrides['authenticated_at'])
+                ? (int)$overrides['authenticated_at']
+                : (int)($_SESSION['authenticated_at'] ?? $now),
+            'last_seen_at' => $now,
+            'last_seen_iso' => gmdate('c', $now),
+        ];
+
+        $encoded = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        if (!is_string($encoded) || $encoded === '') {
+            return false;
+        }
+
+        return file_put_contents(app_session_heartbeat_file_path(), $encoded, LOCK_EX) !== false;
+    }
+}
+
+if (!function_exists('app_clear_session_heartbeat')) {
+    function app_clear_session_heartbeat(?string $sessionId = null): bool
+    {
+        $filePath = app_session_heartbeat_file_path($sessionId);
+        if (!is_file($filePath)) {
+            return true;
+        }
+
+        return @unlink($filePath);
+    }
+}
+
+if (!function_exists('app_collect_session_heartbeats')) {
+    function app_collect_session_heartbeats(int $activeWithinSeconds = 900, int $retentionSeconds = 86400): array
+    {
+        $heartbeatDirectory = app_session_heartbeat_storage_path();
+        if (!is_dir($heartbeatDirectory)) {
+            return [];
+        }
+
+        $activeCutoff = time() - max(60, $activeWithinSeconds);
+        $retentionCutoff = time() - max($activeWithinSeconds, $retentionSeconds);
+        $paths = glob($heartbeatDirectory . DIRECTORY_SEPARATOR . '*.json') ?: [];
+        $entries = [];
+
+        foreach ($paths as $path) {
+            if (!is_file($path)) {
+                continue;
+            }
+
+            $modifiedAt = @filemtime($path);
+            if ($modifiedAt !== false && $modifiedAt < $retentionCutoff) {
+                @unlink($path);
+                continue;
+            }
+
+            $raw = @file_get_contents($path);
+            if (!is_string($raw) || trim($raw) === '') {
+                continue;
+            }
+
+            $decoded = json_decode($raw, true);
+            if (!is_array($decoded)) {
+                continue;
+            }
+
+            $lastSeenAt = (int)($decoded['last_seen_at'] ?? 0);
+            if ($lastSeenAt <= 0) {
+                $lastSeenAt = $modifiedAt !== false ? (int)$modifiedAt : 0;
+            }
+            if ($lastSeenAt < $retentionCutoff) {
+                @unlink($path);
+                continue;
+            }
+            if ($lastSeenAt < $activeCutoff) {
+                continue;
+            }
+
+            $sessionId = trim((string)($decoded['session_id'] ?? ''));
+            if ($sessionId === '') {
+                $sessionId = pathinfo($path, PATHINFO_FILENAME);
+            }
+
+            $decoded['session_id'] = $sessionId;
+            $decoded['last_seen_at'] = $lastSeenAt;
+            $entries[$sessionId] = $decoded;
+        }
+
+        return array_values($entries);
+    }
+}
+
+if (!function_exists('app_project_root_path')) {
+    function app_project_root_path(): string
+    {
+        return dirname(__DIR__);
+    }
+}
+
+if (!function_exists('app_path_is_absolute')) {
+    function app_path_is_absolute(string $path): bool
+    {
+        $normalized = str_replace('\\', '/', trim($path));
+        if ($normalized === '') {
+            return false;
+        }
+
+        return preg_match('/^[A-Za-z]:\//', $normalized) === 1 || str_starts_with($normalized, '/');
+    }
+}
+
+if (!function_exists('app_attachment_storage_root')) {
+    function app_attachment_storage_root(): string
+    {
+        return 'C:\\inetpub\\wwwroot\\edats\\edats-attachments';
+    }
+}
+
+if (!function_exists('app_attachment_storage_path')) {
+    function app_attachment_storage_path(string $path = ''): string
+    {
+        $storageRoot = app_attachment_storage_root();
+        $normalizedPath = trim(str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $path), '\\/');
+
+        if ($normalizedPath === '') {
+            return $storageRoot;
+        }
+
+        return $storageRoot . DIRECTORY_SEPARATOR . $normalizedPath;
+    }
+}
+
+if (!function_exists('app_attachment_storage_directory')) {
+    function app_attachment_storage_directory(?DateTimeInterface $date = null): array
+    {
+        $effectiveDate = $date ?? new DateTimeImmutable('now');
+        $relativeDir = $effectiveDate->format('Y') . '/' . $effectiveDate->format('m');
+        $absoluteDir = app_attachment_storage_path($relativeDir);
+
+        if (!is_dir($absoluteDir) && !@mkdir($absoluteDir, 0775, true) && !is_dir($absoluteDir)) {
+            throw new RuntimeException('Unable to create attachment storage directory.');
+        }
+
+        return [$relativeDir, $absoluteDir];
+    }
+}
+
+if (!function_exists('app_resolve_attachment_absolute_path')) {
+    function app_resolve_attachment_absolute_path(string $storedPath): ?string
+    {
+        $trimmed = trim($storedPath);
+        if ($trimmed === '') {
+            return null;
+        }
+
+        $normalized = str_replace('\\', '/', $trimmed);
+        if (str_starts_with($normalized, 'http://') || str_starts_with($normalized, 'https://')) {
+            return null;
+        }
+
+        $candidates = [];
+        if (app_path_is_absolute($normalized)) {
+            $candidates[] = $normalized;
+        } else {
+            $relativePath = ltrim($normalized, '/');
+            $candidates[] = app_attachment_storage_path($relativePath);
+            $candidates[] = app_project_root_path() . DIRECTORY_SEPARATOR . 'edats-attachments' . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relativePath);
+            $candidates[] = app_project_root_path() . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'attachments' . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relativePath);
+            $candidates[] = app_project_root_path() . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'attachments' . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relativePath);
+            $candidates[] = app_project_root_path() . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relativePath);
+            $candidates[] = app_project_root_path() . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relativePath);
+        }
+
+        foreach ($candidates as $candidate) {
+            $realPath = realpath($candidate);
+            if ($realPath === false || !is_file($realPath) || !is_readable($realPath)) {
+                continue;
+            }
+
+            return $realPath;
+        }
+
+        return null;
+    }
+}
+
+if (!function_exists('app_session_save_path_from_ini')) {
+    function app_session_save_path_from_ini(string $configuredPath): string
+    {
+        $normalized = trim($configuredPath);
+        if ($normalized === '') {
+            return '';
+        }
+
+        if (str_contains($normalized, ';')) {
+            $segments = explode(';', $normalized);
+            $normalized = trim((string)end($segments));
+        }
+
+        return trim($normalized, " \t\n\r\0\x0B\"'");
+    }
+}
+
+if (!function_exists('app_prepare_writable_directory')) {
+    function app_prepare_writable_directory(string $directory): bool
+    {
+        $normalized = trim($directory);
+        if ($normalized === '') {
+            return false;
+        }
+
+        if (!is_dir($normalized) && !@mkdir($normalized, 0775, true) && !is_dir($normalized)) {
+            return false;
+        }
+
+        return is_writable($normalized);
+    }
+}
+
+if (!function_exists('app_session_lifetime_seconds')) {
+    function app_session_lifetime_seconds(): int
+    {
+        $raw = trim((string)(getenv('DTMIS_SESSION_LIFETIME_SECONDS') ?: ''));
+        if ($raw === '' || !preg_match('/^\d+$/', $raw)) {
+            return 28800; // 8 hours
+        }
+
+        return max(900, min(2592000, (int)$raw));
+    }
+}
+
+if (!function_exists('app_configure_session_runtime')) {
+    function app_configure_session_runtime(): void
+    {
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            return;
+        }
+
+        $lifetimeSeconds = app_session_lifetime_seconds();
+        ini_set('session.gc_maxlifetime', (string)$lifetimeSeconds);
+        ini_set('session.cookie_lifetime', (string)$lifetimeSeconds);
+    }
+}
+
+if (!function_exists('app_configure_session_storage')) {
+    function app_configure_session_storage(): void
+    {
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            return;
+        }
+
+        $configuredPath = app_session_save_path_from_ini((string)ini_get('session.save_path'));
+        if ($configuredPath !== '' && is_dir($configuredPath) && is_writable($configuredPath)) {
+            return;
+        }
+
+        $candidates = [];
+
+        $environmentPath = trim((string)(getenv('DTMIS_SESSION_PATH') ?: ''));
+        if ($environmentPath !== '') {
+            $candidates[] = $environmentPath;
+        }
+
+        $candidates[] = app_storage_path('sessions');
+
+        $systemTemp = rtrim((string)sys_get_temp_dir(), '\\/');
+        if ($systemTemp !== '') {
+            $candidates[] = $systemTemp . DIRECTORY_SEPARATOR . 'DTMIS-sessions';
+            $candidates[] = $systemTemp;
+        }
+
+        foreach ($candidates as $candidate) {
+            if (!app_prepare_writable_directory($candidate)) {
+                continue;
+            }
+
+            ini_set('session.save_path', $candidate);
+            return;
+        }
+    }
+}
+
+// Apply runtime-safe session timeout defaults before starting any session.
+app_configure_session_runtime();
+// Protect deployments where PHP still points session.save_path to a missing local-dev directory.
+app_configure_session_storage();
+
 if (!function_exists('app_normalize_path')) {
     function app_normalize_path(string $path): string
     {
@@ -51,17 +427,163 @@ if (!function_exists('app_base_path')) {
     }
 }
 
+if (!function_exists('app_phpless_role_folders')) {
+    function app_phpless_role_folders(): array
+    {
+        return [
+            'ADMIN',
+            'ARD-MS',
+            'ARD-TS',
+            'CENRO-ADMIN-RECORD',
+            'CENRO-OFFICER',
+            'CENRO-SECTION',
+            'CENRO-UNIT',
+            'DIVISION-CHIEF',
+            'ORED',
+            'PACDO',
+            'PAMO-ADMIN',
+            'PAMO-UNIT',
+            'PASU-OFFICER',
+            'PENRO-ADMIN-RECORD',
+            'PENRO-DIVISION',
+            'PENRO-OFFICER',
+            'PENRO-SECTION',
+            'PENRO-SECTION-UNIT',
+            'RECORS-UNIT',
+            'SECTION-STAFF',
+            'SUPER-ADMIN',
+        ];
+    }
+}
+
+if (!function_exists('app_should_hide_php_extension')) {
+    function app_should_hide_php_extension(string $path): bool
+    {
+        $normalizedPath = trim(str_replace('\\', '/', $path), '/');
+        if ($normalizedPath === '' || !preg_match('/\.php$/i', $normalizedPath)) {
+            return false;
+        }
+
+        if (preg_match('/^auth\/[A-Za-z0-9_-]+\.php$/i', $normalizedPath) === 1) {
+            return true;
+        }
+
+        if (preg_match('/^(dashboard|notifications|print-package|softcopy-digital-signature|softcopy-qr-stamp|softcopy-records-unit-stamp|support-center|tracking-slip)\.php$/i', $normalizedPath) === 1) {
+            return true;
+        }
+
+        $roleFolders = array_map(
+            static fn(string $folder): string => preg_quote($folder, '/'),
+            app_phpless_role_folders()
+        );
+        $rolePattern = '/^(?:' . implode('|', $roleFolders) . ')\/[A-Za-z0-9_-]+\.php$/i';
+
+        return preg_match($rolePattern, $normalizedPath) === 1;
+    }
+}
+
+if (!function_exists('app_public_route_path')) {
+    function app_public_route_path(string $path): string
+    {
+        $trimmedPath = trim($path);
+        if ($trimmedPath === '') {
+            return '';
+        }
+
+        $fragment = '';
+        $fragmentOffset = strpos($trimmedPath, '#');
+        if ($fragmentOffset !== false) {
+            $fragment = substr($trimmedPath, $fragmentOffset);
+            $trimmedPath = substr($trimmedPath, 0, $fragmentOffset);
+        }
+
+        $query = '';
+        $queryOffset = strpos($trimmedPath, '?');
+        if ($queryOffset !== false) {
+            $query = substr($trimmedPath, $queryOffset);
+            $trimmedPath = substr($trimmedPath, 0, $queryOffset);
+        }
+
+        $normalizedPath = trim(str_replace('\\', '/', $trimmedPath), '/');
+        if ($normalizedPath !== '' && app_should_hide_php_extension($normalizedPath)) {
+            $normalizedPath = substr($normalizedPath, 0, -4);
+        }
+
+        return $normalizedPath . $query . $fragment;
+    }
+}
+
 if (!function_exists('app_url')) {
     function app_url(string $path = ''): string
     {
         $basePath = app_base_path();
-        $normalizedPath = trim($path, '/');
+        $normalizedPath = app_public_route_path($path);
+        $normalizedPath = trim($normalizedPath, '/');
 
         if ($normalizedPath === '') {
             return $basePath === '' ? '/' : $basePath . '/';
         }
 
         return ($basePath === '' ? '' : $basePath) . '/' . $normalizedPath;
+    }
+}
+
+if (!function_exists('app_request_origin')) {
+    function app_request_origin(): string
+    {
+        $scheme = 'http';
+        $https = strtolower(trim((string)($_SERVER['HTTPS'] ?? '')));
+        if (($https !== '' && $https !== 'off' && $https !== '0')
+            || strtolower(trim((string)($_SERVER['REQUEST_SCHEME'] ?? ''))) === 'https'
+            || (int)($_SERVER['SERVER_PORT'] ?? 0) === 443) {
+            $scheme = 'https';
+        }
+
+        $host = trim((string)($_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? 'localhost'));
+        if ($host === '') {
+            $host = 'localhost';
+        }
+
+        return $scheme . '://' . $host;
+    }
+}
+
+if (!function_exists('app_public_base_url')) {
+    function app_public_base_url(): string
+    {
+        static $publicBaseUrl = null;
+
+        if ($publicBaseUrl !== null) {
+            return $publicBaseUrl;
+        }
+
+        $configured = trim((string)(getenv('DTMIS_PUBLIC_BASE_URL') ?: ''));
+        if ($configured === '') {
+            $configured = 'https://www.denrtwelve.com/dtmis';
+        }
+        $configured = rtrim($configured, '/');
+        if ($configured !== '') {
+            $publicBaseUrl = $configured;
+            return $publicBaseUrl;
+        }
+
+        $basePath = app_base_path();
+        $publicBaseUrl = rtrim(app_request_origin() . ($basePath === '' ? '' : $basePath), '/');
+        return $publicBaseUrl;
+    }
+}
+
+if (!function_exists('app_public_url')) {
+    function app_public_url(string $path = ''): string
+    {
+        $baseUrl = app_public_base_url();
+        $normalizedPath = trim(app_public_route_path($path), '/');
+
+        if ($normalizedPath === '') {
+            return $baseUrl . '/';
+        }
+
+        return rtrim($baseUrl, '/') . '/' . $normalizedPath;
     }
 }
 
@@ -88,6 +610,9 @@ if (!function_exists('app_normalize_role_key')) {
         if ($normalized === 'PENRO_SECTIONUNIT') {
             return 'PENRO_SECTION_UNIT';
         }
+        if ($normalized === 'OREDSIGN') {
+            return 'ORED_SIGN';
+        }
 
         return $normalized;
     }
@@ -102,11 +627,13 @@ if (!function_exists('app_role_behavior_key')) {
             'CENRO_OFFICER' => 'ORED',
             'CENRO_SECTION' => 'DIVISION_CHIEF',
             'CENRO_UNIT' => 'SECTION_STAFF',
+            'ADMIN' => 'ADMIN',
             'PAMO_ADMIN' => 'RECORDS_UNIT',
             'PASU_OFFICER' => 'ORED',
             'PAMO_UNIT' => 'SECTION_STAFF',
             'PENRO_ADMIN_RECORD' => 'RECORDS_UNIT',
             'PENRO_OFFICER' => 'ORED',
+            'ORED_SIGN' => 'ORED',
             'PENRO_DIVISION' => 'DIVISION_CHIEF',
             'PENRO_SECTION' => 'SECTION_STAFF',
             'PENRO_SECTION_UNIT' => 'SECTION_STAFF',
@@ -120,9 +647,11 @@ if (!function_exists('app_role_folder_map')) {
     function app_role_folder_map(): array
     {
         return [
+            'ADMIN' => 'ADMIN',
             'SUPER_ADMIN' => 'SUPER-ADMIN',
             'SUPERADMIN' => 'SUPER-ADMIN',
             'ORED' => 'ORED',
+            'ORED_SIGN' => 'ORED',
             'RECORDS_UNIT' => 'RECORS-UNIT',
             'PACDO' => 'RECORS-UNIT',
             'CENRO_ADMIN_RECORD' => 'CENRO-ADMIN-RECORD',
@@ -205,7 +734,9 @@ if (!function_exists('app_offline_default_role_keys')) {
     function app_offline_default_role_keys(): array
     {
         return [
+            'ADMIN',
             'ORED',
+            'ORED_SIGN',
             'SUPER_ADMIN',
             'RECORDS_UNIT',
             'CENRO_ADMIN_RECORD',
@@ -236,7 +767,6 @@ if (!function_exists('app_offline_default_workflow_action_keys')) {
             'FORWARD',
             'REROUTE',
             'RETURN',
-            'APPROVE',
             'OVERRIDE',
             'RELEASE',
             'COMPLETE',
@@ -343,40 +873,40 @@ if (!function_exists('app_offline_rollout_settings')) {
         }
 
         $defaultRoles = app_offline_default_role_keys();
-        $pilotRoleRaw = (string)(getenv('EDATS_OFFLINE_PILOT_ROLE') ?: 'RECORDS_UNIT');
+        $pilotRoleRaw = (string)(getenv('DTMIS_OFFLINE_PILOT_ROLE') ?: 'RECORDS_UNIT');
         $pilotRoleKey = app_normalize_role_key($pilotRoleRaw);
         if ($pilotRoleKey === '') {
             $pilotRoleKey = 'RECORDS_UNIT';
         }
 
         // Comma-separated role keys (or '*' for all roles).
-        $workflowRolesEnv = getenv('EDATS_OFFLINE_WORKFLOW_ROLES');
+        $workflowRolesEnv = getenv('DTMIS_OFFLINE_WORKFLOW_ROLES');
         $workflowRoleCsv = $workflowRolesEnv === false ? $pilotRoleKey : (string)$workflowRolesEnv;
         $workflowRoles = app_offline_parse_role_allowlist($workflowRoleCsv, [$pilotRoleKey], false);
 
-        $intakeRolesEnv = getenv('EDATS_OFFLINE_INTAKE_ROLES');
+        $intakeRolesEnv = getenv('DTMIS_OFFLINE_INTAKE_ROLES');
         $intakeRoleCsv = $intakeRolesEnv === false ? '*' : (string)$intakeRolesEnv;
         $intakeRoles = app_offline_parse_role_allowlist($intakeRoleCsv, $defaultRoles, true);
 
-        $readCacheRolesEnv = getenv('EDATS_OFFLINE_READ_CACHE_ROLES');
+        $readCacheRolesEnv = getenv('DTMIS_OFFLINE_READ_CACHE_ROLES');
         $readCacheRoleCsv = $readCacheRolesEnv === false ? '*' : (string)$readCacheRolesEnv;
         $readCacheRoles = app_offline_parse_role_allowlist($readCacheRoleCsv, $defaultRoles, true);
 
-        $workflowActionsEnv = getenv('EDATS_OFFLINE_WORKFLOW_ACTIONS');
+        $workflowActionsEnv = getenv('DTMIS_OFFLINE_WORKFLOW_ACTIONS');
         $workflowActionCsv = $workflowActionsEnv === false ? '' : (string)$workflowActionsEnv;
         $workflowActions = app_offline_parse_action_allowlist(
             $workflowActionCsv,
             app_offline_default_workflow_action_keys()
         );
 
-        $syncLogEnabledRaw = getenv('EDATS_OFFLINE_SYNC_LOG_ENABLED');
+        $syncLogEnabledRaw = getenv('DTMIS_OFFLINE_SYNC_LOG_ENABLED');
         $syncLogEnabled = true;
         if ($syncLogEnabledRaw !== false) {
             $normalized = strtolower(trim((string)$syncLogEnabledRaw));
             $syncLogEnabled = !in_array($normalized, ['0', 'false', 'no', 'off'], true);
         }
 
-        $rolloutStageRaw = (string)(getenv('EDATS_OFFLINE_ROLLOUT_STAGE') ?: 'pilot');
+        $rolloutStageRaw = (string)(getenv('DTMIS_OFFLINE_ROLLOUT_STAGE') ?: 'pilot');
         $rolloutStage = strtolower(trim($rolloutStageRaw));
         if ($rolloutStage === '') {
             $rolloutStage = 'pilot';

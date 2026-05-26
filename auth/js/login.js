@@ -36,24 +36,21 @@
     }
 
     function validateForm(form) {
-        const email = form.querySelector('#email');
+        const username = form.querySelector('#username');
         const password = form.querySelector('#password');
         let valid = true;
 
-        clearFieldError(email);
+        clearFieldError(username);
         clearFieldError(password);
 
-        if (!email.value.trim()) {
-            setInvalidField(email, 'Email is required.');
-            valid = false;
-        } else if (!email.checkValidity()) {
-            setInvalidField(email, 'Enter a valid email address.');
+        if (!username.value.trim()) {
+            setInvalidField(username, 'Username is required.');
             valid = false;
         } else {
-            const emailValue = email.value.trim().toLowerCase();
-            const isAllowedDomain = emailValue.endsWith('@gmail.com') || emailValue.endsWith('@denr.gov.ph');
-            if (!isAllowedDomain) {
-                setInvalidField(email, 'Use a Gmail or DENR email address.');
+            const usernameValue = username.value.trim().toLowerCase();
+            const isValidUsername = /^[a-z0-9._-]{3,50}$/.test(usernameValue);
+            if (!isValidUsername) {
+                setInvalidField(username, 'Use 3 to 50 lowercase letters, numbers, dots, underscores, or hyphens.');
                 valid = false;
             }
         }

@@ -16,7 +16,10 @@ if (empty($_SESSION['user_id'])) {
 }
 
 $officeId = (int) ($_SESSION['office_id'] ?? 0);
+$userId = (int) ($_SESSION['user_id'] ?? 0);
 $roleName = 'ORED';
+$sessionRoleKey = app_normalize_role_key((string)($_SESSION['role_name'] ?? ''));
+$isOredSigningAccount = $sessionRoleKey === 'ORED_SIGN';
 $queueRows = [];
 $routeOffices = [];
 $metrics = [
@@ -43,7 +46,7 @@ $metrics = [
 
 try {
     $pdo = getDatabaseConnection();
-    $queueRows = dashboard_fetch_pending_receive_rows($pdo, $officeId, 50, true);
+    $queueRows = dashboard_fetch_pending_receive_rows($pdo, $officeId, 50, true, false, $userId, $sessionRoleKey);
     $routeOffices = dashboard_fetch_route_offices($pdo, $officeId);
     $metrics = dashboard_fetch_role_metrics($pdo, $officeId);
 } catch (Throwable $exception) {
@@ -103,7 +106,9 @@ foreach ($queueRows as $queueRow) {
             (string) ($queueRow['time_remaining'] ?? '-'),
             (string) ($queueRow['status'] ?? '-'),
             (string) ($queueRow['date_created'] ?? '-'),
-            'View Tracking Slip | Receive | Approve | Sign | Undo Sign | Pending | Forward | Return | Override | Print Package',
+            $isOredSigningAccount
+                ? 'View Tracking Slip | Receive | Approve | Sign | Undo Sign | Pending | Forward | Return | Override | Print Package'
+                : 'View Tracking Slip | Receive | Approve | Pending | Forward | Return | Print Package',
         ],
         'meta' => [
             'document_id' => (string) ($queueRow['document_id'] ?? 0),
@@ -120,7 +125,7 @@ foreach ($queueRows as $queueRow) {
     ];
 }
 
-$pageTitle = 'RD Action Desk | DENR Region XII eDATS';
+$pageTitle = 'RD Action Desk | DENR Region XII DTMIS';
 $brandSubtitle = 'ORED Portal';
 $pageHeading = 'RD Action Desk';
 $pageSubtitle = 'Dedicated queue for approval, signature, and forwarding actions.';
@@ -128,7 +133,9 @@ $activeMenu = 'rd_action_desk';
 $dashboardLivePath = app_url('actions/dashboard-live.php?scope=pending_receive_action');
 $tableTitle = 'RD Action Desk';
 $tableColumns = ['Tracking ID', 'Subject', 'Document Type (+ ARTA)', 'Date Received', 'Time Remaining', 'Status', 'Date Created', 'Quick Actions'];
-$pageActions = ['View Tracking Slip', 'Print Package', 'Receive', 'Approve', 'Sign', 'Undo Sign', 'Forward', 'Return', 'Override'];
+$pageActions = $isOredSigningAccount
+    ? ['View Tracking Slip', 'Print Package', 'Receive', 'Approve', 'Sign', 'Undo Sign', 'Forward', 'Return', 'Override']
+    : ['View Tracking Slip', 'Print Package', 'Receive', 'Approve', 'Forward', 'Return'];
 $stickyActions = [];
 $queueControlsPlacement = 'table_card';
 $showStatusCategoryFilter = true;
@@ -143,40 +150,7 @@ $statusFilterOptions = [
 $dateFilterPlacement = 'table_card';
 $routeOffices = is_array($routeOffices ?? null) ? $routeOffices : [];
 
-$kpiCards = [
-    ['label' => 'Pending Received', 'value' => (string) $pendingReceivedTotal, 'icon' => 'blue'],
-    ['label' => 'Pending Approval', 'value' => (string) $pendingApprovalTotal, 'icon' => 'orange'],
-    ['label' => 'Pending Sign', 'value' => (string) $pendingSignTotal, 'icon' => 'violet'],
-    ['label' => 'Pending forward', 'value' => (string) $pendingForwardTotal, 'icon' => 'green'],
-];
-
-$panels = [
-    [
-        'title' => 'RD Queue Snapshot',
-        'rows' => [
-            ['label' => 'Pending Approval', 'value' => (string) $pendingApprovalTotal, 'width' => $pendingApprovalWidth],
-            ['label' => 'Pending Sign', 'value' => (string) $pendingSignTotal, 'width' => $pendingSignWidth],
-            ['label' => 'Pending Forward', 'value' => (string) $pendingForwardTotal, 'width' => $pendingForwardWidth],
-        ],
-    ],
-    [
-        'title' => 'RD Control Signals',
-        'rows' => [
-            ['label' => 'Received events', 'value' => '0', 'width' => '34%'],
-            ['label' => 'Approved events', 'value' => '0', 'width' => '33%'],
-            ['label' => 'Forwarded events', 'value' => '0', 'width' => '33%'],
-        ],
-    ],
-    [
-        'title' => 'Desk Focus',
-        'chips' => [
-            'Receive before policy action',
-            'Approve before sign/forward stage',
-            'Use Override only for valid exceptions',
-            'Record clear executive remarks',
-        ],
-    ],
-];
+$kpiCards = [];
+$panels = [];
 
 require dirname(__DIR__, 3) . '/app/templates/role-page-template.php';
-

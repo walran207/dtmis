@@ -29,7 +29,7 @@ try {
 
 $summary = is_array($networkSnapshot['summary'] ?? null) ? $networkSnapshot['summary'] : [];
 
-$pageTitle = 'Network Tracking | DENR Region XII eDATS';
+$pageTitle = 'Network Tracking | DENR Region XII DTMIS';
 $brandSubtitle = 'Super Admin Portal';
 $pageHeading = 'Live Network Tracking';
 $pageSubtitle = 'Monitor online/offline state and workflow traffic in near real-time.';

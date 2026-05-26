@@ -1,2 +1,0 @@
-# Deny all web access to sensitive database files and logs
-Deny from all

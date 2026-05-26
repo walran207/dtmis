@@ -4,7 +4,7 @@
     if (typeof window === 'undefined') {
         return;
     }
-    if (window.edatsLocalQr) {
+    if (window.DTMISLocalQr) {
         return;
     }
 
@@ -91,7 +91,7 @@
         return rendered;
     }
 
-    window.edatsLocalQr = {
+    window.DTMISLocalQr = {
         version: '1.0.0',
         generateDataUrl: generateDataUrl,
         renderImage: renderImage,

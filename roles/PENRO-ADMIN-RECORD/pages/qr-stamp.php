@@ -2,7 +2,7 @@
 $roleBasePath = dirname(__DIR__);
 $roleName = 'PENRO_ADMIN_RECORD';
 $initialsFallback = 'PC';
-$pageTitle = 'QR Stamp Workspace | DENR Region XII eDATS';
+$pageTitle = 'QR Stamp Workspace | DENR Region XII DTMIS';
 $activeMenu = 'qr_stamp';
 $brandSubtitle = 'PENRO Admin Record Portal';
 $pageHeading = 'QR Stamp Workspace';

@@ -64,21 +64,20 @@
         }
     }
 
-    function validateEmail(email) {
-        if (!email.value.trim()) {
-            setInvalidField(email, 'Email is required.');
+    function validateIdentifier(input) {
+        if (!input.value.trim()) {
+            setInvalidField(input, 'Username or email is required.');
             return false;
         }
 
-        if (!email.checkValidity()) {
-            setInvalidField(email, 'Enter a valid email address.');
-            return false;
-        }
+        const identifierValue = input.value.trim().toLowerCase();
+        const isEmail = identifierValue.indexOf('@') !== -1;
+        const isValidIdentifier = isEmail
+            ? /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifierValue)
+            : /^[a-z0-9._-]{3,50}$/.test(identifierValue);
 
-        const emailValue = email.value.trim().toLowerCase();
-        const isAllowedDomain = emailValue.endsWith('@gmail.com') || emailValue.endsWith('@denr.gov.ph');
-        if (!isAllowedDomain) {
-            setInvalidField(email, 'Use a Gmail or DENR email address.');
+        if (!isValidIdentifier) {
+            setInvalidField(input, 'Enter a valid username or email address.');
             return false;
         }
 
@@ -86,11 +85,11 @@
     }
 
     function validateRequestForm(form) {
-        const email = form.querySelector('#email');
+        const username = form.querySelector('#username');
         let valid = true;
 
-        clearFieldError(email);
-        if (!validateEmail(email)) {
+        clearFieldError(username);
+        if (!validateIdentifier(username)) {
             valid = false;
         }
 
@@ -98,15 +97,15 @@
     }
 
     function validateResetForm(form) {
-        const email = form.querySelector('#email');
+        const username = form.querySelector('#username');
         const otp = form.querySelector('#otp_code');
         const password = form.querySelector('#password');
         const confirmPassword = form.querySelector('#confirm_password');
         let valid = true;
 
-        [email, otp, password, confirmPassword].forEach(clearFieldError);
+        [username, otp, password, confirmPassword].forEach(clearFieldError);
 
-        if (!validateEmail(email)) {
+        if (!validateIdentifier(username)) {
             valid = false;
         }
 

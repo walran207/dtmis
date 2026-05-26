@@ -83,7 +83,7 @@ foreach ($actedRows as $row) {
 
 $roleName = 'ARD_TS';
 $initialsFallback = 'AT';
-$pageTitle = 'Unit Monitor (With Division) | DENR Region XII eDATS';
+$pageTitle = 'Unit Monitor (With Division) | DENR Region XII DTMIS';
 $activeMenu = 'unit_monitor_with_staff';
 $brandSubtitle = 'ARD TS Portal';
 $pageHeading = 'Unit Monitor (With Division) - Live Action Tracker';

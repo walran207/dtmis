@@ -59,7 +59,7 @@ foreach ($recentDocuments as $document) {
     ];
 }
 
-$pageTitle = 'Super Admin Control Center | DENR Region XII eDATS';
+$pageTitle = 'Super Admin Control Center | DENR Region XII DTMIS';
 $brandSubtitle = 'Super Admin Portal';
 $pageHeading = 'Super Admin Control Center';
 $pageSubtitle = 'Global operations view for users, data, analytics, export, and live traffic telemetry.';

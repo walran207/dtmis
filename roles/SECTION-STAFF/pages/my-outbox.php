@@ -81,7 +81,7 @@ foreach ($actedRows as $row) {
 
 $roleName = 'Section Staff';
 $initialsFallback = 'SS';
-$pageTitle = 'My Outbox | DENR Region XII eDATS';
+$pageTitle = 'My Outbox | DENR Region XII DTMIS';
 $activeMenu = 'outbox';
 $brandSubtitle = 'Section Staff Portal';
 $pageHeading = 'My Outbox (Live Action Tracker)';

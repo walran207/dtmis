@@ -4,41 +4,15 @@ require_once dirname(__DIR__, 3) . '/config/app.php';
 $roleBasePath = dirname(__DIR__);
 $roleName = 'PENRO_OFFICER';
 $initialsFallback = 'CO';
-$pageTitle = 'Path Diversion / Override | DENR Region XII eDATS';
+$pageTitle = 'Path Diversion / Override | DENR Region XII DTMIS';
 $activeMenu = 'path_diversion_override';
 $brandSubtitle = 'PENRO Officer Portal';
 $pageHeading = 'PENRO Officer Path Diversion';
 $pageSubtitle = 'Dedicated reroute desk for PENRO Officer exception routing and bypass decisions.';
 $searchPlaceholder = 'Search Tracking ID or subject';
 $dashboardLivePath = app_url('actions/dashboard-live.php?scope=outbox');
-$kpiCards = [
-    ['label' => 'Pull from Queue', 'icon' => 'orange', 'value' => '0'],
-    ['label' => 'Reroute Ready', 'icon' => 'violet', 'value' => '0'],
-    ['label' => 'Bypass Reviews', 'icon' => 'green', 'value' => '0'],
-    ['label' => 'Remarks Logged', 'icon' => 'blue', 'value' => '0'],
-];
-$panels = [
-    [
-        'title' => 'PENRO Officer Reroute Mix',
-        'rows' => [
-            ['label' => 'Pending', 'width' => '40%', 'value' => '0'],
-            ['label' => 'Forwarded / Routed Out', 'width' => '35%', 'value' => '0'],
-            ['label' => 'Bypass Candidates', 'width' => '25%', 'value' => '0'],
-        ],
-    ],
-    [
-        'title' => 'Reroute Control Signals',
-        'rows' => [
-            ['label' => 'Received events', 'width' => '34%', 'value' => '0'],
-            ['label' => 'Forwarded events', 'width' => '33%', 'value' => '0'],
-            ['label' => 'Reroute events', 'width' => '33%', 'value' => '0'],
-        ],
-    ],
-    [
-        'title' => 'Bypass Checklist',
-        'chips' => ['Section first by default', 'Bypass reason required', 'Confirm destination office', 'Capture remarks for audit trail'],
-    ],
-];
+$kpiCards = [];
+$panels = [];
 $tableTitle = 'PENRO Officer Reroute / Override';
 $tableColumns = json_decode('["Tracking ID","From","Document Type","Subject","Current Holder","REROUTE TO","Status","Remarks","Date Created","Quick Actions"]', true);
 $tableRows = [];

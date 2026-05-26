@@ -305,18 +305,30 @@ select:focus {
     flex-wrap: wrap;
     gap: 10px 14px;
     justify-content: center;
+    width: 100%;
 }
 
 .support-links a {
+    min-width: 0;
+    text-align: center;
     font-size: 12px;
     font-weight: 500;
     color: var(--ink-700);
     text-decoration: none;
     border-bottom: 1px solid transparent;
+    overflow-wrap: anywhere;
 }
 
 .support-links a:hover {
     border-bottom-color: var(--ink-700);
+}
+
+.auth-copyright {
+    margin-top: 18px;
+    text-align: center;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--ink-500);
 }
 
 .field-error {
@@ -351,6 +363,16 @@ select:focus {
     .form-options {
         align-items: flex-start;
         flex-direction: column;
+    }
+
+    .support-links {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px 12px;
+    }
+
+    .support-links a {
+        width: 100%;
     }
 }
 
@@ -388,4 +410,3 @@ select:focus {
 .auth-switch a:hover {
     text-decoration: underline;
 }
-

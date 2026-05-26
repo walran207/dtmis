@@ -3,8 +3,11 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__, 2) . '/config/app.php';
 require_once dirname(__DIR__, 2) . '/config/database.php';
+require_once dirname(__DIR__, 2) . '/config/attachment-backups.php';
+require_once dirname(__DIR__, 2) . '/config/document-recycle-bin.php';
 require_once dirname(__DIR__, 2) . '/config/workflow.php';
 require_once dirname(__DIR__, 2) . '/config/offline-sync.php';
+require_once dirname(__DIR__, 2) . '/config/notification-mail.php';
 
 if (session_status() !== PHP_SESSION_ACTIVE) {
     session_start();
@@ -36,6 +39,7 @@ $documentId = (int)($_POST['document_id'] ?? 0);
 $trackingId = strtoupper(trim((string)($_POST['tracking_id'] ?? '')));
 $destinationOfficeId = (int)($_POST['destination_office_id'] ?? 0);
 $destinationUserId = (int)($_POST['destination_user_id'] ?? 0);
+$routeMode = strtolower(trim((string)($_POST['route_mode'] ?? '')));
 $releaseMode = strtolower(trim((string)($_POST['release_mode'] ?? '')));
 $bypassReason = trim((string)($_POST['bypass_reason'] ?? ''));
 $remarks = trim((string)($_POST['remarks'] ?? ''));
@@ -45,12 +49,15 @@ $sourceType = strtoupper(trim((string)($_POST['source_type'] ?? '')));
 $documentTypeId = (int)($_POST['document_type_id'] ?? 0);
 $intakeComplexityTypeRaw = trim((string)($_POST['intake_complexity_type'] ?? ''));
 $intakeComplexityDaysRaw = trim((string)($_POST['intake_complexity_days'] ?? ''));
+$sender = trim((string)($_POST['sender'] ?? ''));
 $externalClientName = trim((string)($_POST['external_client_name'] ?? ''));
+$clientAddress = trim((string)($_POST['client_address'] ?? ''));
+$originatingEntityName = trim((string)($_POST['originating_entity_name'] ?? ''));
 $attachmentId = (int)($_POST['attachment_id'] ?? 0);
 $operationIdRaw = (string)($_POST['operation_id'] ?? '');
 $preconditionVersionRaw = trim((string)($_POST['precondition_version'] ?? ''));
 $syncModeRaw = trim((string)($_POST['sync_mode'] ?? ''));
-$syncHeaderRaw = trim((string)($_SERVER['HTTP_X_EDATS_OUTBOX_SYNC'] ?? ''));
+$syncHeaderRaw = trim((string)($_SERVER['HTTP_X_DTMIS_OUTBOX_SYNC'] ?? ''));
 $isOutboxSyncRequest = $syncModeRaw === '1' || $syncHeaderRaw === '1';
 $preconditionVersion = 0;
 if ($preconditionVersionRaw !== '') {
@@ -62,11 +69,8 @@ if ($preconditionVersionRaw !== '') {
     $preconditionVersion = (int)$preconditionVersionRaw;
 }
 
-const INTAKE_EDIT_MAX_FILE_SIZE = 15728640; // 15 MB
-const INTAKE_EDIT_MAX_ATTACHMENTS = 40;
-const INTAKE_EDIT_MAX_TOTAL_UPLOAD_SIZE = 251658240; // 240 MB
 const SUBJECT_CHANGE_REMARK_PREFIX = 'SUBJECT_CHANGE_JSON:';
-const SENSITIVE_SYNC_REAUTH_WINDOW_SECONDS = 900; // 15 minutes
+const SENSITIVE_SYNC_REAUTH_WINDOW_SECONDS = 28800; // 8 hours
 const DOCUMENT_ACTION_IDEMPOTENCY_TABLE = 'api_idempotency_operations';
 const DOCUMENT_ACTION_IDEMPOTENCY_ACTION_KEY = 'document_action_workflow';
 const DOCUMENT_ACTION_IDEMPOTENCY_PENDING_WINDOW_SECONDS = 45;
@@ -132,10 +136,9 @@ function document_action_rollout_block_message(string $action): string
 function document_action_current_row_version(PDO $pdo, int $documentId): int
 {
     $stmt = $pdo->prepare(
-        'SELECT COALESCE(row_version, 1)
+        'SELECT TOP (1) COALESCE(row_version, 1)
          FROM documents
-         WHERE id = :document_id
-         LIMIT 1'
+         WHERE id = :document_id'
     );
     $stmt->execute(['document_id' => $documentId]);
 
@@ -173,8 +176,7 @@ function document_action_touch_row_version(PDO $pdo, int $documentId): void
     $stmt = $pdo->prepare(
         'UPDATE documents
          SET row_version = COALESCE(row_version, 1) + 1
-         WHERE id = :document_id
-         LIMIT 1'
+         WHERE id = :document_id'
     );
     $stmt->execute(['document_id' => $documentId]);
 }
@@ -185,7 +187,6 @@ function document_action_is_sensitive_sync_action(string $action): bool
         'FORWARD',
         'REROUTE',
         'RETURN',
-        'APPROVE',
         'OVERRIDE',
         'RELEASE',
         'COMPLETE',
@@ -222,26 +223,51 @@ function document_action_idempotency_ensure_table(PDO $pdo): void
     }
 
     $tableName = DOCUMENT_ACTION_IDEMPOTENCY_TABLE;
-    $pdo->exec(
-        "CREATE TABLE IF NOT EXISTS `{$tableName}` (
-            `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-            `user_id` INT NOT NULL,
-            `action_key` VARCHAR(64) NOT NULL,
-            `operation_id` VARCHAR(80) NOT NULL,
-            `request_hash` CHAR(64) NOT NULL,
-            `status` ENUM('PENDING','COMPLETED','FAILED') NOT NULL DEFAULT 'PENDING',
-            `document_id` INT NULL,
-            `tracking_id` VARCHAR(64) NULL,
-            `attachment_count` INT NULL,
-            `response_code` SMALLINT UNSIGNED NULL,
-            `response_json` MEDIUMTEXT NULL,
-            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            PRIMARY KEY (`id`),
-            UNIQUE KEY `uq_idempotency_operation` (`user_id`, `action_key`, `operation_id`),
-            KEY `idx_idempotency_status_updated` (`status`, `updated_at`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
-    );
+    if (db_is_sql_server($pdo)) {
+        $pdo->exec(
+            "IF OBJECT_ID(N'dbo.{$tableName}', N'U') IS NULL
+             BEGIN
+                 CREATE TABLE dbo.{$tableName} (
+                     id BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                     user_id INT NOT NULL,
+                     action_key NVARCHAR(64) NOT NULL,
+                     operation_id NVARCHAR(80) NOT NULL,
+                     request_hash CHAR(64) NOT NULL,
+                     status NVARCHAR(16) NOT NULL CONSTRAINT DF_{$tableName}_status DEFAULT 'PENDING',
+                     document_id INT NULL,
+                     tracking_id NVARCHAR(64) NULL,
+                     attachment_count INT NULL,
+                     response_code SMALLINT NULL,
+                     response_json NVARCHAR(MAX) NULL,
+                     created_at DATETIME2 NOT NULL CONSTRAINT DF_{$tableName}_created_at DEFAULT SYSDATETIME(),
+                     updated_at DATETIME2 NOT NULL CONSTRAINT DF_{$tableName}_updated_at DEFAULT SYSDATETIME(),
+                     CONSTRAINT UQ_{$tableName}_operation UNIQUE (user_id, action_key, operation_id)
+                 );
+                 CREATE INDEX IDX_{$tableName}_status_updated ON dbo.{$tableName}(status, updated_at);
+             END"
+        );
+    } else {
+        $pdo->exec(
+            "CREATE TABLE IF NOT EXISTS {$tableName} (
+                `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                `user_id` INT NOT NULL,
+                `action_key` VARCHAR(64) NOT NULL,
+                `operation_id` VARCHAR(80) NOT NULL,
+                `request_hash` CHAR(64) NOT NULL,
+                `status` ENUM('PENDING','COMPLETED','FAILED') NOT NULL DEFAULT 'PENDING',
+                `document_id` INT NULL,
+                `tracking_id` VARCHAR(64) NULL,
+                `attachment_count` INT NULL,
+                `response_code` SMALLINT UNSIGNED NULL,
+                `response_json` MEDIUMTEXT NULL,
+                `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_idempotency_operation` (`user_id`, `action_key`, `operation_id`),
+                KEY `idx_idempotency_status_updated` (`status`, `updated_at`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+        );
+    }
 
     $ensured = true;
 }
@@ -265,15 +291,19 @@ function document_action_idempotency_request_hash(array $payload, array $uploade
         'tracking_id' => strtoupper(trim((string)($payload['tracking_id'] ?? ''))),
         'destination_office_id' => (int)($payload['destination_office_id'] ?? 0),
         'destination_user_id' => (int)($payload['destination_user_id'] ?? 0),
+        'route_mode' => strtolower(trim((string)($payload['route_mode'] ?? ''))),
         'bypass_reason' => trim((string)($payload['bypass_reason'] ?? '')),
         'remarks' => trim((string)($payload['remarks'] ?? '')),
         'receive_method' => strtoupper(trim((string)($payload['receive_method'] ?? 'MANUAL'))),
         'subject' => trim((string)($payload['subject'] ?? '')),
         'source_type' => strtoupper(trim((string)($payload['source_type'] ?? ''))),
+        'sender' => trim((string)($payload['sender'] ?? '')),
         'document_type_id' => (int)($payload['document_type_id'] ?? 0),
         'intake_complexity_type' => trim((string)($payload['intake_complexity_type'] ?? '')),
         'intake_complexity_days' => trim((string)($payload['intake_complexity_days'] ?? '')),
         'external_client_name' => trim((string)($payload['external_client_name'] ?? '')),
+        'client_address' => trim((string)($payload['client_address'] ?? '')),
+        'originating_entity_name' => trim((string)($payload['originating_entity_name'] ?? '')),
         'attachment_id' => (int)($payload['attachment_id'] ?? 0),
         'precondition_version' => trim((string)($payload['precondition_version'] ?? '')),
         'files' => $fileMeta,
@@ -299,13 +329,12 @@ function document_action_idempotency_begin(
     $pdo->beginTransaction();
     try {
         $select = $pdo->prepare(
-            "SELECT id, request_hash, status, response_code, response_json, updated_at
-             FROM `{$tableName}`
+            "SELECT TOP (1) id, request_hash, status, response_code, response_json, updated_at
+             FROM {$tableName} WITH (UPDLOCK, ROWLOCK)
              WHERE user_id = :user_id
                AND action_key = :action_key
                AND operation_id = :operation_id
-             LIMIT 1
-             FOR UPDATE"
+             "
         );
         $select->execute([
             'user_id' => $userId,
@@ -317,10 +346,10 @@ function document_action_idempotency_begin(
         if (!$existing) {
             try {
                 $insert = $pdo->prepare(
-                    "INSERT INTO `{$tableName}` (
+                    "INSERT INTO {$tableName} (
                         user_id, action_key, operation_id, request_hash, status, created_at, updated_at
                     ) VALUES (
-                        :user_id, :action_key, :operation_id, :request_hash, 'PENDING', NOW(), NOW()
+                        :user_id, :action_key, :operation_id, :request_hash, 'PENDING', SYSDATETIME(), SYSDATETIME()
                     )"
                 );
                 $insert->execute([
@@ -385,11 +414,11 @@ function document_action_idempotency_begin(
         }
 
         $reset = $pdo->prepare(
-            "UPDATE `{$tableName}`
+            "UPDATE {$tableName}
              SET status = 'PENDING',
                  response_code = NULL,
                  response_json = NULL,
-                 updated_at = NOW()
+                 updated_at = SYSDATETIME()
              WHERE id = :id"
         );
         $reset->execute(['id' => (int)($existing['id'] ?? 0)]);
@@ -420,11 +449,11 @@ function document_action_idempotency_mark_completed(
         $tableName = DOCUMENT_ACTION_IDEMPOTENCY_TABLE;
         $encoded = (string)json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $stmt = $pdo->prepare(
-            "UPDATE `{$tableName}`
+            "UPDATE {$tableName}
              SET status = 'COMPLETED',
                  response_code = :response_code,
                  response_json = :response_json,
-                 updated_at = NOW()
+                 updated_at = SYSDATETIME()
              WHERE user_id = :user_id
                AND action_key = :action_key
                AND operation_id = :operation_id"
@@ -462,11 +491,11 @@ function document_action_idempotency_mark_failed(
             'message' => trim($message) === '' ? 'Unable to process action right now.' : trim($message),
         ];
         $stmt = $pdo->prepare(
-            "UPDATE `{$tableName}`
+            "UPDATE {$tableName}
              SET status = 'FAILED',
                  response_code = :response_code,
                  response_json = :response_json,
-                 updated_at = NOW()
+                 updated_at = SYSDATETIME()
              WHERE user_id = :user_id
                AND action_key = :action_key
                AND operation_id = :operation_id"
@@ -525,10 +554,10 @@ function workflow_apply_subject_change_if_requested(
     }
 
     if (!in_array($actorRoleKey, ['DIVISION_CHIEF', 'SECTION_STAFF', 'CENRO_SECTION', 'CENRO_UNIT', 'PASU_OFFICER', 'PAMO_UNIT', 'PENRO_DIVISION', 'PENRO_SECTION', 'PENRO_SECTION_UNIT'], true)) {
-        throw new RuntimeException('Only Division/Section roles can change subject while routing.');
+        throw new RuntimeException('Only Division/Section roles can add response while routing.');
     }
     if (strlen($nextSubject) > 255) {
-        throw new InvalidArgumentException('Subject is too long.');
+        throw new InvalidArgumentException('Response is too long.');
     }
 
     $document = workflow_get_document_context($pdo, $documentId, true);
@@ -536,17 +565,6 @@ function workflow_apply_subject_change_if_requested(
     if ($currentSubject === $nextSubject) {
         return null;
     }
-
-    $updateStmt = $pdo->prepare(
-        'UPDATE documents
-         SET subject = :subject
-         WHERE id = :document_id
-         LIMIT 1'
-    );
-    $updateStmt->execute([
-        'subject' => $nextSubject,
-        'document_id' => $documentId,
-    ]);
 
     workflow_log_action($pdo, [
         'document_id' => $documentId,
@@ -607,12 +625,6 @@ function workflow_build_prepared_response_route_context(
             || str_contains($destinationOfficeName, 'CENRO SECTION')
             || str_contains($destinationOfficeName, 'PENRO DIVISION')
         );
-    $isPamoOfficerPreparedResponse = $actorRoleKey === 'PASU_OFFICER'
-        && $normalizedAction === 'FORWARD'
-        && (
-            $destinationOfficeLevel === 'PAMO_ADMIN'
-            || str_contains($destinationOfficeName, 'PAMO ADMIN')
-        );
     $isPamoUnitPreparedResponse = $actorRoleKey === 'PAMO_UNIT'
         && $normalizedAction === 'FORWARD'
         && (
@@ -625,7 +637,6 @@ function workflow_build_prepared_response_route_context(
         || $isSectionStaffPreparedResponse
         || $isCenroSectionPreparedResponse
         || $isCenroUnitPreparedResponse
-        || $isPamoOfficerPreparedResponse
         || $isPamoUnitPreparedResponse;
 
     return [
@@ -646,9 +657,7 @@ function workflow_build_prepared_response_route_context(
                             : (
                                 $isCenroUnitPreparedResponse
                                     ? (in_array($actorRoleKey, ['PENRO_SECTION', 'PENRO_SECTION_UNIT'], true) ? 'PENRO Division' : 'CENRO Section')
-                                    : ($isPamoOfficerPreparedResponse
-                                        ? 'PAMO Admin'
-                                        : ($isPamoUnitPreparedResponse ? 'PASU' : ''))
+                                    : ($isPamoUnitPreparedResponse ? 'PASU' : '')
                             )
                     )
             ),
@@ -664,10 +673,12 @@ if ($releaseMode !== '' && !in_array($releaseMode, ['complete_local', 'send_to_o
 function workflow_build_endorsement_route_context(
     string $actorRoleKey,
     string $action,
-    array $destinationOffice
+    array $destinationOffice,
+    string $releaseMode = ''
 ): array {
     $normalizedAction = strtoupper(trim($action));
-    if ($normalizedAction !== 'FORWARD') {
+    $normalizedReleaseMode = strtolower(trim($releaseMode));
+    if (!in_array($normalizedAction, ['FORWARD', 'RELEASE'], true)) {
         return [
             'allowed' => false,
             'required' => false,
@@ -679,11 +690,23 @@ function workflow_build_endorsement_route_context(
     $destinationOfficeLevel = strtoupper(trim((string)($destinationOffice['level'] ?? '')));
 
     $isRecordsUnitDestination = workflow_name_matches_records_unit($destinationOfficeName);
+    $isRegionalDestination = $isRecordsUnitDestination || $destinationOfficeLevel === 'REGIONAL' || str_contains($destinationOfficeName, 'REGIONAL');
+    $isPenroDestination = $destinationOfficeLevel === 'PENRO_ADMIN_RECORD' || str_contains($destinationOfficeName, 'PENRO ADMIN');
+    $targetLabel = trim((string)($destinationOffice['name'] ?? ''));
+    if ($targetLabel === '') {
+        $targetLabel = $isRecordsUnitDestination ? 'PACDO/RECORDS-UNIT' : 'destination office';
+    }
 
-    $isCenroPasuToRecordsUnit = in_array($actorRoleKey, ['CENRO_ADMIN_RECORD', 'PENRO_ADMIN_RECORD'], true) && $isRecordsUnitDestination;
-    $isPenroToRecordsUnit = $actorRoleKey === 'PENRO_ADMIN_RECORD' && $isRecordsUnitDestination;
+    $isAdminForwardToRecordsUnit = in_array($actorRoleKey, ['CENRO_ADMIN_RECORD', 'PENRO_ADMIN_RECORD'], true) && $normalizedAction === 'FORWARD' && $isRecordsUnitDestination;
+    $isCenroForwardToPenro = $actorRoleKey === 'CENRO_ADMIN_RECORD'
+        && $normalizedAction === 'FORWARD'
+        && $isPenroDestination;
+    $isCenroReleaseToPenroOrRegional = $actorRoleKey === 'CENRO_ADMIN_RECORD'
+        && $normalizedAction === 'RELEASE'
+        && $normalizedReleaseMode === 'send_to_office'
+        && ($isPenroDestination || $isRegionalDestination);
 
-    if (!$isCenroPasuToRecordsUnit && !$isPenroToRecordsUnit) {
+    if (!$isAdminForwardToRecordsUnit && !$isCenroForwardToPenro && !$isCenroReleaseToPenroOrRegional) {
         return [
             'allowed' => false,
             'required' => false,
@@ -693,34 +716,55 @@ function workflow_build_endorsement_route_context(
 
     return [
         'allowed' => true,
-        'required' => $isPenroToRecordsUnit || in_array($actorRoleKey, ['CENRO_ADMIN_RECORD', 'PENRO_ADMIN_RECORD'], true),
-        'target_label' => 'PACDO/RECORDS-UNIT',
+        'required' => false,
+        'target_label' => $isRecordsUnitDestination ? 'PACDO/RECORDS-UNIT' : $targetLabel,
     ];
 }
 
-function workflow_document_has_prepared_response_attachment(PDO $pdo, int $documentId): bool
+function workflow_document_has_prepared_response_attachment(PDO $pdo, int $documentId, int $officeId): bool
 {
-    if ($documentId <= 0) {
+    if ($documentId <= 0 || $officeId <= 0) {
         return false;
     }
     if (!workflow_table_exists($pdo, 'document_attachments')) {
         return false;
     }
 
-    $preparedResponseRoleKeys = ['DIVISION_CHIEF', 'SECTION_STAFF', 'CENRO_SECTION', 'CENRO_UNIT', 'PASU_OFFICER', 'PAMO_UNIT', 'PENRO_DIVISION', 'PENRO_SECTION', 'PENRO_SECTION_UNIT'];
     $stmt = $pdo->prepare(
-        'SELECT r_u.name AS uploaded_by_role
+        'SELECT
+            da.file_name,
+            da.uploaded_by,
+            d.created_by_user_id,
+            u_u.office_id AS uploaded_by_office_id,
+            o_u.parent_office_id AS uploaded_by_parent_office_id,
+            r_u.name AS uploaded_by_role
          FROM document_attachments da
+         INNER JOIN documents d ON d.id = da.document_id
          LEFT JOIN users u_u ON u_u.id = da.uploaded_by
+         LEFT JOIN offices o_u ON o_u.id = u_u.office_id
          LEFT JOIN roles r_u ON r_u.id = u_u.role_id
          WHERE da.document_id = :document_id
-         ORDER BY da.id DESC'
+          ORDER BY da.id DESC'
     );
-    $stmt->execute(['document_id' => $documentId]);
+    $stmt->execute([
+        'document_id' => $documentId,
+    ]);
 
     while ($row = $stmt->fetch()) {
-        $roleKey = app_normalize_role_key((string)($row['uploaded_by_role'] ?? ''));
-        if (in_array($roleKey, $preparedResponseRoleKeys, true)) {
+        $uploadedByOfficeId = (int)($row['uploaded_by_office_id'] ?? 0);
+        $uploadedByParentOfficeId = (int)($row['uploaded_by_parent_office_id'] ?? 0);
+        $matchesOfficeChain = ($uploadedByOfficeId > 0 && $uploadedByOfficeId === $officeId)
+            || ($uploadedByParentOfficeId > 0 && $uploadedByParentOfficeId === $officeId);
+        if (!$matchesOfficeChain) {
+            continue;
+        }
+        $category = document_action_classify_route_attachment(
+            (string)($row['file_name'] ?? ''),
+            (string)($row['uploaded_by_role'] ?? ''),
+            (int)($row['uploaded_by'] ?? 0),
+            (int)($row['created_by_user_id'] ?? 0)
+        );
+        if ($category === 'prepared_response') {
             return true;
         }
     }
@@ -881,6 +925,242 @@ function intake_assert_manage_permission(PDO $pdo, int $documentId, int $actorUs
     return $document;
 }
 
+function document_action_classify_route_attachment(
+    ?string $fileName,
+    ?string $uploadedByRole,
+    int $uploadedByUserId = 0,
+    int $documentCreatorUserId = 0
+): string
+{
+    $roleKey = app_normalize_role_key((string)$uploadedByRole);
+    if (in_array($roleKey, [
+        'DIVISION_CHIEF',
+        'SECTION_STAFF',
+        'CENRO_SECTION',
+        'CENRO_UNIT',
+        'PASU_OFFICER',
+        'PAMO_UNIT',
+        'PENRO_DIVISION',
+        'PENRO_SECTION',
+        'PENRO_SECTION_UNIT',
+    ], true)) {
+        return 'prepared_response';
+    }
+
+    $fileNameKey = strtolower(trim((string)$fileName));
+    if ($fileNameKey !== '') {
+        $preparedResponseMarkers = [
+            'prepared response',
+            'prepared_response',
+            'prepared-response',
+            'prepared_of_response',
+        ];
+        foreach ($preparedResponseMarkers as $marker) {
+            if (str_contains($fileNameKey, $marker)) {
+                return 'prepared_response';
+            }
+        }
+
+        if (str_contains($fileNameKey, 'endorsement') || str_contains($fileNameKey, 'endorse')) {
+            return 'endorsement';
+        }
+    }
+
+    $isCreatorUpload = $uploadedByUserId > 0
+        && $documentCreatorUserId > 0
+        && $uploadedByUserId === $documentCreatorUserId;
+    if (!$isCreatorUpload && in_array($roleKey, ['CENRO_ADMIN_RECORD', 'PENRO_ADMIN_RECORD'], true)) {
+        return 'endorsement';
+    }
+
+    return 'original';
+}
+
+function document_action_assert_route_attachment_manage_permission(
+    PDO $pdo,
+    int $documentId,
+    int $attachmentId,
+    int $actorUserId
+): array {
+    $document = workflow_get_document_context($pdo, $documentId, true);
+    $actor = workflow_get_user_context($pdo, $actorUserId);
+
+    if (intake_status_is_terminal((string)($document['status'] ?? ''))) {
+        throw new RuntimeException('This document can no longer be edited.');
+    }
+
+    $actorOfficeId = (int)($actor['office_id'] ?? 0);
+    $currentOfficeId = (int)($document['current_office_id'] ?? 0);
+    if ($actorOfficeId <= 0 || $currentOfficeId <= 0 || $actorOfficeId !== $currentOfficeId) {
+        throw new RuntimeException('Only the current office can manage route attachments.');
+    }
+
+    if (!workflow_table_exists($pdo, 'document_attachments')) {
+        throw new RuntimeException('Attachment storage table is not available.');
+    }
+
+    $attachmentSelectStmt = $pdo->prepare(
+        'SELECT TOP (1)
+            da.id,
+            da.document_id,
+            da.file_name,
+            da.file_path,
+            da.version_number,
+            da.uploaded_by,
+            d.created_by_user_id,
+            u.office_id AS uploaded_by_office_id,
+            r.name AS uploaded_by_role
+         FROM document_attachments da WITH (UPDLOCK, ROWLOCK)
+         INNER JOIN documents d ON d.id = da.document_id
+         LEFT JOIN users u ON u.id = da.uploaded_by
+         LEFT JOIN roles r ON r.id = u.role_id
+         WHERE da.id = :attachment_id
+           AND da.document_id = :document_id'
+    );
+    $attachmentSelectStmt->execute([
+        'attachment_id' => $attachmentId,
+        'document_id' => $documentId,
+    ]);
+    $attachment = $attachmentSelectStmt->fetch();
+    if (!$attachment) {
+        throw new RuntimeException('Attachment not found.');
+    }
+
+    $uploadedByOfficeId = (int)($attachment['uploaded_by_office_id'] ?? 0);
+    if ($uploadedByOfficeId <= 0 || $uploadedByOfficeId !== $actorOfficeId) {
+        throw new RuntimeException('You can only manage route attachments uploaded by your current office.');
+    }
+
+    $attachmentCategory = document_action_classify_route_attachment(
+        (string)($attachment['file_name'] ?? ''),
+        (string)($attachment['uploaded_by_role'] ?? ''),
+        (int)($attachment['uploaded_by'] ?? 0),
+        (int)($attachment['created_by_user_id'] ?? 0)
+    );
+    if (!in_array($attachmentCategory, ['prepared_response', 'endorsement'], true)) {
+        throw new RuntimeException('Only prepared response or endorsement attachments can be managed here.');
+    }
+
+    $attachment['route_attachment_category'] = $attachmentCategory;
+    return [
+        'document' => $document,
+        'actor' => $actor,
+        'attachment' => $attachment,
+    ];
+}
+
+function workflow_document_has_endorsement_attachment(PDO $pdo, int $documentId, int $officeId): bool
+{
+    if ($documentId <= 0 || $officeId <= 0) {
+        return false;
+    }
+    if (!workflow_table_exists($pdo, 'document_attachments')) {
+        return false;
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT
+            da.file_name,
+            da.uploaded_by,
+            d.created_by_user_id,
+            r.name AS uploaded_by_role
+         FROM document_attachments da
+         INNER JOIN documents d ON d.id = da.document_id
+         LEFT JOIN users u ON u.id = da.uploaded_by
+         LEFT JOIN roles r ON r.id = u.role_id
+         WHERE da.document_id = :document_id
+           AND u.office_id = :office_id
+         ORDER BY da.id DESC'
+    );
+    $stmt->execute([
+        'document_id' => $documentId,
+        'office_id' => $officeId,
+    ]);
+
+    while ($row = $stmt->fetch()) {
+        $category = document_action_classify_route_attachment(
+            (string)($row['file_name'] ?? ''),
+            (string)($row['uploaded_by_role'] ?? ''),
+            (int)($row['uploaded_by'] ?? 0),
+            (int)($row['created_by_user_id'] ?? 0)
+        );
+        if ($category === 'endorsement') {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function document_action_replace_route_attachment_file(
+    PDO $pdo,
+    int $documentId,
+    int $attachmentId,
+    int $actorUserId,
+    array $validatedFiles
+): array {
+    if (count($validatedFiles) !== 1) {
+        throw new InvalidArgumentException('Upload exactly one replacement attachment.');
+    }
+
+    $permission = document_action_assert_route_attachment_manage_permission($pdo, $documentId, $attachmentId, $actorUserId);
+    $attachment = $permission['attachment'];
+    $existingVersion = max(1, (int)($attachment['version_number'] ?? 1));
+    $existingPath = trim((string)($attachment['file_path'] ?? ''));
+
+    [$relativeDir, $absoluteDir] = intake_build_attachment_storage_paths();
+    $file = $validatedFiles[0];
+    $safeBaseName = preg_replace('/[^A-Za-z0-9._-]/', '_', (string)$file['original_name']) ?? ('attachment.' . $file['extension']);
+    if ($safeBaseName === '') {
+        $safeBaseName = 'attachment.' . $file['extension'];
+    }
+
+    $storedFileName = 'doc_' . $documentId . '_v' . $existingVersion . '_' . $safeBaseName;
+    $relativePath = $relativeDir . '/' . $storedFileName;
+    $absolutePath = $absoluteDir . DIRECTORY_SEPARATOR . $storedFileName;
+
+    if (!move_uploaded_file((string)$file['tmp_name'], $absolutePath)) {
+        throw new RuntimeException('Failed to store replacement attachment file: ' . (string)$file['original_name']);
+    }
+
+    $updateStmt = $pdo->prepare(
+        'UPDATE document_attachments
+         SET file_name = :file_name,
+             file_path = :file_path,
+             uploaded_by = :uploaded_by,
+             uploaded_at = SYSDATETIME()
+         WHERE id = :attachment_id
+           AND document_id = :document_id'
+    );
+    $updateStmt->execute([
+        'file_name' => (string)$file['original_name'],
+        'file_path' => $relativePath,
+        'uploaded_by' => $actorUserId,
+        'attachment_id' => $attachmentId,
+        'document_id' => $documentId,
+    ]);
+    if ($updateStmt->rowCount() < 1) {
+        if (is_file($absolutePath)) {
+            @unlink($absolutePath);
+        }
+        throw new RuntimeException('Unable to replace attachment.');
+    }
+
+    attachment_binary_backup_upsert_from_file(
+        $pdo,
+        $attachmentId,
+        $documentId,
+        (string)$file['original_name'],
+        $absolutePath
+    );
+
+    return [
+        'old_file_path' => $existingPath,
+        'new_file_name' => (string)$file['original_name'],
+        'attachment_category' => (string)($attachment['route_attachment_category'] ?? 'attachment'),
+    ];
+}
+
 function intake_normalize_uploaded_files(?array $fileBag): array
 {
     if (!is_array($fileBag) || !isset($fileBag['name'])) {
@@ -929,18 +1209,11 @@ function intake_validate_uploaded_files(array $files): array
     ];
 
     $validated = [];
-    $nonEmptyFileCount = 0;
-    $totalUploadSize = 0;
     $finfo = new finfo(FILEINFO_MIME_TYPE);
     foreach ($files as $file) {
         $error = (int)($file['error'] ?? UPLOAD_ERR_NO_FILE);
         if ($error === UPLOAD_ERR_NO_FILE) {
             continue;
-        }
-
-        $nonEmptyFileCount++;
-        if ($nonEmptyFileCount > INTAKE_EDIT_MAX_ATTACHMENTS) {
-            throw new InvalidArgumentException('You can upload up to 40 attachments per edit.');
         }
         if ($error !== UPLOAD_ERR_OK) {
             if ($error === UPLOAD_ERR_INI_SIZE || $error === UPLOAD_ERR_FORM_SIZE) {
@@ -957,13 +1230,6 @@ function intake_validate_uploaded_files(array $files): array
         $size = (int)($file['size'] ?? 0);
         if ($size <= 0) {
             throw new InvalidArgumentException('Uploaded file is empty.');
-        }
-        if ($size > INTAKE_EDIT_MAX_FILE_SIZE) {
-            throw new InvalidArgumentException('Each attachment must be 15 MB or smaller.');
-        }
-        $totalUploadSize += $size;
-        if ($totalUploadSize > INTAKE_EDIT_MAX_TOTAL_UPLOAD_SIZE) {
-            throw new InvalidArgumentException('Total upload size is too large. Keep combined attachments around 240 MB or less.');
         }
 
         $tmpName = (string)($file['tmp_name'] ?? '');
@@ -997,8 +1263,7 @@ function intake_store_document_attachments(PDO $pdo, int $documentId, int $uploa
         return 0;
     }
 
-    $tableCheck = $pdo->query("SHOW TABLES LIKE 'document_attachments'");
-    if (!$tableCheck || !$tableCheck->fetchColumn()) {
+    if (!db_table_exists($pdo, 'document_attachments')) {
         throw new RuntimeException('Attachment storage table is not available.');
     }
 
@@ -1006,19 +1271,13 @@ function intake_store_document_attachments(PDO $pdo, int $documentId, int $uploa
     $versionStmt->execute(['document_id' => $documentId]);
     $currentVersion = (int)($versionStmt->fetchColumn() ?: 0);
 
-    $year = date('Y');
-    $month = date('m');
-    $relativeDir = 'storage/uploads/attachments/' . $year . '/' . $month;
-    $absoluteDir = dirname(__DIR__) . '/' . str_replace('/', DIRECTORY_SEPARATOR, $relativeDir);
-    if (!is_dir($absoluteDir) && !mkdir($absoluteDir, 0775, true) && !is_dir($absoluteDir)) {
-        throw new RuntimeException('Unable to create attachment storage directory.');
-    }
+    [$relativeDir, $absoluteDir] = app_attachment_storage_directory();
 
     $insert = $pdo->prepare(
         'INSERT INTO document_attachments (
             document_id, uploaded_by, file_name, file_path, version_number, is_internal_only, uploaded_at
          ) VALUES (
-            :document_id, :uploaded_by, :file_name, :file_path, :version_number, :is_internal_only, NOW()
+            :document_id, :uploaded_by, :file_name, :file_path, :version_number, :is_internal_only, SYSDATETIME()
          )'
     );
 
@@ -1045,6 +1304,16 @@ function intake_store_document_attachments(PDO $pdo, int $documentId, int $uploa
             'version_number' => $versionNumber,
             'is_internal_only' => 0,
         ]);
+        $attachmentId = attachment_binary_backup_resolve_attachment_id($pdo, $documentId, $versionNumber, $relativePath);
+        if ($attachmentId > 0) {
+            attachment_binary_backup_upsert_from_file(
+                $pdo,
+                $attachmentId,
+                $documentId,
+                (string)$file['original_name'],
+                $absolutePath
+            );
+        }
         $saved++;
     }
 
@@ -1053,30 +1322,12 @@ function intake_store_document_attachments(PDO $pdo, int $documentId, int $uploa
 
 function intake_resolve_attachment_absolute_path(string $filePath): ?string
 {
-    $normalized = trim(str_replace(['\\', '/'], DIRECTORY_SEPARATOR, $filePath));
-    if ($normalized === '') {
-        return null;
-    }
-
-    $absolutePath = dirname(__DIR__) . DIRECTORY_SEPARATOR . ltrim($normalized, DIRECTORY_SEPARATOR);
-    if (!is_file($absolutePath) || !is_readable($absolutePath)) {
-        return null;
-    }
-
-    return $absolutePath;
+    return app_resolve_attachment_absolute_path($filePath);
 }
 
 function intake_build_attachment_storage_paths(): array
 {
-    $year = date('Y');
-    $month = date('m');
-    $relativeDir = 'storage/uploads/attachments/' . $year . '/' . $month;
-    $absoluteDir = dirname(__DIR__) . '/' . str_replace('/', DIRECTORY_SEPARATOR, $relativeDir);
-    if (!is_dir($absoluteDir) && !mkdir($absoluteDir, 0775, true) && !is_dir($absoluteDir)) {
-        throw new RuntimeException('Unable to create attachment storage directory.');
-    }
-
-    return [$relativeDir, $absoluteDir];
+    return app_attachment_storage_directory();
 }
 
 function intake_store_generated_attachment(
@@ -1084,7 +1335,8 @@ function intake_store_generated_attachment(
     int $documentId,
     int $uploadedByUserId,
     string $displayName,
-    string $relativePath
+    string $relativePath,
+    ?string $absolutePath = null
 ): int {
     $versionStmt = $pdo->prepare('SELECT COALESCE(MAX(version_number), 0) FROM document_attachments WHERE document_id = :document_id');
     $versionStmt->execute(['document_id' => $documentId]);
@@ -1094,7 +1346,7 @@ function intake_store_generated_attachment(
         'INSERT INTO document_attachments (
             document_id, uploaded_by, file_name, file_path, version_number, is_internal_only, uploaded_at
          ) VALUES (
-            :document_id, :uploaded_by, :file_name, :file_path, :version_number, :is_internal_only, NOW()
+            :document_id, :uploaded_by, :file_name, :file_path, :version_number, :is_internal_only, SYSDATETIME()
          )'
     );
     $insert->execute([
@@ -1106,7 +1358,28 @@ function intake_store_generated_attachment(
         'is_internal_only' => 0,
     ]);
 
-    return (int)$pdo->lastInsertId();
+    $attachmentId = attachment_binary_backup_resolve_attachment_id($pdo, $documentId, $nextVersion, $relativePath);
+    if ($attachmentId > 0 && $absolutePath !== null && trim($absolutePath) !== '') {
+        attachment_binary_backup_upsert_from_file(
+            $pdo,
+            $attachmentId,
+            $documentId,
+            $displayName,
+            $absolutePath
+        );
+    }
+
+    return $attachmentId;
+}
+
+function intake_delete_attachment_file_if_present(string $filePath): void
+{
+    $absolutePath = intake_resolve_attachment_absolute_path($filePath);
+    if ($absolutePath === null || !is_file($absolutePath)) {
+        return;
+    }
+
+    @unlink($absolutePath);
 }
 
 function digital_signature_sign_image_file(
@@ -1292,7 +1565,7 @@ try {
 }
 POWERSHELL;
 
-    $scriptPath = tempnam(sys_get_temp_dir(), 'edats_signature_');
+    $scriptPath = tempnam(sys_get_temp_dir(), 'DTMIS_signature_');
     if ($scriptPath === false) {
         throw new RuntimeException('Unable to allocate temporary signature script path.');
     }
@@ -1332,10 +1605,9 @@ POWERSHELL;
 function digital_signature_resolve_signer_name(PDO $pdo, int $actorUserId): string
 {
     $stmt = $pdo->prepare(
-        'SELECT first_name, last_name
+        'SELECT TOP (1) first_name, last_name
          FROM users
-         WHERE id = :id
-         LIMIT 1'
+         WHERE id = :id'
     );
     $stmt->execute(['id' => $actorUserId]);
     $user = $stmt->fetch();
@@ -1455,7 +1727,9 @@ function workflow_apply_ored_digital_signature(PDO $pdo, int $documentId, int $a
 
     $actorContext = workflow_get_user_context($pdo, $actorUserId);
     $actorRoleKey = app_normalize_role_key((string)($actorContext['role_name'] ?? ''));
-    if (!in_array($actorRoleKey, ['ORED', 'CENRO_OFFICER', 'PENRO_OFFICER', 'PASU_OFFICER'], true)) {
+    $canDigitallySign = in_array($actorRoleKey, ['CENRO_OFFICER', 'PENRO_OFFICER', 'PASU_OFFICER'], true)
+        || workflow_actor_is_ored_signer($pdo, $actorContext);
+    if (!$canDigitallySign) {
         return $result;
     }
 
@@ -1565,7 +1839,7 @@ function workflow_apply_ored_digital_signature(PDO $pdo, int $documentId, int $a
         );
 
         $displayName = '[Digitally Signed] ' . ($originalName !== '' ? $originalName : basename($relativePath));
-        intake_store_generated_attachment($pdo, $documentId, $actorUserId, $displayName, $signedRelativePath);
+        intake_store_generated_attachment($pdo, $documentId, $actorUserId, $displayName, $signedRelativePath, $signedAbsolutePath);
         if ($originalName !== '') {
             $signedBySourceName[strtolower($originalName)] = true;
         }
@@ -1573,6 +1847,68 @@ function workflow_apply_ored_digital_signature(PDO $pdo, int $documentId, int $a
     }
 
     return $result;
+}
+
+function workflow_current_office_leg_started_at(PDO $pdo, int $documentId, int $officeId, string $documentCreatedAt = ''): string
+{
+    if ($documentId <= 0 || $officeId <= 0 || !workflow_table_exists($pdo, 'tracking_slips')) {
+        return $documentCreatedAt;
+    }
+
+    $latestReceiveStmt = $pdo->prepare(
+        'SELECT MAX(ts.date_time_received)
+         FROM tracking_slips ts
+         WHERE ts.document_id = :document_id
+           AND ts.receiving_office_id = :office_id'
+    );
+    $latestReceiveStmt->execute([
+        'document_id' => $documentId,
+        'office_id' => $officeId,
+    ]);
+
+    $latestReceiveAt = trim((string)($latestReceiveStmt->fetchColumn() ?: ''));
+    return $latestReceiveAt !== '' ? $latestReceiveAt : $documentCreatedAt;
+}
+
+function workflow_find_local_sign_window(PDO $pdo, int $documentId, int $officeId, string $roleKey, string $legStartedAt = ''): ?array
+{
+    if ($documentId <= 0 || $officeId <= 0 || $roleKey === '' || !workflow_table_exists($pdo, 'activity_logs')) {
+        return null;
+    }
+
+    $params = [
+        'document_id' => $documentId,
+        'office_id' => $officeId,
+        'role_name' => $roleKey,
+    ];
+    $createdAtFilter = '';
+    if ($legStartedAt !== '') {
+        $createdAtFilter = ' AND al.created_at >= :leg_started_at';
+        $params['leg_started_at'] = $legStartedAt;
+    }
+
+    $signedLogStmt = $pdo->prepare(
+        'SELECT TOP (1) al.id, al.created_at
+         FROM activity_logs al
+         INNER JOIN users u ON u.id = al.user_id
+         INNER JOIN roles r ON r.id = u.role_id
+         WHERE al.document_id = :document_id
+           AND LOWER(COALESCE(al.action_type, \'\')) = \'signed\'
+           AND u.office_id = :office_id
+           AND UPPER(COALESCE(r.name, \'\')) = :role_name'
+         . $createdAtFilter
+         . ' ORDER BY al.created_at DESC, al.id DESC'
+    );
+    $signedLogStmt->execute($params);
+    $signedLog = $signedLogStmt->fetch(PDO::FETCH_ASSOC);
+    if (!is_array($signedLog) || empty($signedLog['id'])) {
+        return null;
+    }
+
+    return [
+        'id' => (int)($signedLog['id'] ?? 0),
+        'created_at' => trim((string)($signedLog['created_at'] ?? '')),
+    ];
 }
 
 function workflow_undo_ored_sign(PDO $pdo, int $documentId, int $actorUserId, string $remarks = ''): array
@@ -1588,8 +1924,10 @@ function workflow_undo_ored_sign(PDO $pdo, int $documentId, int $actorUserId, st
 
     $actorContext = workflow_get_user_context($pdo, $actorUserId);
     $actorRoleKey = app_normalize_role_key((string)($actorContext['role_name'] ?? ''));
-    if (!in_array($actorRoleKey, ['ORED', 'CENRO_OFFICER', 'PENRO_OFFICER', 'PASU_OFFICER'], true)) {
-        throw new RuntimeException('Only ORED, CENRO Officer, or PENRO Officer can undo a sign action.');
+    $canUndoSign = in_array($actorRoleKey, ['CENRO_OFFICER', 'PENRO_OFFICER', 'PASU_OFFICER'], true)
+        || workflow_actor_is_ored_signer($pdo, $actorContext);
+    if (!$canUndoSign) {
+        throw new RuntimeException('Only the ORED signing account, CENRO Officer, PENRO Officer, or PASU can undo a sign action.');
     }
 
     $document = workflow_get_document_context($pdo, $documentId, true);
@@ -1607,6 +1945,18 @@ function workflow_undo_ored_sign(PDO $pdo, int $documentId, int $actorUserId, st
     if ($actorOfficeId > 0 && $currentOfficeId > 0 && $actorOfficeId !== $currentOfficeId) {
         throw new RuntimeException('You can undo sign only while the document is still in your office.');
     }
+    $documentCreatedAt = trim((string)($document['created_at'] ?? ''));
+    $legStartedAt = workflow_current_office_leg_started_at($pdo, $documentId, $actorOfficeId, $documentCreatedAt);
+    $localSignWindow = workflow_find_local_sign_window(
+        $pdo,
+        $documentId,
+        $actorOfficeId,
+        $actorRoleKey,
+        $legStartedAt
+    );
+    if (!is_array($localSignWindow) || (int)($localSignWindow['id'] ?? 0) <= 0) {
+        throw new RuntimeException('No active sign record was found for your current office leg.');
+    }
 
     $attachmentFilePathsToDelete = [];
 
@@ -1614,16 +1964,24 @@ function workflow_undo_ored_sign(PDO $pdo, int $documentId, int $actorUserId, st
     try {
         if (workflow_table_exists($pdo, 'document_attachments')) {
             $signedAttachmentRowsStmt = $pdo->prepare(
-                'SELECT id, file_path
-                 FROM document_attachments
-                 WHERE document_id = :document_id
+                'SELECT da.id, da.file_path
+                 FROM document_attachments da
+                 INNER JOIN users u ON u.id = da.uploaded_by
+                 INNER JOIN roles r ON r.id = u.role_id
+                 WHERE da.document_id = :document_id
+                   AND u.office_id = :office_id
+                   AND UPPER(COALESCE(r.name, \'\')) = :role_name
+                   AND da.uploaded_at >= :leg_started_at
                    AND (
-                        LOWER(COALESCE(file_name, \'\')) LIKE :signed_name_pattern
-                        OR LOWER(COALESCE(file_path, \'\')) LIKE :signed_path_pattern
+                        LOWER(COALESCE(da.file_name, \'\')) LIKE :signed_name_pattern
+                        OR LOWER(COALESCE(da.file_path, \'\')) LIKE :signed_path_pattern
                    )'
             );
             $signedAttachmentRowsStmt->execute([
                 'document_id' => $documentId,
+                'office_id' => $actorOfficeId,
+                'role_name' => $actorRoleKey,
+                'leg_started_at' => $legStartedAt !== '' ? $legStartedAt : $localSignWindow['created_at'],
                 'signed_name_pattern' => '[digitally signed] %',
                 'signed_path_pattern' => '%_signed_%',
             ]);
@@ -1633,8 +1991,7 @@ function workflow_undo_ored_sign(PDO $pdo, int $documentId, int $actorUserId, st
                 $deleteAttachmentStmt = $pdo->prepare(
                     'DELETE FROM document_attachments
                      WHERE id = :attachment_id
-                       AND document_id = :document_id
-                     LIMIT 1'
+                       AND document_id = :document_id'
                 );
                 foreach ($signedAttachmentRows as $signedAttachmentRow) {
                     $attachmentId = (int)($signedAttachmentRow['id'] ?? 0);
@@ -1649,6 +2006,7 @@ function workflow_undo_ored_sign(PDO $pdo, int $documentId, int $actorUserId, st
                         'attachment_id' => $attachmentId,
                         'document_id' => $documentId,
                     ]);
+                    attachment_binary_backup_delete_for_attachment($pdo, $attachmentId);
                     $result['removed_attachment_count'] += max(0, (int)$deleteAttachmentStmt->rowCount());
                 }
             }
@@ -1656,19 +2014,29 @@ function workflow_undo_ored_sign(PDO $pdo, int $documentId, int $actorUserId, st
 
         if (workflow_table_exists($pdo, 'activity_logs')) {
             $deleteSignedLogsStmt = $pdo->prepare(
-                "DELETE FROM activity_logs
-                 WHERE document_id = :document_id
-                   AND LOWER(COALESCE(action_type, '')) = 'signed'"
+                "DELETE al
+                 FROM activity_logs al
+                 INNER JOIN users u ON u.id = al.user_id
+                 INNER JOIN roles r ON r.id = u.role_id
+                 WHERE al.document_id = :document_id
+                   AND LOWER(COALESCE(al.action_type, '')) = 'signed'
+                   AND u.office_id = :office_id
+                   AND UPPER(COALESCE(r.name, '')) = :role_name
+                   AND al.created_at >= :leg_started_at"
             );
-            $deleteSignedLogsStmt->execute(['document_id' => $documentId]);
+            $deleteSignedLogsStmt->execute([
+                'document_id' => $documentId,
+                'office_id' => $actorOfficeId,
+                'role_name' => $actorRoleKey,
+                'leg_started_at' => $legStartedAt !== '' ? $legStartedAt : $localSignWindow['created_at'],
+            ]);
             $result['removed_signed_log_count'] = max(0, (int)$deleteSignedLogsStmt->rowCount());
         }
 
         $updateStatusStmt = $pdo->prepare(
             'UPDATE documents
              SET status = :status
-             WHERE id = :document_id
-             LIMIT 1'
+             WHERE id = :document_id'
         );
         $updateStatusStmt->execute([
             'status' => 'Approved',
@@ -1693,11 +2061,7 @@ function workflow_undo_ored_sign(PDO $pdo, int $documentId, int $actorUserId, st
     }
 
     foreach ($attachmentFilePathsToDelete as $relativePath) {
-        $normalized = str_replace(['\\', '/'], DIRECTORY_SEPARATOR, (string)$relativePath);
-        $absolutePath = dirname(__DIR__) . DIRECTORY_SEPARATOR . ltrim($normalized, DIRECTORY_SEPARATOR);
-        if (is_file($absolutePath)) {
-            @unlink($absolutePath);
-        }
+        intake_delete_attachment_file_if_present((string)$relativePath);
     }
 
     return $result;
@@ -1710,6 +2074,7 @@ try {
     $pdo = getDatabaseConnection();
     $actorContext = workflow_get_user_context($pdo, $actorUserId);
     $actorRoleKey = app_normalize_role_key((string)($actorContext['role_name'] ?? ''));
+    $actorOfficeId = (int)($actorContext['office_id'] ?? 0);
     if ($isOutboxSyncRequest && !app_offline_is_workflow_outbox_enabled((string)($actorContext['role_name'] ?? ''), $action)) {
         $rolloutMessage = document_action_rollout_block_message($action);
         offline_sync_log_event($pdo, [
@@ -1760,10 +2125,9 @@ try {
 
     if ($documentId <= 0 && $action === 'RECEIVE' && $trackingId !== '') {
         $resolveStmt = $pdo->prepare(
-            'SELECT id
+            'SELECT TOP (1) id
              FROM documents
-             WHERE UPPER(tracking_id) = :tracking_id
-             LIMIT 1'
+             WHERE UPPER(tracking_id) = :tracking_id'
         );
         $resolveStmt->execute(['tracking_id' => $trackingId]);
         $documentId = (int)($resolveStmt->fetchColumn() ?: 0);
@@ -1799,10 +2163,10 @@ try {
     $routingSubjectChangeRequested = in_array($action, ['FORWARD', 'REROUTE', 'RETURN'], true) && $subject !== '';
     if ($routingSubjectChangeRequested) {
         if (!in_array($actorRoleKey, ['DIVISION_CHIEF', 'SECTION_STAFF', 'CENRO_SECTION', 'CENRO_UNIT', 'PASU_OFFICER', 'PAMO_UNIT', 'PENRO_DIVISION', 'PENRO_SECTION', 'PENRO_SECTION_UNIT'], true)) {
-            throw new RuntimeException('Only Division/Section roles can change subject while routing.');
+            throw new RuntimeException('Only Division/Section roles can add response while routing.');
         }
         if (strlen($subject) > 255) {
-            throw new InvalidArgumentException('Subject is too long.');
+            throw new InvalidArgumentException('Response is too long.');
         }
     }
 
@@ -1823,7 +2187,12 @@ try {
                 $destinationOffice
             );
             if (($preparedResponseRouteContext['allowed'] ?? false) && empty($remarksAttachmentFiles)) {
-                $hasExistingPreparedResponse = workflow_document_has_prepared_response_attachment($pdo, $documentId);
+                $existingPreparedResponseOfficeId = (int)($actorOfficeId ?? 0);
+                $hasExistingPreparedResponse = workflow_document_has_prepared_response_attachment(
+                    $pdo,
+                    $documentId,
+                    $existingPreparedResponseOfficeId
+                );
                 if (!$hasExistingPreparedResponse) {
                     $targetLabel = trim((string)($preparedResponseRouteContext['target_label'] ?? ''));
                     if ($targetLabel === '') {
@@ -1832,7 +2201,8 @@ try {
                     throw new InvalidArgumentException(
                         'Prepared of response attachment is required before forwarding to '
                         . $targetLabel
-                        . '. Upload at least one file, unless an earlier prepared response was already uploaded by Division/Section or CENRO/PENRO internal section-level roles.'
+                        . '. Upload at least one file, unless your current office or its child office already uploaded the prepared response.'
+                        . ' A prepared response from another office outside your office chain does not satisfy this requirement.'
                     );
                 }
             }
@@ -1841,11 +2211,19 @@ try {
                 if ($endorsementTargetLabel === '') {
                     $endorsementTargetLabel = 'destination office';
                 }
-                throw new InvalidArgumentException(
-                    'Endorsement letter attachment is required before forwarding to '
-                    . $endorsementTargetLabel
-                    . '.'
+                $existingEndorsementOfficeId = (int)($actorOfficeId ?? 0);
+                $hasExistingEndorsement = workflow_document_has_endorsement_attachment(
+                    $pdo,
+                    $documentId,
+                    $existingEndorsementOfficeId
                 );
+                if (!$hasExistingEndorsement) {
+                    throw new InvalidArgumentException(
+                        'Endorsement letter attachment is required before forwarding to '
+                        . $endorsementTargetLabel
+                        . '.'
+                    );
+                }
             }
             workflow_forward_document(
                 $pdo,
@@ -1855,7 +2233,8 @@ try {
                 $destinationUserId > 0 ? $destinationUserId : null,
                 $remarks,
                 $bypassReason,
-                !empty($remarksAttachmentFiles)
+                !empty($remarksAttachmentFiles),
+                $routeMode
             );
             break;
 
@@ -1902,13 +2281,38 @@ try {
                 $originStmt = $pdo->prepare(
                     'SELECT originating_office_id
                      FROM documents
-                     WHERE id = :id
-                     LIMIT 1'
+                     WHERE id = :id'
                 );
                 $originStmt->execute(['id' => $documentId]);
                 $destinationOfficeId = (int)($originStmt->fetchColumn() ?: 0);
                 if ($destinationOfficeId <= 0) {
                     throw new InvalidArgumentException('Destination office is required.');
+                }
+            }
+            $destinationOffice = workflow_get_office_context($pdo, $destinationOfficeId);
+            $endorsementRouteContext = workflow_build_endorsement_route_context(
+                $actorRoleKey,
+                $action,
+                $destinationOffice,
+                $releaseMode
+            );
+            if (($endorsementRouteContext['required'] ?? false) && empty($remarksAttachmentFiles)) {
+                $endorsementTargetLabel = trim((string)($endorsementRouteContext['target_label'] ?? 'destination office'));
+                if ($endorsementTargetLabel === '') {
+                    $endorsementTargetLabel = 'destination office';
+                }
+                $existingEndorsementOfficeId = (int)($actorOfficeId ?? 0);
+                $hasExistingEndorsement = workflow_document_has_endorsement_attachment(
+                    $pdo,
+                    $documentId,
+                    $existingEndorsementOfficeId
+                );
+                if (!$hasExistingEndorsement) {
+                    throw new InvalidArgumentException(
+                        'Endorsement letter attachment is required before releasing to '
+                        . $endorsementTargetLabel
+                        . '.'
+                    );
                 }
             }
             workflow_release_document(
@@ -1923,15 +2327,17 @@ try {
             break;
 
         case 'APPROVE':
-            workflow_approve_document(
-                $pdo,
-                $documentId,
-                $actorUserId,
-                $remarks
-            );
-            break;
+            throw new RuntimeException('Approve action is no longer available.');
 
         case 'SIGN':
+            $actorContext = workflow_get_user_context($pdo, $actorUserId);
+            $actorRoleKey = app_normalize_role_key((string)($actorContext['role_name'] ?? ''));
+            if (in_array($actorRoleKey, ['CENRO_OFFICER', 'PENRO_OFFICER', 'PASU_OFFICER'], true)) {
+                throw new RuntimeException('Digital signing is no longer available for this role.');
+            }
+            if (!workflow_actor_is_ored_signer($pdo, $actorContext)) {
+                throw new RuntimeException('Digital signing is available only for the ORED signing account.');
+            }
             workflow_sign_document(
                 $pdo,
                 $documentId,
@@ -2086,29 +2492,60 @@ try {
                 }
 
                 $existingExternalClientName = trim((string)($document['external_client_name'] ?? ''));
+                $existingClientAddress = trim((string)($document['client_address'] ?? ''));
+                $existingSender = trim((string)($document['sender'] ?? ''));
+                $existingOriginatingEntityName = trim((string)($document['originating_entity_name'] ?? ''));
                 $nextExternalClientName = $nextSourceType === 'EXTERNAL'
                     ? ($externalClientName !== '' ? $externalClientName : $existingExternalClientName)
                     : '';
                 if ($nextSourceType === 'EXTERNAL' && $nextExternalClientName === '') {
                     throw new InvalidArgumentException('External client name is required when source is External.');
                 }
+                $nextClientAddress = $nextSourceType === 'EXTERNAL'
+                    ? ($clientAddress !== '' ? $clientAddress : $existingClientAddress)
+                    : $clientAddress;
+                if ($nextSourceType === 'EXTERNAL' && $nextClientAddress === '') {
+                    throw new InvalidArgumentException('Client address is required when source is External.');
+                }
 
                 workflow_ensure_document_arta_override_columns($pdo);
+                workflow_ensure_document_sender_column($pdo);
+                workflow_ensure_document_client_address_column($pdo);
+                workflow_ensure_document_originating_entity_column($pdo);
+                $originOfficeContext = workflow_get_office_context($pdo, (int)($document['originating_office_id'] ?? 0));
+                $defaultInternalSender = trim((string)($originOfficeContext['name'] ?? ''));
+                $defaultOriginatingEntityName = $defaultInternalSender;
+                $nextSender = $sender !== ''
+                    ? $sender
+                    : ($nextSourceType === 'EXTERNAL'
+                        ? ($nextExternalClientName !== '' ? $nextExternalClientName : $existingSender)
+                        : ($existingSender !== '' ? $existingSender : $defaultInternalSender));
+                $nextOriginatingEntityName = $originatingEntityName !== ''
+                    ? $originatingEntityName
+                    : ($existingOriginatingEntityName !== '' ? $existingOriginatingEntityName : $defaultOriginatingEntityName);
+                if ($nextOriginatingEntityName === '') {
+                    throw new InvalidArgumentException('Originating office / entity is required.');
+                }
                 $updateStmt = $pdo->prepare(
                     'UPDATE documents
                      SET subject = :subject,
                          source_type = :source_type,
+                         sender = :sender,
                          external_client_name = :external_client_name,
+                         client_address = :client_address,
+                         originating_entity_name = :originating_entity_name,
                          document_type_id = :document_type_id,
                          arta_category_override = :arta_category_override,
                          arta_days_limit_override = :arta_days_limit_override
-                     WHERE id = :document_id
-                     LIMIT 1'
+                     WHERE id = :document_id'
                 );
                 $updateStmt->execute([
                     'subject' => $subject,
                     'source_type' => $nextSourceType,
+                    'sender' => $nextSender !== '' ? $nextSender : null,
                     'external_client_name' => $nextSourceType === 'EXTERNAL' ? $nextExternalClientName : null,
+                    'client_address' => $nextClientAddress !== '' ? $nextClientAddress : null,
+                    'originating_entity_name' => $nextOriginatingEntityName !== '' ? $nextOriginatingEntityName : null,
                     'document_type_id' => $nextDocumentTypeId,
                     'arta_category_override' => $nextComplexityType,
                     'arta_days_limit_override' => $nextComplexityDays,
@@ -2140,33 +2577,15 @@ try {
             break;
 
         case 'DELETE':
-            $filesToDelete = [];
-
             $pdo->beginTransaction();
             try {
                 intake_assert_manage_permission($pdo, $documentId, $actorUserId);
 
-                $attachmentsTableExists = false;
-                $attachmentTableCheck = $pdo->query("SHOW TABLES LIKE 'document_attachments'");
-                if ($attachmentTableCheck && $attachmentTableCheck->fetchColumn()) {
-                    $attachmentsTableExists = true;
-                }
+                document_recycle_bin_archive_document($pdo, $documentId, $actorUserId);
+
+                $attachmentsTableExists = db_table_exists($pdo, 'document_attachments');
 
                 if ($attachmentsTableExists) {
-                    $attachmentSelectStmt = $pdo->prepare(
-                        'SELECT file_path
-                         FROM document_attachments
-                         WHERE document_id = :document_id'
-                    );
-                    $attachmentSelectStmt->execute(['document_id' => $documentId]);
-                    $attachmentRows = $attachmentSelectStmt->fetchAll() ?: [];
-                    foreach ($attachmentRows as $attachmentRow) {
-                        $filePath = trim((string)($attachmentRow['file_path'] ?? ''));
-                        if ($filePath !== '') {
-                            $filesToDelete[] = $filePath;
-                        }
-                    }
-
                     $attachmentDeleteStmt = $pdo->prepare(
                         'DELETE FROM document_attachments
                          WHERE document_id = :document_id'
@@ -2192,8 +2611,7 @@ try {
 
                 $documentDeleteStmt = $pdo->prepare(
                     'DELETE FROM documents
-                     WHERE id = :document_id
-                     LIMIT 1'
+                     WHERE id = :document_id'
                 );
                 $documentDeleteStmt->execute(['document_id' => $documentId]);
                 if ($documentDeleteStmt->rowCount() < 1) {
@@ -2201,19 +2619,7 @@ try {
                 }
 
                 $pdo->commit();
-
-                foreach ($filesToDelete as $relativePath) {
-                    $normalized = str_replace(['\\', '/'], DIRECTORY_SEPARATOR, $relativePath);
-                    if ($normalized === '') {
-                        continue;
-                    }
-                    $absolutePath = dirname(__DIR__) . DIRECTORY_SEPARATOR . ltrim($normalized, DIRECTORY_SEPARATOR);
-                    if (is_file($absolutePath)) {
-                        @unlink($absolutePath);
-                    }
-                }
-
-                $successMessage = 'Document deleted successfully.';
+                $successMessage = 'Document moved to recycle bin.';
             } catch (Throwable $exception) {
                 if ($pdo->inTransaction()) {
                     $pdo->rollBack();
@@ -2234,8 +2640,7 @@ try {
             try {
                 intake_assert_manage_permission($pdo, $documentId, $actorUserId);
 
-                $attachmentTableCheck = $pdo->query("SHOW TABLES LIKE 'document_attachments'");
-                if (!$attachmentTableCheck || !$attachmentTableCheck->fetchColumn()) {
+                if (!db_table_exists($pdo, 'document_attachments')) {
                     throw new RuntimeException('Attachment storage table is not available.');
                 }
 
@@ -2243,8 +2648,7 @@ try {
                     'SELECT id, file_name, file_path, uploaded_by
                      FROM document_attachments
                      WHERE id = :attachment_id
-                       AND document_id = :document_id
-                     LIMIT 1'
+                       AND document_id = :document_id'
                 );
                 $attachmentSelectStmt->execute([
                     'attachment_id' => $attachmentId,
@@ -2269,8 +2673,7 @@ try {
                 $attachmentDeleteStmt = $pdo->prepare(
                     'DELETE FROM document_attachments
                      WHERE id = :attachment_id
-                       AND document_id = :document_id
-                     LIMIT 1'
+                       AND document_id = :document_id'
                 );
                 $attachmentDeleteStmt->execute([
                     'attachment_id' => $attachmentId,
@@ -2279,6 +2682,7 @@ try {
                 if ($attachmentDeleteStmt->rowCount() < 1) {
                     throw new RuntimeException('Unable to delete attachment.');
                 }
+                attachment_binary_backup_delete_for_attachment($pdo, $attachmentId);
 
                 workflow_log_action($pdo, [
                     'document_id' => $documentId,
@@ -2292,14 +2696,126 @@ try {
                 $pdo->commit();
 
                 if ($filePathToDelete !== '') {
-                    $normalized = str_replace(['\\', '/'], DIRECTORY_SEPARATOR, $filePathToDelete);
-                    $absolutePath = dirname(__DIR__) . DIRECTORY_SEPARATOR . ltrim($normalized, DIRECTORY_SEPARATOR);
-                    if (is_file($absolutePath)) {
-                        @unlink($absolutePath);
-                    }
+                    intake_delete_attachment_file_if_present($filePathToDelete);
                 }
 
                 $successMessage = 'Attachment deleted successfully.';
+            } catch (Throwable $exception) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                throw $exception;
+            }
+            break;
+
+        case 'ROUTE_DELETE_ATTACHMENT':
+            if ($attachmentId <= 0) {
+                throw new InvalidArgumentException('Attachment ID is required.');
+            }
+
+            $filePathToDelete = '';
+            $attachmentName = 'Attachment';
+
+            $pdo->beginTransaction();
+            try {
+                $permission = document_action_assert_route_attachment_manage_permission(
+                    $pdo,
+                    $documentId,
+                    $attachmentId,
+                    $actorUserId
+                );
+                $attachment = $permission['attachment'];
+                $attachmentName = trim((string)($attachment['file_name'] ?? ''));
+                if ($attachmentName === '') {
+                    $attachmentName = 'Attachment';
+                }
+                $filePathToDelete = trim((string)($attachment['file_path'] ?? ''));
+
+                $attachmentDeleteStmt = $pdo->prepare(
+                    'DELETE FROM document_attachments
+                     WHERE id = :attachment_id
+                       AND document_id = :document_id'
+                );
+                $attachmentDeleteStmt->execute([
+                    'attachment_id' => $attachmentId,
+                    'document_id' => $documentId,
+                ]);
+                if ($attachmentDeleteStmt->rowCount() < 1) {
+                    throw new RuntimeException('Unable to delete attachment.');
+                }
+                attachment_binary_backup_delete_for_attachment($pdo, $attachmentId);
+
+                $attachmentLabel = ((string)($attachment['route_attachment_category'] ?? '') === 'endorsement')
+                    ? 'endorsement attachment'
+                    : 'prepared response attachment';
+                workflow_log_action($pdo, [
+                    'document_id' => $documentId,
+                    'user_id' => $actorUserId,
+                    'action_type' => 'Edited',
+                    'action_scope' => 'ACTION',
+                    'remarks' => 'Deleted ' . $attachmentLabel . ': ' . $attachmentName,
+                    'is_visible_on_slip' => 0,
+                ]);
+
+                $pdo->commit();
+
+                if ($filePathToDelete !== '') {
+                    intake_delete_attachment_file_if_present($filePathToDelete);
+                }
+
+                $successMessage = 'Attachment deleted successfully.';
+            } catch (Throwable $exception) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                throw $exception;
+            }
+            break;
+
+        case 'REPLACE_ROUTE_ATTACHMENT':
+            if ($attachmentId <= 0) {
+                throw new InvalidArgumentException('Attachment ID is required.');
+            }
+            if (empty($remarksAttachmentFiles)) {
+                throw new InvalidArgumentException('Upload one replacement file first.');
+            }
+
+            $oldFilePathToDelete = '';
+
+            $pdo->beginTransaction();
+            try {
+                $replacement = document_action_replace_route_attachment_file(
+                    $pdo,
+                    $documentId,
+                    $attachmentId,
+                    $actorUserId,
+                    $remarksAttachmentFiles
+                );
+                $oldFilePathToDelete = trim((string)($replacement['old_file_path'] ?? ''));
+                $replacementName = trim((string)($replacement['new_file_name'] ?? ''));
+                if ($replacementName === '') {
+                    $replacementName = 'Attachment';
+                }
+                $attachmentLabel = ((string)($replacement['attachment_category'] ?? '') === 'endorsement')
+                    ? 'endorsement attachment'
+                    : 'prepared response attachment';
+
+                workflow_log_action($pdo, [
+                    'document_id' => $documentId,
+                    'user_id' => $actorUserId,
+                    'action_type' => 'Edited',
+                    'action_scope' => 'ACTION',
+                    'remarks' => 'Replaced ' . $attachmentLabel . ' with: ' . $replacementName,
+                    'is_visible_on_slip' => 0,
+                ]);
+
+                $pdo->commit();
+
+                if ($oldFilePathToDelete !== '') {
+                    intake_delete_attachment_file_if_present($oldFilePathToDelete);
+                }
+
+                $successMessage = 'Attachment replaced successfully.';
             } catch (Throwable $exception) {
                 if ($pdo->inTransaction()) {
                     $pdo->rollBack();
@@ -2321,14 +2837,14 @@ try {
         $actorRoleKey
     );
     if (is_array($subjectChange)) {
-        $successMessage .= ' Subject changed to "' . (string)$subjectChange['to'] . '".';
+        $successMessage .= ' Response recorded: "' . (string)$subjectChange['to'] . '".';
     }
 
-    if (!empty($remarksAttachmentFiles)) {
+    if (!empty($remarksAttachmentFiles) && !in_array($action, ['REPLACE_ROUTE_ATTACHMENT'], true)) {
         $preparedResponseAllowed = (bool)($preparedResponseRouteContext['allowed'] ?? false);
         $endorsementAllowed = (bool)($endorsementRouteContext['allowed'] ?? false);
         if (!$preparedResponseAllowed && !$endorsementAllowed) {
-            throw new InvalidArgumentException('Route attachments are allowed only for prepared response or endorsement forwarding routes.');
+            throw new InvalidArgumentException('Route attachments are allowed only for prepared response or endorsement routing routes.');
         }
 
         $remarksAttachmentCount = intake_store_document_attachments($pdo, $documentId, $actorUserId, $remarksAttachmentFiles);
@@ -2352,12 +2868,15 @@ try {
                 if ($endorsementTarget === '') {
                     $endorsementTarget = 'destination office';
                 }
+                $endorsementActionPhrase = ($action === 'RELEASE')
+                    ? 'releasing to '
+                    : 'forwarding to ';
                 workflow_log_action($pdo, [
                     'document_id' => $documentId,
                     'user_id' => $actorUserId,
                     'action_type' => 'Edited',
                     'action_scope' => 'ACTION',
-                    'remarks' => 'Endorsement letter attached (' . $remarksAttachmentCount . ' file(s)) for forwarding to ' . $endorsementTarget . '.',
+                    'remarks' => 'Endorsement letter attached (' . $remarksAttachmentCount . ' file(s)) for ' . $endorsementActionPhrase . $endorsementTarget . '.',
                     'is_visible_on_slip' => 0,
                 ]);
                 $successMessage .= ' Endorsement letter uploaded (' . $remarksAttachmentCount . ' file(s)).';
@@ -2368,6 +2887,26 @@ try {
     if ($action !== 'DELETE') {
         document_action_touch_row_version($pdo, $documentId);
         $currentDocumentVersion = document_action_current_row_version($pdo, $documentId);
+    }
+    if (in_array($action, ['FORWARD', 'RELEASE', 'SIGN'], true)) {
+        $mailEventMap = [
+            'FORWARD' => 'forwarded',
+            'RELEASE' => 'released',
+            'SIGN' => 'signed',
+        ];
+        $mailContext = [
+            'destination_office_id' => $destinationOfficeId,
+            'remarks' => $remarks,
+        ];
+        if ($operationId !== '') {
+            $mailContext['dedupe_key'] = 'workflow:' . $operationId;
+        }
+        notification_mail_send_document_event(
+            $pdo,
+            (string)$mailEventMap[$action],
+            $documentId,
+            $mailContext
+        );
     }
     $responsePayload = ['ok' => true, 'message' => $successMessage];
     if ($currentDocumentVersion > 0) {

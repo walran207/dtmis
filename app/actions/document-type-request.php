@@ -90,7 +90,7 @@ try {
                     requested_by_user_id, requested_by_office_id, status, created_at, updated_at
                 ) VALUES (
                     :requested_name, :requested_category, :requested_days, :requested_color, :justification,
-                    :requested_by_user_id, :requested_by_office_id, \'PENDING\', NOW(), NOW()
+                    :requested_by_user_id, :requested_by_office_id, \'PENDING\', SYSDATETIME(), SYSDATETIME()
                 )'
             );
             $insert->execute([
@@ -116,7 +116,7 @@ try {
 
             $pdo->beginTransaction();
             try {
-                $stmt = $pdo->prepare('SELECT * FROM document_type_requests WHERE id = :id LIMIT 1 FOR UPDATE');
+                $stmt = $pdo->prepare('SELECT TOP (1) * FROM document_type_requests WITH (UPDLOCK, ROWLOCK) WHERE id = :id');
                 $stmt->execute(['id' => $requestId]);
                 $request = $stmt->fetch();
                 if (!$request) {
@@ -142,7 +142,7 @@ try {
                          requested_days = :requested_days,
                          requested_color = :requested_color,
                          justification = :justification,
-                         updated_at = NOW()
+                         updated_at = SYSDATETIME()
                      WHERE id = :id'
                 );
                 $currentCategoryRaw = trim((string)($request['requested_category'] ?? 'Simple'));
@@ -183,7 +183,7 @@ try {
 
             $pdo->beginTransaction();
             try {
-                $stmt = $pdo->prepare('SELECT * FROM document_type_requests WHERE id = :id LIMIT 1 FOR UPDATE');
+                $stmt = $pdo->prepare('SELECT TOP (1) * FROM document_type_requests WITH (UPDLOCK, ROWLOCK) WHERE id = :id');
                 $stmt->execute(['id' => $requestId]);
                 $request = $stmt->fetch();
                 if (!$request) {
@@ -220,7 +220,7 @@ try {
 
             $pdo->beginTransaction();
             try {
-                $stmt = $pdo->prepare('SELECT * FROM document_type_requests WHERE id = :id LIMIT 1 FOR UPDATE');
+                $stmt = $pdo->prepare('SELECT TOP (1) * FROM document_type_requests WITH (UPDLOCK, ROWLOCK) WHERE id = :id');
                 $stmt->execute(['id' => $requestId]);
                 $request = $stmt->fetch();
                 if (!$request) {
@@ -253,7 +253,7 @@ try {
                         'id' => $linkedDocumentTypeId,
                     ]);
                 } else {
-                    $existingTypeStmt = $pdo->prepare('SELECT id FROM document_types WHERE LOWER(name) = LOWER(:name) LIMIT 1');
+                    $existingTypeStmt = $pdo->prepare('SELECT TOP (1) id FROM document_types WHERE LOWER(name) = LOWER(:name)');
                     $existingTypeStmt->execute(['name' => $finalName]);
                     $existingTypeId = (int)($existingTypeStmt->fetchColumn() ?: 0);
                     if ($existingTypeId > 0) {
@@ -295,10 +295,10 @@ try {
                          requested_color = :requested_color,
                          status = \'APPROVED\',
                          reviewed_by_user_id = :reviewed_by_user_id,
-                         reviewed_at = NOW(),
+                         reviewed_at = SYSDATETIME(),
                          review_remarks = :review_remarks,
                          linked_document_type_id = :linked_document_type_id,
-                         updated_at = NOW()
+                         updated_at = SYSDATETIME()
                      WHERE id = :id'
                 );
                 $approve->execute([
@@ -331,7 +331,7 @@ try {
 
             $pdo->beginTransaction();
             try {
-                $stmt = $pdo->prepare('SELECT * FROM document_type_requests WHERE id = :id LIMIT 1 FOR UPDATE');
+                $stmt = $pdo->prepare('SELECT TOP (1) * FROM document_type_requests WITH (UPDLOCK, ROWLOCK) WHERE id = :id');
                 $stmt->execute(['id' => $requestId]);
                 $request = $stmt->fetch();
                 if (!$request) {
@@ -347,9 +347,9 @@ try {
                     'UPDATE document_type_requests
                      SET status = \'REJECTED\',
                          reviewed_by_user_id = :reviewed_by_user_id,
-                         reviewed_at = NOW(),
+                         reviewed_at = SYSDATETIME(),
                          review_remarks = :review_remarks,
-                         updated_at = NOW()
+                         updated_at = SYSDATETIME()
                      WHERE id = :id'
                 );
                 $reject->execute([

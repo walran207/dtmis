@@ -35,7 +35,7 @@ $metrics = [
 
 try {
     $pdo = getDatabaseConnection();
-    $queueRows = dashboard_fetch_pending_receive_rows($pdo, $officeId, 50, true);
+    $queueRows = dashboard_fetch_pending_receive_rows($pdo, $officeId, 50, true, true);
     $routeOffices = dashboard_fetch_route_offices($pdo, $officeId);
     $metrics = array_merge($metrics, dashboard_fetch_role_metrics($pdo, $officeId));
 } catch (Throwable $exception) {
@@ -97,12 +97,12 @@ foreach ($queueRows as $queueRow) {
     ];
 }
 
-$pageTitle = 'PENRO Admin Record Action | DENR Region XII eDATS';
+$pageTitle = 'PENRO Admin Record Action | DENR Region XII DTMIS';
 $brandSubtitle = 'PENRO Admin Record Portal';
 $pageHeading = 'PENRO Admin Record Action';
 $pageSubtitle = 'Queue handling and workflow actions for PENRO Admin Record documents.';
 $activeMenu = 'penro_admin_record_action';
-$dashboardLivePath = app_url('actions/dashboard-live.php?scope=pending_receive_action');
+$dashboardLivePath = app_url('actions/dashboard-live.php?scope=pending_receive_action&exclude_returned=1');
 $tableTitle = 'For Clearance Queue (ARTA risk first)';
 $tableColumns = ['Tracking ID', 'Subject', 'Document Type (+ ARTA)', 'Date Received', 'Time Remaining', 'Date Created', 'Status', 'Quick Actions'];
 $pageActions = ['View Tracking Slip', 'Print Package', 'Receive', 'Approve', 'Pending', 'Forward', 'Released'];
@@ -120,40 +120,7 @@ $statusFilterOptions = [
 ];
 $routeOffices = is_array($routeOffices ?? null) ? $routeOffices : [];
 
-$kpiCards = [
-    ['label' => 'Pending Received', 'value' => (string)$metrics['pending_total'], 'icon' => 'blue'],
-    ['label' => 'Pending Approval', 'value' => (string)$metrics['pending_approval_total'], 'icon' => 'orange'],
-    ['label' => 'Pending Forward', 'value' => (string)$metrics['pending_forward_total'], 'icon' => 'violet'],
-    ['label' => 'Returned', 'value' => (string)$metrics['returned_total'], 'icon' => 'red'],
-    ['label' => 'Released', 'value' => (string)$metrics['completed_total'], 'icon' => 'green'],
-];
-
-$panels = [
-    [
-        'title' => 'Action Pipeline',
-        'rows' => [
-            ['label' => 'Pending Received', 'value' => (string)$metrics['pending_total'], 'width' => $pendingReceivedWidth],
-            ['label' => 'Pending Approval', 'value' => (string)$metrics['pending_approval_total'], 'width' => $pendingApprovalWidth],
-            ['label' => 'Pending Forward', 'value' => (string)$metrics['pending_forward_total'], 'width' => $pendingForwardWidth],
-            ['label' => 'Released', 'value' => (string)$metrics['completed_total'], 'width' => $completedWidth],
-        ],
-    ],
-    [
-        'title' => 'Clearance Throughput',
-        'rows' => [
-            ['label' => 'For Clearance', 'value' => (string)$metrics['for_clearance_total'], 'width' => $pendingApprovalWidth],
-            ['label' => 'Released', 'value' => (string)$metrics['completed_total'], 'width' => $completedWidth],
-            ['label' => 'Pending Released', 'value' => (string)$metrics['released_total'], 'width' => $releasedWidth],
-        ],
-    ],
-    [
-        'title' => 'ARTA Risk Watch',
-        'rows' => [
-            ['label' => 'At-Risk Total', 'value' => (string)$metrics['at_risk_total'], 'width' => $atRiskWidth],
-            ['label' => 'Due Soon / Due Today', 'value' => (string)(((int)$metrics['due_today_total']) + ((int)$metrics['due_soon_total'])), 'width' => $dueSoonWidth],
-            ['label' => 'Overdue', 'value' => (string)$metrics['overdue_total'], 'width' => $overdueWidth],
-        ],
-    ],
-];
+$kpiCards = [];
+$panels = [];
 
 require dirname(__DIR__, 3) . '/app/templates/role-page-template.php';

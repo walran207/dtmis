@@ -2,7 +2,7 @@
 $roleBasePath = dirname(__DIR__);
 $roleName = 'ORED';
 $initialsFallback = 'OR';
-$pageTitle = 'Digital Signature Workspace | DENR Region XII eDATS';
+$pageTitle = 'Digital Signature Workspace | DENR Region XII DTMIS';
 $activeMenu = 'digital_signature';
 $brandSubtitle = 'ORED Portal';
 $pageHeading = 'Digital Signature Workspace';

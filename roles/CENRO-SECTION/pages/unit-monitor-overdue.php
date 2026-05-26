@@ -2,7 +2,7 @@
 $roleBasePath = dirname(__DIR__);
 $roleName = 'CENRO_SECTION';
 $initialsFallback = 'DC';
-$pageTitle = 'Unit Monitor (Overdue / At-Risk) | DENR Region XII eDATS';
+$pageTitle = 'Unit Monitor (Overdue / At-Risk) | DENR Region XII DTMIS';
 $activeMenu = 'unit_monitor_overdue';
 $brandSubtitle = 'CENRO Section Portal';
 $pageHeading = 'Unit Monitor (Overdue / At-Risk)';

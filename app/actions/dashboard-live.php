@@ -43,10 +43,12 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
 
 $officeId = (int)($_SESSION['office_id'] ?? 0);
 $userId = (int)($_SESSION['user_id'] ?? 0);
+$roleKey = app_normalize_role_key((string)($_SESSION['role_name'] ?? ''));
 $limit = (int)($_GET['limit'] ?? 50);
-$limit = max(5, min($limit, 80));
+$limit = max(5, min($limit, 100));
 $scope = strtolower(trim((string)($_GET['scope'] ?? 'queue')));
 $actionsRaw = trim((string)($_GET['actions'] ?? ''));
+$excludeReturned = trim((string)($_GET['exclude_returned'] ?? '')) === '1';
 
 if ($officeId <= 0) {
     $emitJson([
@@ -64,16 +66,20 @@ try {
     $queueRows = [];
     $metrics = [];
     $activityCounters = [];
+    $artaDistribution = [];
+    $workflowTrend = [];
 
     try {
-        if ($scope === 'origin') {
+        if ($scope === 'archive') {
+            $queueRows = dashboard_fetch_archive_rows($pdo, $officeId, $limit);
+        } elseif ($scope === 'origin') {
             $queueRows = dashboard_fetch_origin_tracker_rows($pdo, $officeId, $limit);
         } elseif ($scope === 'pending_receive') {
-            $queueRows = dashboard_fetch_pending_receive_rows($pdo, $officeId, $limit);
+            $queueRows = dashboard_fetch_pending_receive_rows($pdo, $officeId, $limit, false, $excludeReturned, $userId, $roleKey);
         } elseif ($scope === 'pending_receive_action') {
-            $queueRows = dashboard_fetch_pending_receive_rows($pdo, $officeId, $limit, true);
+            $queueRows = dashboard_fetch_pending_receive_rows($pdo, $officeId, $limit, true, $excludeReturned, $userId, $roleKey);
         } elseif ($scope === 'pending_receive_penro') {
-            $queueRows = dashboard_fetch_pending_receive_rows($pdo, $officeId, $limit, true);
+            $queueRows = dashboard_fetch_pending_receive_rows($pdo, $officeId, $limit, true, $excludeReturned, $userId, $roleKey);
         } elseif ($scope === 'for_cenro_action') {
             $queueRows = dashboard_fetch_for_cenro_action_rows($pdo, $officeId, $limit);
         } elseif ($scope === 'office_action') {
@@ -143,6 +149,18 @@ try {
         $activityCounters = [];
     }
 
+    try {
+        $artaDistribution = dashboard_fetch_arta_distribution($pdo, $officeId);
+    } catch (Throwable $exception) {
+        $artaDistribution = [];
+    }
+
+    try {
+        $workflowTrend = dashboard_fetch_workflow_trend($pdo, $officeId, 7);
+    } catch (Throwable $exception) {
+        $workflowTrend = [];
+    }
+
     $returnedTotal = 0;
     foreach ($queueRows as $queueRow) {
         $status = strtolower(trim((string)($queueRow['status'] ?? '')));
@@ -156,7 +174,10 @@ try {
         'queue_rows' => $queueRows,
         'metrics' => $metrics,
         'activity_counters' => $activityCounters,
+        'arta_distribution' => $artaDistribution,
+        'workflow_trend' => $workflowTrend,
         'returned_total' => $returnedTotal,
+        'date_range' => dashboard_effective_date_range(),
         'server_time' => date('c'),
     ];
     $encoded = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);

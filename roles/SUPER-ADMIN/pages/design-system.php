@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/_bootstrap.php';
 
-$pageTitle = 'Design System | DENR Region XII eDATS';
+$pageTitle = 'Design System | DENR Region XII DTMIS';
 $brandSubtitle = 'Super Admin Portal';
 $pageHeading = 'Design System Customizer';
 $pageSubtitle = 'Adjust theme tokens, role sidebar accents, layout density, and responsive behavior directly in the UI.';

@@ -2,7 +2,7 @@
 $roleBasePath = dirname(__DIR__);
 $roleName = 'Section Staff';
 $initialsFallback = 'SS';
-$pageTitle = 'For Staff Action | DENR Region XII eDATS';
+$pageTitle = 'For Staff Action | DENR Region XII DTMIS';
 $activeMenu = 'inbox_pending_receive';
 $brandSubtitle = 'Section Staff Portal';
 $pageHeading = 'For Staff Action';
@@ -26,5 +26,8 @@ $statusFilterOptions = [
 $pageActions = json_decode('["View","Receive","Forward"]', true);
 $stickyActions = json_decode('["Receive","Forward / Reroute","Return / Request Info"]', true);
 $notifications = json_decode('[{"title":"Queue updated","timeLabel":"Now","message":"Pending Receive has a new routed document.","unread":true,"datetime":"2026-03-14T10:30:00"},{"title":"Tracking slip updated","timeLabel":"48m ago","message":"Custody timeline received a new event.","unread":true,"datetime":"2026-03-14T09:42:00"},{"title":"ARTA reminder","timeLabel":"2h ago","message":"Review due-soon and overdue items.","unread":false,"datetime":"2026-03-14T08:05:00"}]', true);
+
+$kpiCards = [];
+$panels = [];
 
 require dirname(__DIR__, 3) . '/app/templates/role-page-template.php';

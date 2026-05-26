@@ -31,6 +31,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
 
 $officeId = (int)($_SESSION['office_id'] ?? 0);
 $roleName = (string)($_SESSION['role_name'] ?? '');
+$userId = (int)($_SESSION['user_id'] ?? 0);
 $limit = (int)($_GET['limit'] ?? 12);
 $limit = max(3, min($limit, 30));
 
@@ -46,7 +47,7 @@ if ($officeId <= 0) {
 
 try {
     $pdo = getDatabaseConnection();
-    $notifications = dashboard_fetch_notifications($pdo, $officeId, $limit, $roleName);
+    $notifications = dashboard_fetch_notifications($pdo, $officeId, $limit, $roleName, $userId);
 
     $newestId = 0;
     foreach ($notifications as $notification) {

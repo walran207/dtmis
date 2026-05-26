@@ -73,7 +73,7 @@ $atRiskWidth = (string)(int)round(($metrics['at_risk_total'] / $riskBase) * 100)
 $dueSoonWidth = (string)(int)round((($metrics['due_today_total'] + $metrics['due_soon_total']) / $riskBase) * 100) . '%';
 $overdueWidth = (string)(int)round(($metrics['overdue_total'] / $riskBase) * 100) . '%';
 
-$pageTitle = 'PAMO Admin Dashboard | DENR Region XII eDATS';
+$pageTitle = 'PAMO Admin Dashboard | DENR Region XII DTMIS';
 $brandSubtitle = 'PAMO Admin Portal';
 $pageHeading = 'PAMO Admin Management Dashboard';
 $pageSubtitle = 'PAMO internal records gatekeeping, clearance checks, and ARTA monitoring.';

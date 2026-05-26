@@ -12,11 +12,7 @@ if (!function_exists('dashboard_column_exists')) {
             return $cache[$cacheKey];
         }
 
-        $safeTable = str_replace('`', '', $table);
-        $safeColumn = str_replace(['\\', "'"], ['\\\\', "\\'"], $column);
-        $sql = "SHOW COLUMNS FROM `{$safeTable}` LIKE '{$safeColumn}'";
-        $stmt = $pdo->query($sql);
-        $cache[$cacheKey] = $stmt ? (bool)$stmt->fetch() : false;
+        $cache[$cacheKey] = db_column_exists($pdo, $table, $column);
 
         return $cache[$cacheKey];
     }
@@ -54,6 +50,217 @@ if (!function_exists('dashboard_documents_row_version_expr')) {
         }
 
         return '1';
+    }
+}
+
+if (!function_exists('dashboard_documents_sender_expr')) {
+    function dashboard_documents_sender_expr(PDO $pdo, string $originOfficeAlias = 'o_origin'): string
+    {
+        if (dashboard_column_exists($pdo, 'documents', 'sender')) {
+            return "COALESCE(NULLIF(TRIM(d.sender), ''), NULLIF(TRIM(d.external_client_name), ''), COALESCE({$originOfficeAlias}.name, ''))";
+        }
+
+        return "COALESCE(NULLIF(TRIM(d.external_client_name), ''), COALESCE({$originOfficeAlias}.name, ''))";
+    }
+}
+
+if (!function_exists('dashboard_documents_origin_expr')) {
+    function dashboard_documents_origin_expr(PDO $pdo, string $originOfficeAlias = 'o_origin'): string
+    {
+        if (dashboard_column_exists($pdo, 'documents', 'originating_entity_name')) {
+            return "COALESCE(NULLIF(TRIM(d.originating_entity_name), ''), COALESCE({$originOfficeAlias}.name, '-'))";
+        }
+
+        return "COALESCE({$originOfficeAlias}.name, '-')";
+    }
+}
+
+if (!function_exists('dashboard_inline_sqlsrv_named_params')) {
+    function dashboard_inline_sqlsrv_named_params(PDO $pdo, string $sql, array $params): string
+    {
+        if (!db_is_sql_server($pdo) || $params === []) {
+            return $sql;
+        }
+
+        $replacements = [];
+        foreach ($params as $key => $value) {
+            $placeholder = (string)$key;
+            if ($placeholder === '') {
+                continue;
+            }
+            if ($placeholder[0] !== ':') {
+                $placeholder = ':' . $placeholder;
+            }
+            $replacements[$placeholder] = (string)(int)$value;
+        }
+
+        if ($replacements === []) {
+            return $sql;
+        }
+
+        uksort($replacements, static function (string $left, string $right): int {
+            return strlen($right) <=> strlen($left);
+        });
+
+        return strtr($sql, $replacements);
+    }
+}
+
+if (!function_exists('dashboard_sql_top_one_subquery')) {
+    function dashboard_sql_top_one_subquery(
+        PDO $pdo,
+        string $selectExpr,
+        string $fromClause,
+        string $whereClause,
+        string $orderBy,
+        string $alias
+    ): string {
+        return "(
+                        SELECT TOP (1) {$selectExpr}
+                        {$fromClause}
+                        {$whereClause}
+                        ORDER BY {$orderBy}
+                    ) AS {$alias}";
+    }
+}
+
+if (!function_exists('dashboard_sql_custom_others_remarks_subquery')) {
+    function dashboard_sql_custom_others_remarks_subquery(PDO $pdo, string $alias = 'custom_others_remarks'): string
+    {
+        return dashboard_sql_top_one_subquery(
+            $pdo,
+            'al_custom.remarks',
+            'FROM activity_logs al_custom',
+            "WHERE al_custom.document_id = d.id
+              AND LOWER(COALESCE(al_custom.remarks, '')) LIKE '%specified document type (others):%'",
+            'al_custom.id DESC',
+            $alias
+        );
+    }
+}
+
+if (!function_exists('dashboard_sql_exists_flag')) {
+    function dashboard_sql_exists_flag(PDO $pdo, string $subquery, string $alias): string
+    {
+        return 'CASE WHEN EXISTS(' . $subquery . ') THEN 1 ELSE 0 END AS ' . $alias;
+    }
+}
+
+if (!function_exists('dashboard_sql_limit_suffix')) {
+    function dashboard_sql_limit_suffix(int $limit): string
+    {
+        $safeLimit = max(1, $limit);
+        return ' OFFSET 0 ROWS FETCH NEXT ' . $safeLimit . ' ROWS ONLY';
+    }
+}
+
+if (!function_exists('dashboard_sql_add_days_expr')) {
+    function dashboard_sql_add_days_expr(string $dateExpr, string $daysExpr): string
+    {
+        return 'DATEADD(DAY, ' . $daysExpr . ', ' . $dateExpr . ')';
+    }
+}
+
+if (!function_exists('dashboard_sql_current_date_expr')) {
+    function dashboard_sql_current_date_expr(): string
+    {
+        return 'CAST(SYSDATETIME() AS DATE)';
+    }
+}
+
+if (!function_exists('dashboard_sql_date_only_expr')) {
+    function dashboard_sql_date_only_expr(string $dateExpr): string
+    {
+        return 'CAST(' . $dateExpr . ' AS DATE)';
+    }
+}
+
+if (!function_exists('dashboard_sql_days_until_expr')) {
+    function dashboard_sql_days_until_expr(string $dateExpr): string
+    {
+        return 'DATEDIFF(DAY, ' . dashboard_sql_current_date_expr() . ', ' . dashboard_sql_date_only_expr($dateExpr) . ')';
+    }
+}
+
+if (!function_exists('dashboard_sql_recent_cutoff_expr')) {
+    function dashboard_sql_recent_cutoff_expr(int $days): string
+    {
+        return 'DATEADD(DAY, -' . max(0, $days) . ', SYSDATETIME())';
+    }
+}
+
+if (!function_exists('dashboard_normalize_filter_date_input')) {
+    function dashboard_normalize_filter_date_input(?string $value, bool $endOfDay = false): ?array
+    {
+        $raw = trim((string)($value ?? ''));
+        if ($raw === '') {
+            return null;
+        }
+
+        try {
+            $date = new DateTimeImmutable($raw);
+            $date = $endOfDay ? $date->setTime(23, 59, 59) : $date->setTime(0, 0, 0);
+
+            return [
+                'input' => $date->format('Y-m-d'),
+                'sql' => $date->format('Y-m-d H:i:s'),
+                'timestamp' => $date->getTimestamp(),
+            ];
+        } catch (Throwable $exception) {
+            return null;
+        }
+    }
+}
+
+if (!function_exists('dashboard_effective_date_range')) {
+    function dashboard_effective_date_range(?array $dateRange = null): array
+    {
+        $source = is_array($dateRange) ? $dateRange : $_GET;
+
+        $fromDate = dashboard_normalize_filter_date_input((string)($source['from'] ?? $source['fromDate'] ?? $source['from_date'] ?? ''), false);
+        $toDate = dashboard_normalize_filter_date_input((string)($source['to'] ?? $source['toDate'] ?? $source['to_date'] ?? ''), true);
+
+        if ($fromDate !== null && $toDate !== null && (int)$fromDate['timestamp'] > (int)$toDate['timestamp']) {
+            [$fromDate, $toDate] = [$toDate, $fromDate];
+            $fromDate = dashboard_normalize_filter_date_input((string)($fromDate['input'] ?? ''), false);
+            $toDate = dashboard_normalize_filter_date_input((string)($toDate['input'] ?? ''), true);
+        }
+
+        $normalized = [];
+        if ($fromDate !== null) {
+            $normalized['from_input'] = (string)$fromDate['input'];
+            $normalized['from_sql'] = (string)$fromDate['sql'];
+        }
+        if ($toDate !== null) {
+            $normalized['to_input'] = (string)$toDate['input'];
+            $normalized['to_sql'] = (string)$toDate['sql'];
+        }
+
+        return $normalized;
+    }
+}
+
+if (!function_exists('dashboard_build_date_range_clause')) {
+    function dashboard_build_date_range_clause(string $expression, ?array $dateRange = null, string $prefix = 'date_range'): array
+    {
+        $range = dashboard_effective_date_range($dateRange);
+        $clauses = [];
+        $params = [];
+
+        if (isset($range['from_sql']) && trim((string)$range['from_sql']) !== '') {
+            $clauses[] = $expression . ' >= :' . $prefix . '_from';
+            $params[$prefix . '_from'] = (string)$range['from_sql'];
+        }
+        if (isset($range['to_sql']) && trim((string)$range['to_sql']) !== '') {
+            $clauses[] = $expression . ' <= :' . $prefix . '_to';
+            $params[$prefix . '_to'] = (string)$range['to_sql'];
+        }
+
+        return [
+            'sql' => empty($clauses) ? '' : (' AND ' . implode(' AND ', $clauses)),
+            'params' => $params,
+            'range' => $range,
+        ];
     }
 }
 
@@ -164,6 +371,195 @@ if (!function_exists('dashboard_internal_admin_local_signed_action')) {
 
         $resultCache[$cacheKey] = false;
         return false;
+    }
+}
+
+if (!function_exists('dashboard_queue_local_signed_action')) {
+    function dashboard_queue_local_signed_action(PDO $pdo, int $documentId, int $officeId): ?bool
+    {
+        static $resultCache = [];
+        static $officeCache = [];
+
+        if ($documentId <= 0 || $officeId <= 0) {
+            return null;
+        }
+
+        $cacheKey = $documentId . ':' . $officeId;
+        if (array_key_exists($cacheKey, $resultCache)) {
+            return $resultCache[$cacheKey];
+        }
+
+        $officeCacheKey = (string)$officeId;
+        if (!array_key_exists($officeCacheKey, $officeCache)) {
+            $officeCache[$officeCacheKey] = workflow_get_office_context($pdo, $officeId);
+        }
+        $office = $officeCache[$officeCacheKey];
+        if (!is_array($office)) {
+            $resultCache[$cacheKey] = null;
+            return null;
+        }
+
+        $officeLevel = strtoupper(trim((string)($office['level'] ?? '')));
+        if (in_array($officeLevel, ['CENRO_ADMIN_RECORD', 'PENRO_ADMIN_RECORD', 'PAMO_ADMIN'], true)) {
+            $resultCache[$cacheKey] = dashboard_internal_admin_local_signed_action($pdo, $documentId, $officeId);
+            return $resultCache[$cacheKey];
+        }
+
+        if (workflow_name_matches_records_unit((string)($office['name'] ?? ''))) {
+            $latestReceiveStmt = $pdo->prepare(
+                'SELECT TOP (1) ts.from_office_id, ts.date_time_received
+                 FROM tracking_slips ts
+                 WHERE ts.document_id = :document_id
+                   AND ts.receiving_office_id = :office_id
+                 ORDER BY ts.date_time_received DESC, ts.id DESC'
+            );
+            $latestReceiveStmt->execute([
+                'document_id' => $documentId,
+                'office_id' => $officeId,
+            ]);
+            $latestReceive = $latestReceiveStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+            $latestReceiveAt = trim((string)($latestReceive['date_time_received'] ?? ''));
+            $fromOfficeId = (int)($latestReceive['from_office_id'] ?? 0);
+            if ($latestReceiveAt === '' || $fromOfficeId <= 0) {
+                $resultCache[$cacheKey] = false;
+                return false;
+            }
+
+            $fromOfficeCacheKey = 'from:' . $fromOfficeId;
+            if (!array_key_exists($fromOfficeCacheKey, $officeCache)) {
+                $officeCache[$fromOfficeCacheKey] = workflow_get_office_context($pdo, $fromOfficeId);
+            }
+            $fromOffice = $officeCache[$fromOfficeCacheKey];
+            if (!is_array($fromOffice) || !workflow_office_is_ored($fromOffice)) {
+                $resultCache[$cacheKey] = false;
+                return false;
+            }
+
+            $latestPacdoDispatchStmt = $pdo->prepare(
+                'SELECT MAX(al.created_at)
+                 FROM activity_logs al
+                 INNER JOIN users u ON u.id = al.user_id
+                 WHERE al.document_id = :document_id
+                   AND u.office_id = :office_id
+                   AND al.destination_office_id = :destination_office_id
+                   AND LOWER(COALESCE(al.action_type, \'\')) IN (\'forwarded\', \'forward\', \'released\', \'rerouted\', \'overridden\')
+                   AND al.created_at <= :received_at'
+            );
+            $latestPacdoDispatchStmt->execute([
+                'document_id' => $documentId,
+                'office_id' => $officeId,
+                'destination_office_id' => $fromOfficeId,
+                'received_at' => $latestReceiveAt,
+            ]);
+            $latestPacdoDispatchAt = trim((string)($latestPacdoDispatchStmt->fetchColumn() ?: ''));
+            if ($latestPacdoDispatchAt === '') {
+                $resultCache[$cacheKey] = false;
+                return false;
+            }
+
+            $oredSignedStmt = $pdo->prepare(
+                'SELECT MAX(al.created_at)
+                 FROM activity_logs al
+                 INNER JOIN users u ON u.id = al.user_id
+                 INNER JOIN roles r ON r.id = u.role_id
+                 WHERE al.document_id = :document_id
+                   AND u.office_id = :office_id
+                   AND UPPER(COALESCE(r.name, \'\')) IN (\'ORED\', \'ORED_SIGN\')
+                   AND LOWER(COALESCE(al.action_type, \'\')) IN (\'signed\', \'signed/completed\', \'completed\')
+                   AND al.created_at >= :dispatched_at
+                   AND al.created_at <= :received_at'
+            );
+            $oredSignedStmt->execute([
+                'document_id' => $documentId,
+                'office_id' => $fromOfficeId,
+                'dispatched_at' => $latestPacdoDispatchAt,
+                'received_at' => $latestReceiveAt,
+            ]);
+
+            $resultCache[$cacheKey] = trim((string)($oredSignedStmt->fetchColumn() ?: '')) !== '';
+            return $resultCache[$cacheKey];
+        }
+
+        $expectedRoleKey = match ($officeLevel) {
+            'CENRO_OFFICER' => 'CENRO_OFFICER',
+            'PENRO_OFFICER' => 'PENRO_OFFICER',
+            'PASU_OFFICER' => 'PASU_OFFICER',
+            default => (workflow_office_is_ored($office) ? 'ORED' : ''),
+        };
+
+        if ($expectedRoleKey === '') {
+            // Non-signing queues such as PACDO/RECORDS-UNIT, Division, Section, and
+            // other internal offices should not inherit a previous office's signed
+            // state. Treat them as unsigned unless their own local logic says otherwise.
+            $resultCache[$cacheKey] = false;
+            return false;
+        }
+
+        if ($expectedRoleKey === 'ORED') {
+            $signDTMIStmt = $pdo->prepare(
+                'SELECT TOP (1) al.created_at
+                 FROM activity_logs al
+                 INNER JOIN users u ON u.id = al.user_id
+                 INNER JOIN roles r ON r.id = u.role_id
+                 WHERE al.document_id = :document_id
+                   AND LOWER(COALESCE(al.action_type, \'\')) = \'signed\'
+                   AND UPPER(COALESCE(r.name, \'\')) IN (\'ORED\', \'ORED_SIGN\')
+                   AND u.office_id = :office_id
+                 ORDER BY al.created_at DESC, al.id DESC'
+            );
+            $signDTMIStmt->execute([
+                'document_id' => $documentId,
+                'office_id' => $officeId,
+            ]);
+        } else {
+            $signDTMIStmt = $pdo->prepare(
+                'SELECT TOP (1) al.created_at
+                 FROM activity_logs al
+                 INNER JOIN users u ON u.id = al.user_id
+                 INNER JOIN roles r ON r.id = u.role_id
+                 WHERE al.document_id = :document_id
+                   AND LOWER(COALESCE(al.action_type, \'\')) = \'signed\'
+                   AND UPPER(COALESCE(r.name, \'\')) = :role_name
+                   AND u.office_id = :office_id
+                 ORDER BY al.created_at DESC, al.id DESC'
+            );
+            $signDTMIStmt->execute([
+                'document_id' => $documentId,
+                'role_name' => $expectedRoleKey,
+                'office_id' => $officeId,
+            ]);
+        }
+        $signedAtRaw = (string)($signDTMIStmt->fetchColumn() ?: '');
+        if ($signedAtRaw === '') {
+            $resultCache[$cacheKey] = false;
+            return false;
+        }
+
+        $latestReceiveStmt = $pdo->prepare(
+            'SELECT MAX(ts.date_time_received)
+             FROM tracking_slips ts
+             WHERE ts.document_id = :document_id
+               AND ts.receiving_office_id = :office_id'
+        );
+        $latestReceiveStmt->execute([
+            'document_id' => $documentId,
+            'office_id' => $officeId,
+        ]);
+        $latestReceiveRaw = (string)($latestReceiveStmt->fetchColumn() ?: '');
+        if ($latestReceiveRaw === '') {
+            $resultCache[$cacheKey] = true;
+            return true;
+        }
+
+        $signedAtTs = strtotime($signedAtRaw);
+        $latestReceiveTs = strtotime($latestReceiveRaw);
+        if ($signedAtTs === false || $latestReceiveTs === false) {
+            $resultCache[$cacheKey] = true;
+            return true;
+        }
+
+        $resultCache[$cacheKey] = $signedAtTs >= $latestReceiveTs;
+        return $resultCache[$cacheKey];
     }
 }
 
@@ -405,7 +801,7 @@ if (!function_exists('dashboard_build_office_scope')) {
 }
 
 if (!function_exists('dashboard_fetch_queue_rows')) {
-    function dashboard_fetch_queue_rows(PDO $pdo, int $officeId, int $limit = 8): array
+    function dashboard_fetch_queue_rows(PDO $pdo, int $officeId, int $limit = 8, ?array $dateRange = null): array
     {
         if ($officeId <= 0) {
             return [];
@@ -417,6 +813,7 @@ if (!function_exists('dashboard_fetch_queue_rows')) {
         $pendingOfficeSelect = $hasPendingOfficeColumn
             ? 'd.pending_office_id AS pending_office_id,'
             : 'NULL AS pending_office_id,';
+        $dateClause = dashboard_build_date_range_clause('COALESCE(office_ts.office_received_at, d.created_at)', $dateRange, 'queue_rows_date');
 
                 $sql = 'SELECT
                     d.id,
@@ -425,6 +822,7 @@ if (!function_exists('dashboard_fetch_queue_rows')) {
                     d.subject,
                     d.status,
                     d.source_type,
+                    ' . dashboard_documents_sender_expr($pdo) . ' AS sender,
                     d.created_by_user_id,
                     d.originating_office_id,
                     d.current_office_id,
@@ -432,49 +830,64 @@ if (!function_exists('dashboard_fetch_queue_rows')) {
                     ' . $pendingOfficeSelect . '
                     dt.name AS document_type,
                     ' . dashboard_documents_arta_category_expr($pdo) . ' AS arta_category,
-                    (
-                        SELECT al_ret.remarks
-                        FROM activity_logs al_ret
-                        WHERE al_ret.document_id = d.id
+                    ' . dashboard_sql_top_one_subquery(
+                        $pdo,
+                        'al_ret.remarks',
+                        'FROM activity_logs al_ret',
+                        "WHERE al_ret.document_id = d.id
                           AND (
-                              LOWER(COALESCE(al_ret.action_type, \'\')) LIKE \'return%\'
-                              OR LOWER(COALESCE(al_ret.action_type, \'\')) = \'returned\'
+                              LOWER(COALESCE(al_ret.action_type, '')) LIKE 'return%'
+                              OR LOWER(COALESCE(al_ret.action_type, '')) = 'returned'
                           )
-                          AND TRIM(COALESCE(al_ret.remarks, \'\')) <> \'\'
-                        ORDER BY al_ret.id DESC
-                        LIMIT 1
-                    ) AS return_remarks,
-                    (
-                        SELECT al_last.remarks
-                        FROM activity_logs al_last
-                        WHERE al_last.document_id = d.id
-                          AND TRIM(COALESCE(al_last.remarks, \'\')) <> \'\'
-                        ORDER BY al_last.id DESC
-                        LIMIT 1
-                    ) AS last_remarks,
+                          AND TRIM(COALESCE(al_ret.remarks, '')) <> ''",
+                        'al_ret.id DESC',
+                        'return_remarks'
+                    ) . ',
+                    ' . dashboard_sql_top_one_subquery(
+                        $pdo,
+                        'al_last.remarks',
+                        'FROM activity_logs al_last',
+                        "WHERE al_last.document_id = d.id
+                          AND TRIM(COALESCE(al_last.remarks, '')) <> ''",
+                        'al_last.id DESC',
+                        'last_remarks'
+                    ) . ',
+                    ' . dashboard_sql_custom_others_remarks_subquery($pdo) . ',
                     COALESCE(office_ts.office_received_at, d.created_at) AS queue_received_at,
-                    DATE_ADD(d.created_at, INTERVAL ' . dashboard_documents_arta_days_expr($pdo) . ' DAY) AS deadline_at,
+                    ' . dashboard_sql_add_days_expr('d.created_at', dashboard_documents_arta_days_expr($pdo)) . ' AS deadline_at,
                     COALESCE(o_current.name, \'-\') AS current_holder,
-                    COALESCE(o_origin.name, \'-\') AS origin_office,
-                    EXISTS(
+                    ' . dashboard_documents_origin_expr($pdo) . ' AS origin_office,
+                    ' . dashboard_sql_exists_flag(
+                        $pdo,
+                        "
                         SELECT 1
                         FROM activity_logs al_signed
                         WHERE al_signed.document_id = d.id
-                          AND LOWER(COALESCE(al_signed.action_type, \'\')) = \'signed\'
-                    ) AS has_signed_action,
-                    EXISTS(
+                          AND LOWER(COALESCE(al_signed.action_type, '')) = 'signed'
+                    ",
+                        'has_signed_action'
+                    ) . ',
+                    ' . dashboard_sql_exists_flag(
+                        $pdo,
+                        "
                         SELECT 1
                         FROM tracking_slips ts_sec
                         INNER JOIN offices o_sec ON o_sec.id = ts_sec.receiving_office_id
                         WHERE ts_sec.document_id = d.id
-                          AND UPPER(COALESCE(o_sec.level, \'\')) IN (' . dashboard_section_like_level_sql_list() . ')
-                    ) AS has_section_receive,
-                    EXISTS(
+                          AND UPPER(COALESCE(o_sec.level, '')) IN (" . dashboard_section_like_level_sql_list() . ")
+                    ",
+                        'has_section_receive'
+                    ) . ',
+                    ' . dashboard_sql_exists_flag(
+                        $pdo,
+                        "
                         SELECT 1
                         FROM activity_logs al_ret
                         WHERE al_ret.document_id = d.id
-                          AND LOWER(COALESCE(al_ret.action_type, \'\')) IN (\'return\', \'returned\')
-                    ) AS has_return_action
+                          AND LOWER(COALESCE(al_ret.action_type, '')) IN ('return', 'returned')
+                    ",
+                        'has_return_action'
+                    ) . '
                 FROM documents d
                 LEFT JOIN document_types dt ON dt.id = d.document_type_id
                 LEFT JOIN offices o_current ON o_current.id = d.current_office_id
@@ -486,6 +899,7 @@ if (!function_exists('dashboard_fetch_queue_rows')) {
                     GROUP BY ts.document_id
                 ) office_ts ON office_ts.document_id = d.id
                 WHERE ' . $scope['where'] . '
+                ' . $dateClause['sql'] . '
                 ORDER BY
                     CASE
                         WHEN LOWER(COALESCE(d.status, \'\')) = \'overdue\' THEN 3
@@ -493,12 +907,12 @@ if (!function_exists('dashboard_fetch_queue_rows')) {
                         ELSE 1
                     END DESC,
                     queue_received_at DESC,
-                    d.id DESC
-                LIMIT ' . $safeLimit;
+                    d.id DESC' . dashboard_sql_limit_suffix($safeLimit);
 
         $stmt = $pdo->prepare($sql);
         $params = $scope['params'];
         $params['office_id_custody'] = $officeId;
+        $params = array_merge($params, $dateClause['params']);
         $stmt->execute($params);
         $rows = $stmt->fetchAll();
         if (!$rows) {
@@ -523,10 +937,11 @@ if (!function_exists('dashboard_fetch_queue_rows')) {
                 $subject = 'No subject';
             }
 
-            $status = trim((string)($row['status'] ?? 'Pending'));
-            if ($status === '') {
-                $status = 'Pending';
-            }
+            $status = workflow_resolve_display_status(
+                trim((string)($row['status'] ?? 'Pending')),
+                (int)($row['pending_office_id'] ?? 0),
+                (int)($row['current_office_id'] ?? 0)
+            );
 
             $documentType = trim((string)($row['document_type'] ?? 'Uncategorized'));
             if ($documentType === '') {
@@ -534,17 +949,20 @@ if (!function_exists('dashboard_fetch_queue_rows')) {
             }
 
             $artaCategory = trim((string)($row['arta_category'] ?? ''));
-            $documentTypeLabel = $artaCategory !== ''
-                ? $documentType . ' (' . $artaCategory . ')'
-                : $documentType;
             $returnRemarks = trim((string)($row['return_remarks'] ?? ''));
             $lastRemarks = trim((string)($row['last_remarks'] ?? ''));
-            $resolvedRemarks = $returnRemarks !== ''
+            $resolvedRemarksRaw = $returnRemarks !== ''
                 ? $returnRemarks
                 : $lastRemarks;
+            $documentTypeRemarks = trim((string)($row['custom_others_remarks'] ?? ''));
+            if ($documentTypeRemarks === '') {
+                $documentTypeRemarks = $resolvedRemarksRaw;
+            }
+            $documentTypeLabel = workflow_format_document_type_label($documentType, $artaCategory, $documentTypeRemarks);
+            $resolvedRemarks = workflow_strip_custom_others_document_type_from_remarks($resolvedRemarksRaw);
             $documentId = (int)($row['id'] ?? 0);
             $effectiveHasSignedAction = (int)($row['has_signed_action'] ?? 0) > 0 ? 1 : 0;
-            $localSignedAction = dashboard_internal_admin_local_signed_action($pdo, $documentId, $contextOfficeId);
+            $localSignedAction = dashboard_queue_local_signed_action($pdo, $documentId, $contextOfficeId);
             if ($localSignedAction !== null) {
                 $effectiveHasSignedAction = $localSignedAction ? 1 : 0;
             }
@@ -555,6 +973,208 @@ if (!function_exists('dashboard_fetch_queue_rows')) {
                 'tracking_id' => $trackingId,
                 'subject' => $subject,
                 'status' => $status,
+                'status_raw' => trim((string)($row['status'] ?? '')) !== '' ? (string)$row['status'] : 'Pending',
+                'sender' => trim((string)($row['sender'] ?? '')) !== '' ? (string)$row['sender'] : '-',
+                'source_type' => strtoupper(trim((string)($row['source_type'] ?? 'INTERNAL'))),
+                'created_by_user_id' => (int)($row['created_by_user_id'] ?? 0),
+                'origin_office_id' => (int)($row['originating_office_id'] ?? 0),
+                'current_office_id' => (int)($row['current_office_id'] ?? 0),
+                'pending_office_id' => (int)($row['pending_office_id'] ?? 0),
+                'has_signed_action' => $effectiveHasSignedAction,
+                'document_type' => $documentTypeLabel,
+                'arta_category' => $artaCategory !== '' ? $artaCategory : 'Simple',
+                'last_remarks' => $resolvedRemarks,
+                'return_remarks' => $returnRemarks,
+                'current_holder' => trim((string)($row['current_holder'] ?? '-')),
+                'origin_office' => trim((string)($row['origin_office'] ?? '-')),
+                'has_section_receive' => (int)($row['has_section_receive'] ?? 0) > 0 ? 1 : 0,
+                'has_return_action' => (int)($row['has_return_action'] ?? 0) > 0 ? 1 : 0,
+                'date_received' => dashboard_format_datetime_label((string)($row['queue_received_at'] ?? null)),
+                'date_received_raw' => (string)($row['queue_received_at'] ?? ''),
+                'date_created' => dashboard_format_datetime_label((string)($row['created_at'] ?? null)),
+                'date_created_raw' => (string)($row['created_at'] ?? ''),
+                'deadline_at_raw' => (string)($row['deadline_at'] ?? ''),
+                'deadline_bucket' => dashboard_deadline_bucket((string)($row['deadline_at'] ?? null), $status),
+                'time_remaining' => dashboard_format_time_remaining((string)($row['deadline_at'] ?? null), $status),
+            ];
+        }
+
+        return $mapped;
+    }
+}
+
+if (!function_exists('dashboard_fetch_archive_rows')) {
+    function dashboard_fetch_archive_rows(PDO $pdo, int $officeId, int $limit = 50, ?array $dateRange = null): array
+    {
+        if ($officeId <= 0) {
+            return [];
+        }
+
+        $safeLimit = max(5, min($limit, 100));
+        $hasPendingOfficeColumn = dashboard_column_exists($pdo, 'documents', 'pending_office_id');
+        $scope = dashboard_build_office_scope($officeId, $hasPendingOfficeColumn);
+        $pendingOfficeSelect = $hasPendingOfficeColumn
+            ? 'd.pending_office_id AS pending_office_id,'
+            : 'NULL AS pending_office_id,';
+        $dateClause = dashboard_build_date_range_clause('COALESCE(office_ts.office_received_at, d.created_at)', $dateRange, 'archive_rows_date');
+        $terminalStatuses = "'completed', 'released', 'closed', 'approved', 'resolved', 'done', 'signed', 'signed/completed', 'cancelled', 'canceled'";
+
+        $sql = 'SELECT
+                    d.id,
+                    ' . dashboard_documents_row_version_expr($pdo) . ' AS row_version,
+                    d.tracking_id,
+                    d.subject,
+                    d.status,
+                    d.source_type,
+                    ' . dashboard_documents_sender_expr($pdo) . ' AS sender,
+                    d.created_by_user_id,
+                    d.originating_office_id,
+                    d.current_office_id,
+                    d.created_at,
+                    ' . $pendingOfficeSelect . '
+                    dt.name AS document_type,
+                    ' . dashboard_documents_arta_category_expr($pdo) . ' AS arta_category,
+                    ' . dashboard_sql_top_one_subquery(
+                        $pdo,
+                        'al_ret.remarks',
+                        'FROM activity_logs al_ret',
+                        "WHERE al_ret.document_id = d.id
+                          AND (
+                              LOWER(COALESCE(al_ret.action_type, '')) LIKE 'return%'
+                              OR LOWER(COALESCE(al_ret.action_type, '')) = 'returned'
+                          )
+                          AND TRIM(COALESCE(al_ret.remarks, '')) <> ''",
+                        'al_ret.id DESC',
+                        'return_remarks'
+                    ) . ',
+                    ' . dashboard_sql_top_one_subquery(
+                        $pdo,
+                        'al_last.remarks',
+                        'FROM activity_logs al_last',
+                        "WHERE al_last.document_id = d.id
+                          AND TRIM(COALESCE(al_last.remarks, '')) <> ''",
+                        'al_last.id DESC',
+                        'last_remarks'
+                    ) . ',
+                    ' . dashboard_sql_custom_others_remarks_subquery($pdo) . ',
+                    COALESCE(office_ts.office_received_at, d.created_at) AS queue_received_at,
+                    ' . dashboard_sql_add_days_expr('d.created_at', dashboard_documents_arta_days_expr($pdo)) . ' AS deadline_at,
+                    COALESCE(o_current.name, \'-\') AS current_holder,
+                    ' . dashboard_documents_origin_expr($pdo) . ' AS origin_office,
+                    ' . dashboard_sql_exists_flag(
+                        $pdo,
+                        "
+                        SELECT 1
+                        FROM activity_logs al_signed
+                        WHERE al_signed.document_id = d.id
+                          AND LOWER(COALESCE(al_signed.action_type, '')) = 'signed'
+                    ",
+                        'has_signed_action'
+                    ) . ',
+                    ' . dashboard_sql_exists_flag(
+                        $pdo,
+                        "
+                        SELECT 1
+                        FROM tracking_slips ts_sec
+                        INNER JOIN offices o_sec ON o_sec.id = ts_sec.receiving_office_id
+                        WHERE ts_sec.document_id = d.id
+                          AND UPPER(COALESCE(o_sec.level, '')) IN (" . dashboard_section_like_level_sql_list() . ")
+                    ",
+                        'has_section_receive'
+                    ) . ',
+                    ' . dashboard_sql_exists_flag(
+                        $pdo,
+                        "
+                        SELECT 1
+                        FROM activity_logs al_ret
+                        WHERE al_ret.document_id = d.id
+                          AND LOWER(COALESCE(al_ret.action_type, '')) IN ('return', 'returned')
+                    ",
+                        'has_return_action'
+                    ) . '
+                FROM documents d
+                LEFT JOIN document_types dt ON dt.id = d.document_type_id
+                LEFT JOIN offices o_current ON o_current.id = d.current_office_id
+                LEFT JOIN offices o_origin ON o_origin.id = d.originating_office_id
+                LEFT JOIN (
+                    SELECT ts.document_id, MAX(ts.date_time_received) AS office_received_at
+                    FROM tracking_slips ts
+                    WHERE ts.receiving_office_id = :office_id_custody
+                    GROUP BY ts.document_id
+                ) office_ts ON office_ts.document_id = d.id
+                WHERE ' . $scope['where'] . '
+                  AND LOWER(COALESCE(d.status, \'\')) IN (' . $terminalStatuses . ')
+                ' . $dateClause['sql'] . '
+                ORDER BY
+                    queue_received_at DESC,
+                    d.id DESC' . dashboard_sql_limit_suffix($safeLimit);
+
+        $stmt = $pdo->prepare($sql);
+        $params = $scope['params'];
+        $params['office_id_custody'] = $officeId;
+        $params = array_merge($params, $dateClause['params']);
+        $stmt->execute($params);
+        $rows = $stmt->fetchAll();
+        if (!$rows) {
+            return [];
+        }
+
+        $contextOfficeId = (int)($params['office_id_custody']
+            ?? $params['office_id_current']
+            ?? $params['office_id_current_action']
+            ?? $params['office_id_origin']
+            ?? 0);
+
+        $mapped = [];
+        foreach ($rows as $row) {
+            $trackingId = trim((string)($row['tracking_id'] ?? ''));
+            if ($trackingId === '') {
+                continue;
+            }
+
+            $subject = trim((string)($row['subject'] ?? ''));
+            if ($subject === '') {
+                $subject = 'No subject';
+            }
+
+            $status = workflow_resolve_display_status(
+                trim((string)($row['status'] ?? 'Pending')),
+                (int)($row['pending_office_id'] ?? 0),
+                (int)($row['current_office_id'] ?? 0)
+            );
+
+            $documentType = trim((string)($row['document_type'] ?? 'Uncategorized'));
+            if ($documentType === '') {
+                $documentType = 'Uncategorized';
+            }
+
+            $artaCategory = trim((string)($row['arta_category'] ?? ''));
+            $returnRemarks = trim((string)($row['return_remarks'] ?? ''));
+            $lastRemarks = trim((string)($row['last_remarks'] ?? ''));
+            $resolvedRemarksRaw = $returnRemarks !== ''
+                ? $returnRemarks
+                : $lastRemarks;
+            $documentTypeRemarks = trim((string)($row['custom_others_remarks'] ?? ''));
+            if ($documentTypeRemarks === '') {
+                $documentTypeRemarks = $resolvedRemarksRaw;
+            }
+            $documentTypeLabel = workflow_format_document_type_label($documentType, $artaCategory, $documentTypeRemarks);
+            $resolvedRemarks = workflow_strip_custom_others_document_type_from_remarks($resolvedRemarksRaw);
+            $documentId = (int)($row['id'] ?? 0);
+            $effectiveHasSignedAction = (int)($row['has_signed_action'] ?? 0) > 0 ? 1 : 0;
+            $localSignedAction = dashboard_queue_local_signed_action($pdo, $documentId, $contextOfficeId);
+            if ($localSignedAction !== null) {
+                $effectiveHasSignedAction = $localSignedAction ? 1 : 0;
+            }
+
+            $mapped[] = [
+                'document_id' => $documentId,
+                'row_version' => max(1, (int)($row['row_version'] ?? 1)),
+                'tracking_id' => $trackingId,
+                'subject' => $subject,
+                'status' => $status,
+                'status_raw' => trim((string)($row['status'] ?? '')) !== '' ? (string)$row['status'] : 'Pending',
+                'sender' => trim((string)($row['sender'] ?? '')) !== '' ? (string)$row['sender'] : '-',
                 'source_type' => strtoupper(trim((string)($row['source_type'] ?? 'INTERNAL'))),
                 'created_by_user_id' => (int)($row['created_by_user_id'] ?? 0),
                 'origin_office_id' => (int)($row['originating_office_id'] ?? 0),
@@ -584,13 +1204,37 @@ if (!function_exists('dashboard_fetch_queue_rows')) {
 }
 
 if (!function_exists('dashboard_fetch_origin_tracker_rows')) {
-    function dashboard_fetch_origin_tracker_rows(PDO $pdo, int $originOfficeId, int $limit = 50): array
+    function dashboard_fetch_origin_tracker_rows(PDO $pdo, int $originOfficeId, int $limit = 50, ?array $dateRange = null): array
     {
         if ($originOfficeId <= 0) {
             return [];
         }
 
         $safeLimit = max(5, min($limit, 200));
+        $dateClause = dashboard_build_date_range_clause('COALESCE(last_actions.last_action_at, d.created_at)', $dateRange, 'origin_tracker_date');
+        $returnRemarksSql = dashboard_sql_top_one_subquery(
+            $pdo,
+            'al_ret.remarks',
+            'FROM activity_logs al_ret',
+            "WHERE al_ret.document_id = d.id
+              AND (
+                  LOWER(COALESCE(al_ret.action_type, '')) LIKE 'return%'
+                  OR LOWER(COALESCE(al_ret.action_type, '')) = 'returned'
+              )
+              AND TRIM(COALESCE(al_ret.remarks, '')) <> ''",
+            'al_ret.id DESC',
+            'return_remarks'
+        );
+        $lastRemarksSql = dashboard_sql_top_one_subquery(
+            $pdo,
+            'al_last.remarks',
+            'FROM activity_logs al_last',
+            "WHERE al_last.document_id = d.id
+              AND TRIM(COALESCE(al_last.remarks, '')) <> ''",
+            'al_last.id DESC',
+            'last_remarks'
+        );
+        $customOthersRemarksSql = dashboard_sql_custom_others_remarks_subquery($pdo);
         $sql = 'SELECT
                     d.id,
                     ' . dashboard_documents_row_version_expr($pdo) . ' AS row_version,
@@ -598,6 +1242,7 @@ if (!function_exists('dashboard_fetch_origin_tracker_rows')) {
                     d.subject,
                     d.status,
                     d.source_type,
+                    ' . dashboard_documents_sender_expr($pdo) . ' AS sender,
                     d.created_by_user_id,
                     d.originating_office_id,
                     d.current_office_id,
@@ -608,24 +1253,36 @@ if (!function_exists('dashboard_fetch_origin_tracker_rows')) {
                     COALESCE(o_current.name, \'-\') AS current_holder_office,
                     COALESCE(o_pending.name, \'\') AS pending_holder_office,
                     COALESCE(last_actions.last_action_at, d.created_at) AS last_move_at,
-                    DATE_ADD(COALESCE(last_receives.last_received_at, d.created_at), INTERVAL ' . dashboard_documents_arta_days_expr($pdo) . ' DAY) AS deadline_at,
-                    EXISTS(
+                    ' . $returnRemarksSql . ',
+                    ' . $lastRemarksSql . ',
+                    ' . $customOthersRemarksSql . ',
+                    ' . dashboard_sql_add_days_expr('COALESCE(last_receives.last_received_at, d.created_at)', dashboard_documents_arta_days_expr($pdo)) . ' AS deadline_at,
+                    ' . dashboard_sql_exists_flag(
+                        $pdo,
+                        "
                         SELECT 1
                         FROM tracking_slips ts_sec
                         INNER JOIN offices o_sec ON o_sec.id = ts_sec.receiving_office_id
                         WHERE ts_sec.document_id = d.id
-                          AND UPPER(COALESCE(o_sec.level, \'\')) IN (' . dashboard_section_like_level_sql_list() . ')
-                    ) AS has_section_receive,
-                    EXISTS(
+                          AND UPPER(COALESCE(o_sec.level, '')) IN (" . dashboard_section_like_level_sql_list() . ")
+                    ",
+                        'has_section_receive'
+                    ) . ',
+                    ' . dashboard_sql_exists_flag(
+                        $pdo,
+                        "
                         SELECT 1
                         FROM activity_logs al_ret
                         WHERE al_ret.document_id = d.id
-                          AND LOWER(COALESCE(al_ret.action_type, \'\')) IN (\'return\', \'returned\')
-                    ) AS has_return_action
+                          AND LOWER(COALESCE(al_ret.action_type, '')) IN ('return', 'returned')
+                    ",
+                        'has_return_action'
+                    ) . '
                 FROM documents d
                 LEFT JOIN document_types dt ON dt.id = d.document_type_id
                 LEFT JOIN offices o_current ON o_current.id = d.current_office_id
                 LEFT JOIN offices o_pending ON o_pending.id = d.pending_office_id
+                LEFT JOIN offices o_origin ON o_origin.id = d.originating_office_id
                 LEFT JOIN (
                     SELECT document_id, MAX(created_at) AS last_action_at
                     FROM activity_logs
@@ -637,11 +1294,13 @@ if (!function_exists('dashboard_fetch_origin_tracker_rows')) {
                     GROUP BY document_id
                 ) last_receives ON last_receives.document_id = d.id
                 WHERE d.originating_office_id = :originating_office_id
-                ORDER BY last_move_at DESC, d.id DESC
-                LIMIT ' . $safeLimit;
+                ' . $dateClause['sql'] . '
+                ORDER BY last_move_at DESC, d.id DESC' . dashboard_sql_limit_suffix($safeLimit);
 
         $stmt = $pdo->prepare($sql);
-        $stmt->execute(['originating_office_id' => $originOfficeId]);
+        $stmt->execute(array_merge([
+            'originating_office_id' => $originOfficeId,
+        ], $dateClause['params']));
         $rows = $stmt->fetchAll();
         if (!$rows) {
             return [];
@@ -659,10 +1318,11 @@ if (!function_exists('dashboard_fetch_origin_tracker_rows')) {
                 $subject = 'No subject';
             }
 
-            $status = trim((string)($row['status'] ?? 'Pending'));
-            if ($status === '') {
-                $status = 'Pending';
-            }
+            $status = workflow_resolve_display_status(
+                trim((string)($row['status'] ?? 'Pending')),
+                (int)($row['pending_office_id'] ?? 0),
+                (int)($row['current_office_id'] ?? 0)
+            );
 
             $documentType = trim((string)($row['document_type'] ?? 'Uncategorized'));
             if ($documentType === '') {
@@ -670,10 +1330,6 @@ if (!function_exists('dashboard_fetch_origin_tracker_rows')) {
             }
 
             $artaCategory = trim((string)($row['arta_category'] ?? ''));
-            $documentTypeLabel = $artaCategory !== ''
-                ? $documentType . ' (' . $artaCategory . ')'
-                : $documentType;
-
             $currentHolder = trim((string)($row['pending_holder_office'] ?? ''));
             if ($currentHolder === '') {
                 $currentHolder = trim((string)($row['current_holder_office'] ?? '-'));
@@ -682,19 +1338,39 @@ if (!function_exists('dashboard_fetch_origin_tracker_rows')) {
                 $currentHolder = '-';
             }
 
+            $returnRemarks = trim((string)($row['return_remarks'] ?? ''));
+            $lastRemarks = trim((string)($row['last_remarks'] ?? ''));
+            $resolvedRemarksRaw = $returnRemarks !== ''
+                ? $returnRemarks
+                : $lastRemarks;
+            $documentTypeRemarks = trim((string)($row['custom_others_remarks'] ?? ''));
+            if ($documentTypeRemarks === '') {
+                $documentTypeRemarks = $resolvedRemarksRaw;
+            }
+            $documentTypeLabel = workflow_format_document_type_label($documentType, $artaCategory, $documentTypeRemarks);
+            $resolvedRemarks = workflow_strip_custom_others_document_type_from_remarks($resolvedRemarksRaw);
+
             $mapped[] = [
                 'document_id' => (int)($row['id'] ?? 0),
                 'row_version' => max(1, (int)($row['row_version'] ?? 1)),
                 'tracking_id' => $trackingId,
                 'subject' => $subject,
                 'status' => $status,
+                'status_raw' => trim((string)($row['status'] ?? '')) !== '' ? (string)$row['status'] : 'Pending',
+                'sender' => trim((string)($row['sender'] ?? '')) !== '' ? (string)$row['sender'] : '-',
                 'source_type' => strtoupper(trim((string)($row['source_type'] ?? 'INTERNAL'))),
+                'created_by_user_id' => (int)($row['created_by_user_id'] ?? 0),
                 'origin_office_id' => (int)($row['originating_office_id'] ?? 0),
+                'current_office_id' => (int)($row['current_office_id'] ?? 0),
+                'pending_office_id' => (int)($row['pending_office_id'] ?? 0),
                 'document_type' => $documentTypeLabel,
                 'arta_category' => $artaCategory !== '' ? $artaCategory : 'Simple',
+                'last_remarks' => $resolvedRemarks,
+                'return_remarks' => $returnRemarks,
                 'current_holder' => $currentHolder,
                 'origin_office' => '',
                 'has_section_receive' => (int)($row['has_section_receive'] ?? 0) > 0 ? 1 : 0,
+                'has_return_action' => (int)($row['has_return_action'] ?? 0) > 0 ? 1 : 0,
                 'date_received' => dashboard_format_datetime_label((string)($row['last_move_at'] ?? null)),
                 'date_received_raw' => (string)($row['last_move_at'] ?? ''),
                 'date_created' => dashboard_format_datetime_label((string)($row['created_at'] ?? null)),
@@ -710,7 +1386,7 @@ if (!function_exists('dashboard_fetch_origin_tracker_rows')) {
 }
 
 if (!function_exists('dashboard_fetch_actor_tracker_rows')) {
-    function dashboard_fetch_actor_tracker_rows(PDO $pdo, int $actorUserId, array $actionTypes = ['Approved', 'Signed'], int $limit = 50): array
+    function dashboard_fetch_actor_tracker_rows(PDO $pdo, int $actorUserId, array $actionTypes = ['Approved', 'Signed'], int $limit = 50, ?array $dateRange = null): array
     {
         if ($actorUserId <= 0) {
             return [];
@@ -737,6 +1413,30 @@ if (!function_exists('dashboard_fetch_actor_tracker_rows')) {
         $inListSql = implode(', ', $quotedTypes);
 
         $safeLimit = max(5, min($limit, 200));
+        $dateClause = dashboard_build_date_range_clause('actor_event.created_at', $dateRange, 'actor_tracker_date');
+        $returnRemarksSql = dashboard_sql_top_one_subquery(
+            $pdo,
+            'al_ret.remarks',
+            'FROM activity_logs al_ret',
+            "WHERE al_ret.document_id = d.id
+              AND (
+                  LOWER(COALESCE(al_ret.action_type, '')) LIKE 'return%'
+                  OR LOWER(COALESCE(al_ret.action_type, '')) = 'returned'
+              )
+              AND TRIM(COALESCE(al_ret.remarks, '')) <> ''",
+            'al_ret.id DESC',
+            'return_remarks'
+        );
+        $lastRemarksSql = dashboard_sql_top_one_subquery(
+            $pdo,
+            'al_last.remarks',
+            'FROM activity_logs al_last',
+            "WHERE al_last.document_id = d.id
+              AND TRIM(COALESCE(al_last.remarks, '')) <> ''",
+            'al_last.id DESC',
+            'last_remarks'
+        );
+        $customOthersRemarksSql = dashboard_sql_custom_others_remarks_subquery($pdo);
         $sql = 'SELECT
                     d.id,
                     ' . dashboard_documents_row_version_expr($pdo) . ' AS row_version,
@@ -751,6 +1451,7 @@ if (!function_exists('dashboard_fetch_actor_tracker_rows')) {
                     d.created_at,
                     dt.name AS document_type,
                     ' . dashboard_documents_arta_category_expr($pdo) . ' AS arta_category,
+                    ' . dashboard_documents_origin_expr($pdo) . ' AS origin_office,
                     COALESCE(o_current.name, \'-\') AS current_holder_office,
                     COALESCE(UPPER(o_current.level), \'\') AS current_holder_level,
                     COALESCE(o_pending.name, \'\') AS pending_holder_office,
@@ -758,35 +1459,18 @@ if (!function_exists('dashboard_fetch_actor_tracker_rows')) {
                     actor_event.created_at AS actor_action_at,
                     actor_event.action_type AS actor_action_type,
                     actor_event.remarks AS actor_action_remarks,
-                    (
-                        SELECT al_ret.remarks
-                        FROM activity_logs al_ret
-                        WHERE al_ret.document_id = d.id
-                          AND (
-                              LOWER(COALESCE(al_ret.action_type, \'\')) LIKE \'return%\'
-                              OR LOWER(COALESCE(al_ret.action_type, \'\')) = \'returned\'
-                          )
-                          AND TRIM(COALESCE(al_ret.remarks, \'\')) <> \'\'
-                        ORDER BY al_ret.id DESC
-                        LIMIT 1
-                    ) AS return_remarks,
-                    (
-                        SELECT al_last.remarks
-                        FROM activity_logs al_last
-                        WHERE al_last.document_id = d.id
-                          AND TRIM(COALESCE(al_last.remarks, \'\')) <> \'\'
-                        ORDER BY al_last.id DESC
-                        LIMIT 1
-                    ) AS last_remarks,
-                    DATE_ADD(COALESCE(last_receives.last_received_at, d.created_at), INTERVAL ' . dashboard_documents_arta_days_expr($pdo) . ' DAY) AS deadline_at,
-                    EXISTS(
+                    ' . $returnRemarksSql . ',
+                    ' . $lastRemarksSql . ',
+                    ' . $customOthersRemarksSql . ',
+                    ' . dashboard_sql_add_days_expr('COALESCE(last_receives.last_received_at, d.created_at)', dashboard_documents_arta_days_expr($pdo)) . ' AS deadline_at,
+                    CASE WHEN EXISTS(
                         SELECT 1
                         FROM tracking_slips ts_sec
                         INNER JOIN offices o_sec ON o_sec.id = ts_sec.receiving_office_id
                         WHERE ts_sec.document_id = d.id
                           AND UPPER(COALESCE(o_sec.level, \'\')) IN (' . dashboard_section_like_level_sql_list() . ')
-                    ) AS has_section_receive,
-                    EXISTS(
+                    ) THEN 1 ELSE 0 END AS has_section_receive,
+                    CASE WHEN EXISTS(
                         SELECT 1
                         FROM activity_logs al_ret
                         WHERE al_ret.document_id = d.id
@@ -794,7 +1478,7 @@ if (!function_exists('dashboard_fetch_actor_tracker_rows')) {
                               LOWER(COALESCE(al_ret.action_type, \'\')) LIKE \'return%\'
                               OR LOWER(COALESCE(al_ret.action_type, \'\')) = \'returned\'
                           )
-                    ) AS has_return_action
+                    ) THEN 1 ELSE 0 END AS has_return_action
                 FROM documents d
                 INNER JOIN (
                     SELECT al.document_id, MAX(al.id) AS latest_actor_event_id
@@ -807,16 +1491,20 @@ if (!function_exists('dashboard_fetch_actor_tracker_rows')) {
                 LEFT JOIN document_types dt ON dt.id = d.document_type_id
                 LEFT JOIN offices o_current ON o_current.id = d.current_office_id
                 LEFT JOIN offices o_pending ON o_pending.id = d.pending_office_id
+                LEFT JOIN offices o_origin ON o_origin.id = d.originating_office_id
                 LEFT JOIN (
                     SELECT document_id, MAX(date_time_received) AS last_received_at
                     FROM tracking_slips
                     GROUP BY document_id
                 ) last_receives ON last_receives.document_id = d.id
-                ORDER BY actor_event.created_at DESC, d.id DESC
-                LIMIT ' . $safeLimit;
+                WHERE 1 = 1
+                ' . $dateClause['sql'] . '
+                ORDER BY actor_event.created_at DESC, d.id DESC' . dashboard_sql_limit_suffix($safeLimit);
 
         $stmt = $pdo->prepare($sql);
-        $stmt->execute(['actor_user_id' => $actorUserId]);
+        $stmt->execute(array_merge([
+            'actor_user_id' => $actorUserId,
+        ], $dateClause['params']));
         $rows = $stmt->fetchAll();
         if (!$rows) {
             return [];
@@ -834,10 +1522,11 @@ if (!function_exists('dashboard_fetch_actor_tracker_rows')) {
                 $subject = 'No subject';
             }
 
-            $status = trim((string)($row['status'] ?? 'Pending'));
-            if ($status === '') {
-                $status = 'Pending';
-            }
+            $status = workflow_resolve_display_status(
+                trim((string)($row['status'] ?? 'Pending')),
+                (int)($row['pending_office_id'] ?? 0),
+                (int)($row['current_office_id'] ?? 0)
+            );
 
             $documentType = trim((string)($row['document_type'] ?? 'Uncategorized'));
             if ($documentType === '') {
@@ -845,10 +1534,6 @@ if (!function_exists('dashboard_fetch_actor_tracker_rows')) {
             }
 
             $artaCategory = trim((string)($row['arta_category'] ?? ''));
-            $documentTypeLabel = $artaCategory !== ''
-                ? $documentType . ' (' . $artaCategory . ')'
-                : $documentType;
-
             $currentHolder = trim((string)($row['pending_holder_office'] ?? ''));
             if ($currentHolder === '') {
                 $currentHolder = trim((string)($row['current_holder_office'] ?? '-'));
@@ -861,9 +1546,15 @@ if (!function_exists('dashboard_fetch_actor_tracker_rows')) {
             $actionRemarks = trim((string)($row['actor_action_remarks'] ?? ''));
             $returnRemarks = trim((string)($row['return_remarks'] ?? ''));
             $lastRemarks = trim((string)($row['last_remarks'] ?? ''));
-            $resolvedRemarks = $returnRemarks !== ''
+            $resolvedRemarksRaw = $returnRemarks !== ''
                 ? $returnRemarks
                 : ($lastRemarks !== '' ? $lastRemarks : $actionRemarks);
+            $documentTypeRemarks = trim((string)($row['custom_others_remarks'] ?? ''));
+            if ($documentTypeRemarks === '') {
+                $documentTypeRemarks = $resolvedRemarksRaw;
+            }
+            $documentTypeLabel = workflow_format_document_type_label($documentType, $artaCategory, $documentTypeRemarks);
+            $resolvedRemarks = workflow_strip_custom_others_document_type_from_remarks($resolvedRemarksRaw);
 
             $mapped[] = [
                 'document_id' => (int)($row['id'] ?? 0),
@@ -871,6 +1562,7 @@ if (!function_exists('dashboard_fetch_actor_tracker_rows')) {
                 'tracking_id' => $trackingId,
                 'subject' => $subject,
                 'status' => $status,
+                'status_raw' => trim((string)($row['status'] ?? '')) !== '' ? (string)$row['status'] : 'Pending',
                 'source_type' => strtoupper(trim((string)($row['source_type'] ?? 'INTERNAL'))),
                 'created_by_user_id' => (int)($row['created_by_user_id'] ?? 0),
                 'origin_office_id' => (int)($row['originating_office_id'] ?? 0),
@@ -883,7 +1575,7 @@ if (!function_exists('dashboard_fetch_actor_tracker_rows')) {
                 'current_holder' => $currentHolder,
                 'current_office_level' => trim((string)($row['current_holder_level'] ?? '')),
                 'pending_office_level' => trim((string)($row['pending_holder_level'] ?? '')),
-                'origin_office' => '',
+                'origin_office' => trim((string)($row['origin_office'] ?? '-')),
                 'has_section_receive' => (int)($row['has_section_receive'] ?? 0) > 0 ? 1 : 0,
                 'has_return_action' => (int)($row['has_return_action'] ?? 0) > 0 ? 1 : 0,
                 'date_received' => dashboard_format_datetime_label((string)($row['actor_action_at'] ?? null)),
@@ -903,7 +1595,7 @@ if (!function_exists('dashboard_fetch_actor_tracker_rows')) {
 }
 
 if (!function_exists('dashboard_fetch_division_staff_tracker_rows')) {
-    function dashboard_fetch_division_staff_tracker_rows(PDO $pdo, int $divisionOfficeId, array $actionTypes = ['Approved', 'Forwarded', 'Returned', 'Rerouted'], int $limit = 100): array
+    function dashboard_fetch_division_staff_tracker_rows(PDO $pdo, int $divisionOfficeId, array $actionTypes = ['Approved', 'Forwarded', 'Returned', 'Rerouted'], int $limit = 100, ?array $dateRange = null): array
     {
         if ($divisionOfficeId <= 0) {
             return [];
@@ -930,10 +1622,9 @@ if (!function_exists('dashboard_fetch_division_staff_tracker_rows')) {
         $trackedOfficeIds = [$divisionOfficeId];
 
         $divisionLevelStmt = $pdo->prepare(
-            "SELECT UPPER(COALESCE(level, '')) AS office_level
+            "SELECT TOP (1) UPPER(COALESCE(level, '')) AS office_level
              FROM offices
-             WHERE id = :division_office_id
-             LIMIT 1"
+             WHERE id = :division_office_id"
         );
         $divisionLevelStmt->execute(['division_office_id' => $divisionOfficeId]);
         $divisionOfficeLevel = strtoupper(trim((string)($divisionLevelStmt->fetchColumn() ?: '')));
@@ -981,6 +1672,7 @@ if (!function_exists('dashboard_fetch_division_staff_tracker_rows')) {
         $quotedTypes = array_map(static fn(string $value): string => "'" . str_replace("'", "''", $value) . "'", $normalizedTypes);
         $inListSql = implode(', ', $quotedTypes);
         $officeInSql = implode(', ', $officePlaceholders);
+        $dateClause = dashboard_build_date_range_clause('actor_event.created_at', $dateRange, 'division_tracker_date');
 
         $sql = 'SELECT
                     d.id,
@@ -1002,14 +1694,19 @@ if (!function_exists('dashboard_fetch_division_staff_tracker_rows')) {
                     actor_event.created_at AS actor_action_at,
                     actor_event.action_type AS actor_action_type,
                     actor_event.remarks AS actor_action_remarks,
-                    DATE_ADD(COALESCE(last_receives.last_received_at, d.created_at), INTERVAL ' . dashboard_documents_arta_days_expr($pdo) . ' DAY) AS deadline_at,
-                    EXISTS(
+                    ' . dashboard_sql_custom_others_remarks_subquery($pdo) . ',
+                    ' . dashboard_sql_add_days_expr('COALESCE(last_receives.last_received_at, d.created_at)', dashboard_documents_arta_days_expr($pdo)) . ' AS deadline_at,
+                    ' . dashboard_sql_exists_flag(
+                        $pdo,
+                        "
                         SELECT 1
                         FROM tracking_slips ts_sec
                         INNER JOIN offices o_sec ON o_sec.id = ts_sec.receiving_office_id
                         WHERE ts_sec.document_id = d.id
-                          AND UPPER(COALESCE(o_sec.level, \'\')) IN (' . dashboard_section_like_level_sql_list() . ')
-                    ) AS has_section_receive
+                          AND UPPER(COALESCE(o_sec.level, '')) IN (" . dashboard_section_like_level_sql_list() . ")
+                    ",
+                        'has_section_receive'
+                    ) . '
                 FROM documents d
                 INNER JOIN (
                     SELECT al.document_id, MAX(al.id) AS latest_team_event_id
@@ -1028,11 +1725,12 @@ if (!function_exists('dashboard_fetch_division_staff_tracker_rows')) {
                     FROM tracking_slips
                     GROUP BY document_id
                 ) last_receives ON last_receives.document_id = d.id
-                ORDER BY actor_event.created_at DESC, d.id DESC
-                LIMIT ' . $safeLimit;
+                WHERE 1 = 1
+                ' . $dateClause['sql'] . '
+                ORDER BY actor_event.created_at DESC, d.id DESC' . dashboard_sql_limit_suffix($safeLimit);
 
         $stmt = $pdo->prepare($sql);
-        $stmt->execute($params);
+        $stmt->execute(array_merge($params, $dateClause['params']));
         $rows = $stmt->fetchAll();
         if (!$rows) {
             return [];
@@ -1056,10 +1754,11 @@ if (!function_exists('dashboard_fetch_division_staff_tracker_rows')) {
                 $subject = 'No subject';
             }
 
-            $status = trim((string)($row['status'] ?? 'Pending'));
-            if ($status === '') {
-                $status = 'Pending';
-            }
+            $status = workflow_resolve_display_status(
+                trim((string)($row['status'] ?? 'Pending')),
+                (int)($row['pending_office_id'] ?? 0),
+                (int)($row['current_office_id'] ?? 0)
+            );
 
             $documentType = trim((string)($row['document_type'] ?? 'Uncategorized'));
             if ($documentType === '') {
@@ -1067,9 +1766,14 @@ if (!function_exists('dashboard_fetch_division_staff_tracker_rows')) {
             }
 
             $artaCategory = trim((string)($row['arta_category'] ?? ''));
-            $documentTypeLabel = $artaCategory !== ''
-                ? $documentType . ' (' . $artaCategory . ')'
-                : $documentType;
+            $documentTypeRemarks = trim((string)($row['custom_others_remarks'] ?? ''));
+            if ($documentTypeRemarks === '') {
+                $documentTypeRemarks = trim((string)($row['last_remarks'] ?? ''));
+            }
+            if ($documentTypeRemarks === '') {
+                $documentTypeRemarks = trim((string)($row['actor_action_remarks'] ?? ''));
+            }
+            $documentTypeLabel = workflow_format_document_type_label($documentType, $artaCategory, $documentTypeRemarks);
 
             $currentHolder = trim((string)($row['pending_holder_office'] ?? ''));
             if ($currentHolder === '') {
@@ -1085,6 +1789,7 @@ if (!function_exists('dashboard_fetch_division_staff_tracker_rows')) {
                 'tracking_id' => $trackingId,
                 'subject' => $subject,
                 'status' => $status,
+                'status_raw' => trim((string)($row['status'] ?? '')) !== '' ? (string)$row['status'] : 'Pending',
                 'source_type' => strtoupper(trim((string)($row['source_type'] ?? 'INTERNAL'))),
                 'origin_office_id' => (int)($row['originating_office_id'] ?? 0),
                 'current_office_id' => (int)($row['current_office_id'] ?? 0),
@@ -1113,7 +1818,7 @@ if (!function_exists('dashboard_fetch_division_staff_tracker_rows')) {
 }
 
 if (!function_exists('dashboard_fetch_ard_division_tracker_rows')) {
-    function dashboard_fetch_ard_division_tracker_rows(PDO $pdo, int $ardOfficeId, array $actionTypes = ['Approved', 'Forwarded', 'Returned', 'Rerouted'], int $limit = 100): array
+    function dashboard_fetch_ard_division_tracker_rows(PDO $pdo, int $ardOfficeId, array $actionTypes = ['Approved', 'Forwarded', 'Returned', 'Rerouted'], int $limit = 100, ?array $dateRange = null): array
     {
         if ($ardOfficeId <= 0) {
             return [];
@@ -1171,6 +1876,7 @@ if (!function_exists('dashboard_fetch_ard_division_tracker_rows')) {
         $quotedTypes = array_map(static fn(string $value): string => "'" . str_replace("'", "''", $value) . "'", $normalizedTypes);
         $inListSql = implode(', ', $quotedTypes);
         $officeInSql = implode(', ', $officePlaceholders);
+        $dateClause = dashboard_build_date_range_clause('actor_event.created_at', $dateRange, 'ard_tracker_date');
 
         $sql = 'SELECT
                     d.id,
@@ -1192,14 +1898,19 @@ if (!function_exists('dashboard_fetch_ard_division_tracker_rows')) {
                     actor_event.created_at AS actor_action_at,
                     actor_event.action_type AS actor_action_type,
                     actor_event.remarks AS actor_action_remarks,
-                    DATE_ADD(COALESCE(last_receives.last_received_at, d.created_at), INTERVAL ' . dashboard_documents_arta_days_expr($pdo) . ' DAY) AS deadline_at,
-                    EXISTS(
+                    ' . dashboard_sql_custom_others_remarks_subquery($pdo) . ',
+                    ' . dashboard_sql_add_days_expr('COALESCE(last_receives.last_received_at, d.created_at)', dashboard_documents_arta_days_expr($pdo)) . ' AS deadline_at,
+                    ' . dashboard_sql_exists_flag(
+                        $pdo,
+                        "
                         SELECT 1
                         FROM tracking_slips ts_sec
                         INNER JOIN offices o_sec ON o_sec.id = ts_sec.receiving_office_id
                         WHERE ts_sec.document_id = d.id
-                          AND UPPER(COALESCE(o_sec.level, \'\')) IN (' . dashboard_section_like_level_sql_list() . ')
-                    ) AS has_section_receive
+                          AND UPPER(COALESCE(o_sec.level, '')) IN (" . dashboard_section_like_level_sql_list() . ")
+                    ",
+                        'has_section_receive'
+                    ) . '
                 FROM documents d
                 INNER JOIN (
                     SELECT al.document_id, MAX(al.id) AS latest_division_event_id
@@ -1218,11 +1929,12 @@ if (!function_exists('dashboard_fetch_ard_division_tracker_rows')) {
                     FROM tracking_slips
                     GROUP BY document_id
                 ) last_receives ON last_receives.document_id = d.id
-                ORDER BY actor_event.created_at DESC, d.id DESC
-                LIMIT ' . $safeLimit;
+                WHERE 1 = 1
+                ' . $dateClause['sql'] . '
+                ORDER BY actor_event.created_at DESC, d.id DESC' . dashboard_sql_limit_suffix($safeLimit);
 
         $stmt = $pdo->prepare($sql);
-        $stmt->execute($params);
+        $stmt->execute(array_merge($params, $dateClause['params']));
         $rows = $stmt->fetchAll();
         if (!$rows) {
             return [];
@@ -1246,10 +1958,11 @@ if (!function_exists('dashboard_fetch_ard_division_tracker_rows')) {
                 $subject = 'No subject';
             }
 
-            $status = trim((string)($row['status'] ?? 'Pending'));
-            if ($status === '') {
-                $status = 'Pending';
-            }
+            $status = workflow_resolve_display_status(
+                trim((string)($row['status'] ?? 'Pending')),
+                (int)($row['pending_office_id'] ?? 0),
+                (int)($row['current_office_id'] ?? 0)
+            );
 
             $documentType = trim((string)($row['document_type'] ?? 'Uncategorized'));
             if ($documentType === '') {
@@ -1257,9 +1970,14 @@ if (!function_exists('dashboard_fetch_ard_division_tracker_rows')) {
             }
 
             $artaCategory = trim((string)($row['arta_category'] ?? ''));
-            $documentTypeLabel = $artaCategory !== ''
-                ? $documentType . ' (' . $artaCategory . ')'
-                : $documentType;
+            $documentTypeRemarks = trim((string)($row['custom_others_remarks'] ?? ''));
+            if ($documentTypeRemarks === '') {
+                $documentTypeRemarks = trim((string)($row['last_remarks'] ?? ''));
+            }
+            if ($documentTypeRemarks === '') {
+                $documentTypeRemarks = trim((string)($row['actor_action_remarks'] ?? ''));
+            }
+            $documentTypeLabel = workflow_format_document_type_label($documentType, $artaCategory, $documentTypeRemarks);
 
             $currentHolder = trim((string)($row['pending_holder_office'] ?? ''));
             if ($currentHolder === '') {
@@ -1275,6 +1993,7 @@ if (!function_exists('dashboard_fetch_ard_division_tracker_rows')) {
                 'tracking_id' => $trackingId,
                 'subject' => $subject,
                 'status' => $status,
+                'status_raw' => trim((string)($row['status'] ?? '')) !== '' ? (string)$row['status'] : 'Pending',
                 'source_type' => strtoupper(trim((string)($row['source_type'] ?? 'INTERNAL'))),
                 'origin_office_id' => (int)($row['originating_office_id'] ?? 0),
                 'current_office_id' => (int)($row['current_office_id'] ?? 0),
@@ -1303,7 +2022,7 @@ if (!function_exists('dashboard_fetch_ard_division_tracker_rows')) {
 }
 
 if (!function_exists('dashboard_fetch_role_metrics')) {
-    function dashboard_fetch_role_metrics(PDO $pdo, int $officeId): array
+    function dashboard_fetch_role_metrics(PDO $pdo, int $officeId, ?array $dateRange = null): array
     {
         $defaults = [
             'total_scope' => 0,
@@ -1334,15 +2053,20 @@ if (!function_exists('dashboard_fetch_role_metrics')) {
             return $defaults;
         }
 
+        $isSqlServer = db_is_sql_server($pdo);
         $hasPendingOfficeColumn = dashboard_column_exists($pdo, 'documents', 'pending_office_id');
         $hasSourceTypeColumn = dashboard_column_exists($pdo, 'documents', 'source_type');
         $scope = dashboard_build_office_scope($officeId, $hasPendingOfficeColumn);
+        $dateClause = dashboard_build_date_range_clause('COALESCE(office_ts.office_received_at, d.created_at)', $dateRange, 'role_metrics_date');
+        $activityDateClause = dashboard_build_date_range_clause('al.created_at', $dateRange, 'role_metrics_activity_date');
+        $hasExplicitDateRange = !empty($dateClause['range']);
 
         $externalTodayExpr = $hasSourceTypeColumn
-            ? 'SUM(CASE WHEN d.source_type = \'EXTERNAL\' AND DATE(d.created_at) = CURDATE() THEN 1 ELSE 0 END) AS external_today'
-            : 'SUM(CASE WHEN LOWER(COALESCE(ts_latest.action_required, \'\')) LIKE \'%external%\' AND DATE(d.created_at) = CURDATE() THEN 1 ELSE 0 END) AS external_today';
+            ? 'SUM(CASE WHEN d.source_type = \'EXTERNAL\' AND ' . dashboard_sql_date_only_expr('d.created_at') . ' = ' . dashboard_sql_current_date_expr() . ' THEN 1 ELSE 0 END) AS external_today'
+            : 'SUM(CASE WHEN LOWER(COALESCE(ts_latest.action_required, \'\')) LIKE \'%external%\' AND ' . dashboard_sql_date_only_expr('d.created_at') . ' = ' . dashboard_sql_current_date_expr() . ' THEN 1 ELSE 0 END) AS external_today';
 
         $custodyStartExpr = 'COALESCE(office_ts.office_received_at, d.created_at)';
+        $custodyDeadlineExpr = dashboard_sql_add_days_expr($custodyStartExpr, dashboard_documents_arta_days_expr($pdo));
         $pendingApprovalExpr = $hasPendingOfficeColumn
             ? '                    SUM(CASE
                         WHEN LOWER(COALESCE(d.status, \'\')) NOT IN (\'completed\', \'released\', \'closed\', \'resolved\', \'done\', \'cancelled\', \'canceled\')
@@ -1443,17 +2167,17 @@ if (!function_exists('dashboard_fetch_role_metrics')) {
                     END) AS pending_total,
                     SUM(CASE
                         WHEN LOWER(COALESCE(d.status, \'\')) NOT IN (\'completed\', \'released\', \'closed\', \'approved\', \'resolved\', \'done\', \'signed\', \'signed/completed\', \'cancelled\', \'canceled\')
-                             AND DATEDIFF(DATE_ADD(' . $custodyStartExpr . ', INTERVAL ' . dashboard_documents_arta_days_expr($pdo) . ' DAY), CURDATE()) = 0
+                             AND ' . dashboard_sql_days_until_expr($custodyDeadlineExpr) . ' = 0
                         THEN 1 ELSE 0
                     END) AS due_today_total,
                     SUM(CASE
                         WHEN LOWER(COALESCE(d.status, \'\')) NOT IN (\'completed\', \'released\', \'closed\', \'approved\', \'resolved\', \'done\', \'signed\', \'signed/completed\', \'cancelled\', \'canceled\')
-                             AND DATEDIFF(DATE_ADD(' . $custodyStartExpr . ', INTERVAL ' . dashboard_documents_arta_days_expr($pdo) . ' DAY), CURDATE()) = 1
+                             AND ' . dashboard_sql_days_until_expr($custodyDeadlineExpr) . ' = 1
                         THEN 1 ELSE 0
                     END) AS due_soon_total,
                     SUM(CASE
                         WHEN LOWER(COALESCE(d.status, \'\')) NOT IN (\'completed\', \'released\', \'closed\', \'approved\', \'resolved\', \'done\', \'signed\', \'signed/completed\', \'cancelled\', \'canceled\')
-                             AND DATEDIFF(DATE_ADD(' . $custodyStartExpr . ', INTERVAL ' . dashboard_documents_arta_days_expr($pdo) . ' DAY), CURDATE()) < 0
+                             AND ' . dashboard_sql_days_until_expr($custodyDeadlineExpr) . ' < 0
                         THEN 1 ELSE 0
                     END) AS overdue_total,
                     SUM(CASE
@@ -1465,7 +2189,7 @@ if (!function_exists('dashboard_fetch_role_metrics')) {
                         THEN 1 ELSE 0
                     END) AS released_total,
                     SUM(CASE
-                        WHEN DATE(d.created_at) = CURDATE()
+                        WHEN ' . dashboard_sql_date_only_expr('d.created_at') . ' = ' . dashboard_sql_current_date_expr() . '
                         THEN 1 ELSE 0
                     END) AS created_today,
                     SUM(CASE
@@ -1473,17 +2197,7 @@ if (!function_exists('dashboard_fetch_role_metrics')) {
                              AND LOWER(COALESCE(d.status, \'\')) LIKE \'%returned%\'
                         THEN 1 ELSE 0
                     END) AS returned_total,
-                    SUM(CASE
-                        WHEN LOWER(COALESCE(d.status, \'\')) IN (\'completed\', \'released\', \'closed\', \'approved\', \'resolved\', \'done\', \'signed\', \'signed/completed\')
-                             AND EXISTS (
-                                SELECT 1
-                                FROM activity_logs al_c
-                                WHERE al_c.document_id = d.id
-                                  AND LOWER(al_c.action_type) IN (\'completed\', \'released\', \'approved\', \'signed\', \'signed/completed\', \'closed\', \'resolved\', \'done\')
-                                  AND DATE(al_c.created_at) = CURDATE()
-                             )
-                        THEN 1 ELSE 0
-                    END) AS completed_today,
+                    0 AS completed_today,
                     ' . $externalTodayExpr . ',
                     ' . $pendingApprovalExpr . ',
                     SUM(CASE
@@ -1554,15 +2268,24 @@ if (!function_exists('dashboard_fetch_role_metrics')) {
                     WHERE ts.receiving_office_id = :office_id_custody
                     GROUP BY ts.document_id
                 ) office_ts ON office_ts.document_id = d.id
-                WHERE ' . $scope['where'];
+                WHERE ' . $scope['where'] . '
+                ' . $dateClause['sql'];
+
+        $officeScopeParams = array_merge($scope['params'], [
+            'office_id_custody' => $officeId,
+            'office_id_current_metric' => $officeId,
+        ]);
+        if ($hasPendingOfficeColumn) {
+            $officeScopeParams['office_id_pending_metric'] = $officeId;
+        }
+        if ($isSqlServer) {
+            $sql = dashboard_inline_sqlsrv_named_params($pdo, $sql, $officeScopeParams);
+        }
 
         $stmt = $pdo->prepare($sql);
-        $params = $scope['params'];
-        $params['office_id_custody'] = $officeId;
-        $params['office_id_current_metric'] = $officeId;
-        if ($hasPendingOfficeColumn) {
-            $params['office_id_pending_metric'] = $officeId;
-        }
+        $params = $isSqlServer
+            ? $dateClause['params']
+            : array_merge($officeScopeParams, $dateClause['params']);
         $stmt->execute($params);
         $row = $stmt->fetch() ?: [];
 
@@ -1578,11 +2301,30 @@ if (!function_exists('dashboard_fetch_role_metrics')) {
                           FROM activity_logs al
                           INNER JOIN documents d ON d.id = al.document_id
                           WHERE ' . $scope['where'] . '
-                            AND LOWER(al.action_type) IN (\'completed\', \'released\', \'approved\', \'signed\', \'closed\', \'resolved\')
-                            AND al.created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)';
+                            ' . $activityDateClause['sql'] . '
+                            AND LOWER(al.action_type) IN (\'completed\', \'released\', \'approved\', \'signed\', \'closed\', \'resolved\')'
+                            . ($hasExplicitDateRange ? '' : '
+                            AND al.created_at >= ' . dashboard_sql_recent_cutoff_expr(7));
+        if (db_is_sql_server($pdo)) {
+            $completionSql = dashboard_inline_sqlsrv_named_params($pdo, $completionSql, $scope['params']);
+        }
         $completionStmt = $pdo->prepare($completionSql);
-        $completionStmt->execute($scope['params']);
+        $completionStmt->execute(db_is_sql_server($pdo) ? $activityDateClause['params'] : array_merge($scope['params'], $activityDateClause['params']));
         $metrics['completed_week'] = (int)($completionStmt->fetchColumn() ?: 0);
+
+        $completedTodaySql = 'SELECT COUNT(DISTINCT d.id) AS completed_today
+                              FROM documents d
+                              INNER JOIN activity_logs al_c ON al_c.document_id = d.id
+                              WHERE ' . $scope['where'] . '
+                                AND LOWER(COALESCE(d.status, \'\')) IN (\'completed\', \'released\', \'closed\', \'approved\', \'resolved\', \'done\', \'signed\', \'signed/completed\')
+                                AND LOWER(al_c.action_type) IN (\'completed\', \'released\', \'approved\', \'signed\', \'signed/completed\', \'closed\', \'resolved\', \'done\')
+                                AND ' . dashboard_sql_date_only_expr('al_c.created_at') . ' = ' . dashboard_sql_current_date_expr();
+        if (db_is_sql_server($pdo)) {
+            $completedTodaySql = dashboard_inline_sqlsrv_named_params($pdo, $completedTodaySql, $scope['params']);
+        }
+        $completedTodayStmt = $pdo->prepare($completedTodaySql);
+        $completedTodayStmt->execute(db_is_sql_server($pdo) ? [] : $scope['params']);
+        $metrics['completed_today'] = (int)($completedTodayStmt->fetchColumn() ?: 0);
 
         if ($metrics['completed_week'] === 0 && $metrics['completed_total'] > 0) {
             $metrics['completed_week'] = $metrics['completed_total'];
@@ -1603,10 +2345,15 @@ if (!function_exists('dashboard_fetch_role_metrics')) {
                    FROM activity_logs al
                    INNER JOIN documents d ON d.id = al.document_id
                    WHERE ' . $scope['where'] . '
-                     AND al.action_type IN (\'Rerouted\', \'Diverted\', \'Override\', \'Overridden\')
-                     AND al.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)';
+                     ' . $activityDateClause['sql'] . '
+                     AND al.action_type IN (\'Rerouted\', \'Diverted\', \'Override\', \'Overridden\')'
+                     . ($hasExplicitDateRange ? '' : '
+                     AND al.created_at >= ' . dashboard_sql_recent_cutoff_expr(30));
+        if (db_is_sql_server($pdo)) {
+            $logSql = dashboard_inline_sqlsrv_named_params($pdo, $logSql, $scope['params']);
+        }
         $logStmt = $pdo->prepare($logSql);
-        $logStmt->execute($scope['params']);
+        $logStmt->execute(db_is_sql_server($pdo) ? $activityDateClause['params'] : array_merge($scope['params'], $activityDateClause['params']));
         $metrics['overrides_30d'] = (int)($logStmt->fetchColumn() ?: 0);
 
         $activeScope = max($metrics['pending_total'], 1);
@@ -1649,8 +2396,7 @@ if (!function_exists('dashboard_fetch_route_offices')) {
                         WHEN \'PROTECTED AREA\' THEN 17
                         ELSE 18
                     END,
-                    name ASC
-                LIMIT ' . $safeLimit;
+                    name ASC' . dashboard_sql_limit_suffix($safeLimit);
 
         $stmt = $pdo->prepare($sql);
         $stmt->execute([
@@ -1677,15 +2423,16 @@ if (!function_exists('dashboard_fetch_route_offices')) {
 }
 
 if (!function_exists('dashboard_fetch_regional_office_summary_rows')) {
-    function dashboard_fetch_regional_office_summary_rows(PDO $pdo, int $limit = 120): array
+    function dashboard_fetch_regional_office_summary_rows(PDO $pdo, int $limit = 120, ?array $dateRange = null): array
     {
         $safeLimit = max(5, min($limit, 500));
         $hasPendingOfficeColumn = dashboard_column_exists($pdo, 'documents', 'pending_office_id');
         $ownerOfficeExpr = $hasPendingOfficeColumn
             ? 'CASE WHEN d.pending_office_id IS NOT NULL AND d.pending_office_id > 0 THEN d.pending_office_id ELSE d.current_office_id END'
             : 'd.current_office_id';
-        $deadlineExpr = 'DATE_ADD(d.created_at, INTERVAL ' . dashboard_documents_arta_days_expr($pdo) . ' DAY)';
+        $deadlineExpr = dashboard_sql_add_days_expr('d.created_at', dashboard_documents_arta_days_expr($pdo));
         $terminalStatuses = "'completed','released','closed','approved','resolved','done','signed','signed/completed','cancelled','canceled'";
+        $dateClause = dashboard_build_date_range_clause('d.created_at', $dateRange, 'regional_summary_date');
 
         $sql = 'SELECT
                     o.id AS office_id,
@@ -1697,12 +2444,12 @@ if (!function_exists('dashboard_fetch_regional_office_summary_rows')) {
                     END) AS pending_count,
                     SUM(CASE
                         WHEN LOWER(COALESCE(d.status, \'\')) NOT IN (' . $terminalStatuses . ')
-                             AND DATEDIFF(' . $deadlineExpr . ', CURDATE()) = 1
+                             AND ' . dashboard_sql_days_until_expr($deadlineExpr) . ' = 1
                         THEN 1 ELSE 0
                     END) AS due_soon_count,
                     SUM(CASE
                         WHEN LOWER(COALESCE(d.status, \'\')) NOT IN (' . $terminalStatuses . ')
-                             AND ' . $deadlineExpr . ' < CURDATE()
+                             AND ' . dashboard_sql_date_only_expr($deadlineExpr) . ' < ' . dashboard_sql_current_date_expr() . '
                         THEN 1 ELSE 0
                     END) AS overdue_count,
                     SUM(CASE
@@ -1714,12 +2461,13 @@ if (!function_exists('dashboard_fetch_regional_office_summary_rows')) {
                 INNER JOIN offices o ON o.id = ' . $ownerOfficeExpr . '
                 WHERE o.id > 0
                   AND UPPER(COALESCE(o.level, \'\')) <> \'REGIONAL\'
+                  ' . $dateClause['sql'] . '
                 GROUP BY o.id, o.name, o.level
-                ORDER BY pending_count DESC, overdue_count DESC, due_soon_count DESC, o.name ASC
-                LIMIT ' . $safeLimit;
+                ORDER BY pending_count DESC, overdue_count DESC, due_soon_count DESC, o.name ASC' . dashboard_sql_limit_suffix($safeLimit);
 
-        $stmt = $pdo->query($sql);
-        $rows = $stmt ? ($stmt->fetchAll() ?: []) : [];
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($dateClause['params']);
+        $rows = $stmt->fetchAll() ?: [];
         if (empty($rows)) {
             return [];
         }
@@ -1781,7 +2529,7 @@ if (!function_exists('dashboard_collect_office_subtree_ids')) {
 }
 
 if (!function_exists('dashboard_fetch_office_summary_rows_by_office_ids')) {
-    function dashboard_fetch_office_summary_rows_by_office_ids(PDO $pdo, array $officeIds, int $limit = 120): array
+    function dashboard_fetch_office_summary_rows_by_office_ids(PDO $pdo, array $officeIds, int $limit = 120, ?array $dateRange = null): array
     {
         $scopedOfficeIds = [];
         foreach ($officeIds as $officeId) {
@@ -1800,8 +2548,9 @@ if (!function_exists('dashboard_fetch_office_summary_rows_by_office_ids')) {
         $ownerOfficeExpr = $hasPendingOfficeColumn
             ? 'CASE WHEN d.pending_office_id IS NOT NULL AND d.pending_office_id > 0 THEN d.pending_office_id ELSE d.current_office_id END'
             : 'd.current_office_id';
-        $deadlineExpr = 'DATE_ADD(d.created_at, INTERVAL ' . dashboard_documents_arta_days_expr($pdo) . ' DAY)';
+        $deadlineExpr = dashboard_sql_add_days_expr('d.created_at', dashboard_documents_arta_days_expr($pdo));
         $terminalStatuses = "'completed','released','closed','approved','resolved','done','signed','signed/completed','cancelled','canceled'";
+        $dateClause = dashboard_build_date_range_clause('d.created_at', $dateRange, 'office_summary_date');
 
         $officePlaceholders = [];
         $params = [];
@@ -1821,12 +2570,12 @@ if (!function_exists('dashboard_fetch_office_summary_rows_by_office_ids')) {
                     END) AS pending_count,
                     SUM(CASE
                         WHEN LOWER(COALESCE(d.status, \'\')) NOT IN (' . $terminalStatuses . ')
-                             AND DATEDIFF(' . $deadlineExpr . ', CURDATE()) = 1
+                             AND ' . dashboard_sql_days_until_expr($deadlineExpr) . ' = 1
                         THEN 1 ELSE 0
                     END) AS due_soon_count,
                     SUM(CASE
                         WHEN LOWER(COALESCE(d.status, \'\')) NOT IN (' . $terminalStatuses . ')
-                             AND ' . $deadlineExpr . ' < CURDATE()
+                             AND ' . dashboard_sql_date_only_expr($deadlineExpr) . ' < ' . dashboard_sql_current_date_expr() . '
                         THEN 1 ELSE 0
                     END) AS overdue_count,
                     SUM(CASE
@@ -1837,12 +2586,12 @@ if (!function_exists('dashboard_fetch_office_summary_rows_by_office_ids')) {
                 LEFT JOIN document_types dt ON dt.id = d.document_type_id
                 INNER JOIN offices o ON o.id = ' . $ownerOfficeExpr . '
                 WHERE o.id IN (' . implode(', ', $officePlaceholders) . ')
+                ' . $dateClause['sql'] . '
                 GROUP BY o.id, o.name, o.level
-                ORDER BY pending_count DESC, overdue_count DESC, due_soon_count DESC, o.name ASC
-                LIMIT ' . $safeLimit;
+                ORDER BY pending_count DESC, overdue_count DESC, due_soon_count DESC, o.name ASC' . dashboard_sql_limit_suffix($safeLimit);
 
         $stmt = $pdo->prepare($sql);
-        $stmt->execute($params);
+        $stmt->execute(array_merge($params, $dateClause['params']));
         $rows = $stmt->fetchAll() ?: [];
         if (empty($rows)) {
             return [];
@@ -1917,7 +2666,7 @@ if (!function_exists('dashboard_fetch_cenro_internal_office_summary_rows')) {
 }
 
 if (!function_exists('dashboard_fetch_activity_counters')) {
-    function dashboard_fetch_activity_counters(PDO $pdo, int $officeId, int $windowDays = 30): array
+    function dashboard_fetch_activity_counters(PDO $pdo, int $officeId, int $windowDays = 30, ?array $dateRange = null): array
     {
         $defaults = [
             'received_events' => 0,
@@ -1932,8 +2681,11 @@ if (!function_exists('dashboard_fetch_activity_counters')) {
         }
 
         $days = max(1, min($windowDays, 120));
+        $isSqlServer = db_is_sql_server($pdo);
         $hasPendingOfficeColumn = dashboard_column_exists($pdo, 'documents', 'pending_office_id');
         $scope = dashboard_build_office_scope($officeId, $hasPendingOfficeColumn);
+        $dateClause = dashboard_build_date_range_clause('al.created_at', $dateRange, 'activity_counter_date');
+        $hasExplicitDateRange = !empty($dateClause['range']);
 
         $sql = 'SELECT
                     SUM(CASE WHEN LOWER(al.action_type) = \'received\' THEN 1 ELSE 0 END) AS received_events,
@@ -1944,10 +2696,11 @@ if (!function_exists('dashboard_fetch_activity_counters')) {
                 FROM activity_logs al
                 INNER JOIN documents d ON d.id = al.document_id
                 WHERE ' . $scope['where'] . '
-                  AND al.created_at >= DATE_SUB(NOW(), INTERVAL ' . $days . ' DAY)';
+                ' . $dateClause['sql'] . '
+                  ' . ($hasExplicitDateRange ? '' : ('AND al.created_at >= ' . dashboard_sql_recent_cutoff_expr($days)));
 
         $stmt = $pdo->prepare($sql);
-        $stmt->execute($scope['params']);
+        $stmt->execute(array_merge($scope['params'], $dateClause['params']));
         $row = $stmt->fetch() ?: [];
 
         $counters = $defaults;
@@ -1960,7 +2713,7 @@ if (!function_exists('dashboard_fetch_activity_counters')) {
 }
 
 if (!function_exists('dashboard_fetch_notifications')) {
-    function dashboard_fetch_notifications(PDO $pdo, int $officeId, int $limit = 12, ?string $roleName = null): array
+    function dashboard_fetch_notifications(PDO $pdo, int $officeId, int $limit = 12, ?string $roleName = null, ?int $userId = null): array
     {
         if ($officeId <= 0) {
             return [];
@@ -1988,7 +2741,23 @@ if (!function_exists('dashboard_fetch_notifications')) {
             $params = [
                 'office_id_origin_notifications' => $officeId,
             ];
-        } elseif (in_array($roleKey, ['CENRO_OFFICER', 'CENRO_SECTION', 'CENRO_UNIT', 'PASU_OFFICER', 'PAMO_UNIT', 'PENRO_OFFICER', 'PENRO_DIVISION', 'PENRO_SECTION', 'RECORDS_UNIT', 'ORED', 'DIVISION_CHIEF', 'SECTION_STAFF', 'ARD_TS', 'ARD_MS'], true)) {
+        } elseif (in_array($roleKey, ['ORED', 'ORED_SIGN'], true)) {
+            // Keep reviewer and signer notifications separated by assignment.
+            $whereClause = "al.destination_office_id = :office_id_destination_notifications
+                            AND UPPER(COALESCE(al.action_type, '')) IN (
+                                'FORWARDED', 'FORWARD', 'REROUTED', 'REROUTE',
+                                'OVERRIDDEN', 'OVERRIDE', 'RETURNED', 'RETURN',
+                                'RELEASED', 'RELEASE'
+                            )
+                            AND (
+                                COALESCE(al.destination_user_id, 0) = 0
+                                OR COALESCE(al.destination_user_id, 0) = :notification_user_id
+                            )";
+            $params = [
+                'office_id_destination_notifications' => $officeId,
+                'notification_user_id' => max(0, (int)$userId),
+            ];
+        } elseif (in_array($roleKey, ['CENRO_OFFICER', 'CENRO_SECTION', 'CENRO_UNIT', 'PASU_OFFICER', 'PAMO_UNIT', 'PENRO_OFFICER', 'PENRO_DIVISION', 'PENRO_SECTION', 'RECORDS_UNIT', 'DIVISION_CHIEF', 'SECTION_STAFF', 'ARD_TS', 'ARD_MS'], true)) {
             // Internal action roles: prioritize incoming routed events; keep origin fallback for legacy office mappings.
             $whereClause = "(
                                 al.destination_office_id = :office_id_destination_notifications
@@ -2013,20 +2782,20 @@ if (!function_exists('dashboard_fetch_notifications')) {
                     d.tracking_id,
                     d.subject,
                     COALESCE(dest.name, \'\') AS destination_office_name,
-                    (
-                        SELECT al_color.remarks
-                        FROM activity_logs al_color
-                        WHERE al_color.document_id = d.id
-                          AND LOWER(COALESCE(al_color.remarks, \'\')) LIKE \'%color classification:%\'
-                        ORDER BY al_color.id DESC
-                        LIMIT 1
-                    ) AS color_classification_remarks
+                    ' . dashboard_sql_top_one_subquery(
+                        $pdo,
+                        'al_color.remarks',
+                        'FROM activity_logs al_color',
+                        "WHERE al_color.document_id = d.id
+                          AND LOWER(COALESCE(al_color.remarks, '')) LIKE '%color classification:%'",
+                        'al_color.id DESC',
+                        'color_classification_remarks'
+                    ) . '
                 FROM activity_logs al
                 INNER JOIN documents d ON d.id = al.document_id
                 LEFT JOIN offices dest ON dest.id = al.destination_office_id
                 WHERE ' . $whereClause . '
-                ORDER BY al.created_at DESC, al.id DESC
-                LIMIT ' . $safeLimit;
+                ORDER BY al.created_at DESC, al.id DESC' . dashboard_sql_limit_suffix($safeLimit);
 
         $stmt = $pdo->prepare($sql);
         $stmt->execute($params);
@@ -2097,7 +2866,7 @@ if (!function_exists('dashboard_fetch_notifications')) {
 }
 
 if (!function_exists('dashboard_fetch_arta_distribution')) {
-    function dashboard_fetch_arta_distribution(PDO $pdo, int $officeId): array
+    function dashboard_fetch_arta_distribution(PDO $pdo, int $officeId, ?array $dateRange = null): array
     {
         $defaults = [
             'simple' => 0,
@@ -2113,6 +2882,7 @@ if (!function_exists('dashboard_fetch_arta_distribution')) {
 
         $hasPendingOfficeColumn = dashboard_column_exists($pdo, 'documents', 'pending_office_id');
         $scope = dashboard_build_office_scope($officeId, $hasPendingOfficeColumn);
+        $dateClause = dashboard_build_date_range_clause('COALESCE(office_ts.office_received_at, d.created_at)', $dateRange, 'arta_distribution_date');
 
         $sql = 'SELECT LOWER(COALESCE(' . dashboard_documents_arta_category_expr($pdo) . ', \'\')) AS category_name, COUNT(*) AS total_count
                 FROM documents d
@@ -2124,12 +2894,14 @@ if (!function_exists('dashboard_fetch_arta_distribution')) {
                     GROUP BY ts.document_id
                 ) office_ts ON office_ts.document_id = d.id
                 WHERE ' . $scope['where'] . '
+                  ' . $dateClause['sql'] . '
                   AND LOWER(COALESCE(d.status, \'\')) NOT IN (\'completed\', \'released\', \'closed\', \'approved\', \'resolved\', \'done\', \'signed\', \'signed/completed\', \'cancelled\', \'canceled\')
                 GROUP BY LOWER(COALESCE(' . dashboard_documents_arta_category_expr($pdo) . ', \'\'))';
 
         $stmt = $pdo->prepare($sql);
         $params = $scope['params'];
         $params['office_id_custody'] = $officeId;
+        $params = array_merge($params, $dateClause['params']);
         $stmt->execute($params);
         $rows = $stmt->fetchAll() ?: [];
 
@@ -2175,13 +2947,35 @@ if (!function_exists('dashboard_fetch_arta_distribution')) {
  * formally received (pending_office_id = office AND current_office_id â‰  office).
  */
 if (!function_exists('dashboard_fetch_pending_receive_rows')) {
-    function dashboard_fetch_pending_receive_rows(PDO $pdo, int $officeId, int $limit = 60, bool $includeInOfficeActionStage = false): array
+    function dashboard_fetch_pending_receive_rows(
+        PDO $pdo,
+        int $officeId,
+        int $limit = 60,
+        bool $includeInOfficeActionStage = false,
+        bool $excludeReturnedDocuments = false,
+        ?int $viewerUserId = null,
+        ?string $viewerRoleKey = null
+    ): array
     {
         if ($officeId <= 0) {
             return [];
         }
         $safeLimit = max(1, min($limit, 200));
         $hasPending = dashboard_column_exists($pdo, 'documents', 'pending_office_id');
+        $excludeReturnedSql = $excludeReturnedDocuments
+            ? "
+                           AND NOT EXISTS (
+                               SELECT 1
+                               FROM activity_logs al_ret
+                               WHERE al_ret.document_id = d.id
+                                 AND LOWER(COALESCE(al_ret.action_type, '')) IN ('return', 'returned')
+                                 AND al_ret.id = (
+                                     SELECT MAX(al_last.id)
+                                     FROM activity_logs al_last
+                                     WHERE al_last.document_id = d.id
+                                 )
+                           )"
+            : '';
 
         if ($hasPending) {
             if ($includeInOfficeActionStage) {
@@ -2203,7 +2997,7 @@ if (!function_exists('dashboard_fetch_pending_receive_rows')) {
                                         OR LOWER(COALESCE(d.status, \'\')) LIKE \'assigned to %\'
                                     )
                                 )
-                            )';
+                            )' . $excludeReturnedSql;
                 $params = [
                     'office_id_pending_incoming' => $officeId,
                     'office_id_current_incoming' => $officeId,
@@ -2215,7 +3009,8 @@ if (!function_exists('dashboard_fetch_pending_receive_rows')) {
                 // Docs awaiting receipt: routed to this office but not yet in custody
                 $whereClause = 'd.pending_office_id = :office_id_pending
                                AND d.current_office_id <> :office_id_current
-                               AND LOWER(COALESCE(d.status, \'\')) NOT IN (\'completed\', \'closed\', \'approved\', \'resolved\', \'done\', \'signed\', \'signed/completed\', \'cancelled\', \'canceled\')';
+                               AND LOWER(COALESCE(d.status, \'\')) NOT IN (\'completed\', \'closed\', \'approved\', \'resolved\', \'done\', \'signed\', \'signed/completed\', \'cancelled\', \'canceled\')'
+                               . $excludeReturnedSql;
                 $params = [
                     'office_id_pending' => $officeId,
                     'office_id_current' => $officeId,
@@ -2225,14 +3020,99 @@ if (!function_exists('dashboard_fetch_pending_receive_rows')) {
         } else {
             // Fallback: docs currently owned but status suggests incoming
             $whereClause = 'd.current_office_id = :office_id_current
-                           AND LOWER(COALESCE(d.status, \'\')) IN (\'pending receive\', \'for receive\', \'in transit\', \'routed\', \'received\', \'recieved\', \'approved\', \'signed\', \'signed/completed\')';
+                           AND LOWER(COALESCE(d.status, \'\')) IN (\'pending receive\', \'for receive\', \'in transit\', \'routed\', \'received\', \'recieved\', \'approved\', \'signed\', \'signed/completed\')'
+                           . $excludeReturnedSql;
             $params = [
                 'office_id_current' => $officeId,
                 'office_id_custody' => $officeId,
             ];
         }
 
+        $assignmentFilter = dashboard_build_regional_ored_assignment_filter(
+            $pdo,
+            $viewerUserId,
+            $viewerRoleKey,
+            $officeId
+        );
+        if ($assignmentFilter['sql'] !== '') {
+            $whereClause .= $assignmentFilter['sql'];
+            $params = array_merge($params, $assignmentFilter['params']);
+        }
+
         return dashboard_cenro_run_filtered_query($pdo, $whereClause, $params, $safeLimit);
+    }
+}
+
+if (!function_exists('dashboard_build_regional_ored_assignment_filter')) {
+    function dashboard_build_regional_ored_assignment_filter(
+        PDO $pdo,
+        ?int $viewerUserId = null,
+        ?string $viewerRoleKey = null,
+        ?int $viewerOfficeId = null,
+        string $documentAlias = 'd'
+    ): array {
+        $userId = (int)($viewerUserId ?? 0);
+        $officeId = (int)($viewerOfficeId ?? 0);
+        if ($userId <= 0) {
+            return ['sql' => '', 'params' => []];
+        }
+
+        $roleKey = app_normalize_role_key((string)($viewerRoleKey ?? ''));
+        if (!function_exists('workflow_is_regional_ored_role_key') || !workflow_is_regional_ored_role_key($roleKey)) {
+            return ['sql' => '', 'params' => []];
+        }
+
+        $hasPendingUserId = dashboard_column_exists($pdo, 'documents', 'pending_user_id');
+        $hasCurrentHolderUserId = dashboard_column_exists($pdo, 'documents', 'current_holder_user_id');
+        if (!$hasPendingUserId && !$hasCurrentHolderUserId) {
+            return ['sql' => '', 'params' => []];
+        }
+
+        $viewerParam = 'ored_queue_viewer_user_id';
+        $params = [$viewerParam => $userId];
+        $pendingAssignedToViewer = $hasPendingUserId
+            ? '(' . $documentAlias . '.pending_user_id = :' . $viewerParam . ')'
+            : '0 = 1';
+        $currentlyHeldByViewer = $hasCurrentHolderUserId
+            ? '(
+                    (' . ($hasPendingUserId ? $documentAlias . '.pending_user_id IS NULL OR ' . $documentAlias . '.pending_user_id = 0' : '1 = 1') . ')
+                    AND ' . $documentAlias . '.current_holder_user_id = :' . $viewerParam . '
+               )'
+            : '0 = 1';
+
+        if ($roleKey === 'ORED_SIGN') {
+            $sql = ' AND (
+                            ' . $pendingAssignedToViewer . '
+                            OR ' . $currentlyHeldByViewer . '
+                        )';
+
+            return [
+                'sql' => $sql,
+                'params' => $params,
+            ];
+        }
+
+        $unassignedToAnySpecificUser = '0 = 1';
+        if ($hasPendingUserId || $hasCurrentHolderUserId) {
+            $pendingUnassigned = $hasPendingUserId
+                ? '(' . $documentAlias . '.pending_user_id IS NULL OR ' . $documentAlias . '.pending_user_id = 0)'
+                : '1 = 1';
+            $currentUnassigned = $hasCurrentHolderUserId
+                ? '(' . $documentAlias . '.current_holder_user_id IS NULL OR ' . $documentAlias . '.current_holder_user_id = 0)'
+                : '1 = 1';
+            $unassignedToAnySpecificUser = '(' . $pendingUnassigned . ' AND ' . $currentUnassigned . ')';
+        }
+
+        $sql = ' AND (
+                        ' . $pendingAssignedToViewer . '
+                        OR ' . $currentlyHeldByViewer . '
+                        OR ' . $unassignedToAnySpecificUser . '
+                    )';
+
+        return [
+            'sql' => $sql,
+            'params' => $params,
+        ];
     }
 }
 
@@ -2439,12 +3319,13 @@ if (!function_exists('dashboard_fetch_outbox_rows')) {
  * Returns the same mapped-row format as dashboard_fetch_queue_rows.
  */
 if (!function_exists('dashboard_cenro_run_filtered_query')) {
-    function dashboard_cenro_run_filtered_query(PDO $pdo, string $whereClause, array $params, int $safeLimit): array
+    function dashboard_cenro_run_filtered_query(PDO $pdo, string $whereClause, array $params, int $safeLimit, ?array $dateRange = null): array
     {
         $hasPendingOfficeColumn = dashboard_column_exists($pdo, 'documents', 'pending_office_id');
         $pendingOfficeSelect = $hasPendingOfficeColumn
             ? 'd.pending_office_id AS pending_office_id,'
             : 'NULL AS pending_office_id,';
+        $dateClause = dashboard_build_date_range_clause('COALESCE(office_ts.office_received_at, d.created_at)', $dateRange, 'cenro_queue_date');
 
         $sql = 'SELECT
                     d.id,
@@ -2459,32 +3340,52 @@ if (!function_exists('dashboard_cenro_run_filtered_query')) {
                     ' . $pendingOfficeSelect . '
                     dt.name AS document_type,
                     ' . dashboard_documents_arta_category_expr($pdo) . ' AS arta_category,
-                    (
-                        SELECT al_last.remarks
-                        FROM activity_logs al_last
-                        WHERE al_last.document_id = d.id
-                          AND TRIM(COALESCE(al_last.remarks, \'\')) <> \'\'
-                        ORDER BY al_last.id DESC
-                        LIMIT 1
-                    ) AS last_remarks,
+                    ' . dashboard_sql_top_one_subquery(
+                        $pdo,
+                        'al_last.remarks',
+                        'FROM activity_logs al_last',
+                        "WHERE al_last.document_id = d.id
+                          AND TRIM(COALESCE(al_last.remarks, '')) <> ''",
+                        'al_last.id DESC',
+                        'last_remarks'
+                    ) . ',
+                    ' . dashboard_sql_custom_others_remarks_subquery($pdo) . ',
                     COALESCE(office_ts.office_received_at, d.created_at) AS queue_received_at,
-                    DATE_ADD(d.created_at, INTERVAL ' . dashboard_documents_arta_days_expr($pdo) . ' DAY) AS deadline_at,
+                    ' . dashboard_sql_add_days_expr('d.created_at', dashboard_documents_arta_days_expr($pdo)) . ' AS deadline_at,
                     COALESCE(o_current.name, \'-\') AS current_holder,
                     COALESCE(o_pending.name, \'\') AS pending_holder,
-                    COALESCE(o_origin.name, \'-\') AS origin_office,
-                    EXISTS(
+                    ' . dashboard_documents_origin_expr($pdo) . ' AS origin_office,
+                    ' . dashboard_sql_exists_flag(
+                        $pdo,
+                        "
                         SELECT 1
                         FROM activity_logs al_signed
                         WHERE al_signed.document_id = d.id
-                          AND LOWER(COALESCE(al_signed.action_type, \'\')) = \'signed\'
-                    ) AS has_signed_action,
-                    EXISTS(
+                          AND LOWER(COALESCE(al_signed.action_type, '')) = 'signed'
+                    ",
+                        'has_signed_action'
+                    ) . ',
+                    ' . dashboard_sql_exists_flag(
+                        $pdo,
+                        "
                         SELECT 1
                         FROM tracking_slips ts_sec
                         INNER JOIN offices o_sec ON o_sec.id = ts_sec.receiving_office_id
                         WHERE ts_sec.document_id = d.id
-                          AND UPPER(COALESCE(o_sec.level, \'\')) IN (' . dashboard_section_like_level_sql_list() . ')
-                    ) AS has_section_receive
+                          AND UPPER(COALESCE(o_sec.level, '')) IN (" . dashboard_section_like_level_sql_list() . ")
+                    ",
+                    'has_section_receive'
+                    ) . ',
+                    ' . dashboard_sql_exists_flag(
+                        $pdo,
+                        "
+                        SELECT 1
+                        FROM activity_logs al_ret
+                        WHERE al_ret.document_id = d.id
+                          AND LOWER(COALESCE(al_ret.action_type, '')) IN ('return', 'returned')
+                    ",
+                        'has_return_action'
+                    ) . '
                 FROM documents d
                 LEFT JOIN document_types dt ON dt.id = d.document_type_id
                 LEFT JOIN offices o_current ON o_current.id = d.current_office_id
@@ -2497,6 +3398,7 @@ if (!function_exists('dashboard_cenro_run_filtered_query')) {
                     GROUP BY ts.document_id
                 ) office_ts ON office_ts.document_id = d.id
                 WHERE ' . $whereClause . '
+                ' . $dateClause['sql'] . '
                 ORDER BY
                     CASE
                         WHEN LOWER(COALESCE(d.status, \'\')) = \'overdue\' THEN 3
@@ -2504,11 +3406,10 @@ if (!function_exists('dashboard_cenro_run_filtered_query')) {
                         ELSE 1
                     END DESC,
                     queue_received_at DESC,
-                    d.id DESC
-                LIMIT ' . $safeLimit;
+                    d.id DESC' . dashboard_sql_limit_suffix($safeLimit);
 
         $stmt = $pdo->prepare($sql);
-        $stmt->execute($params);
+        $stmt->execute(array_merge($params, $dateClause['params']));
         $rows = $stmt->fetchAll();
         if (!$rows) {
             return [];
@@ -2530,12 +3431,14 @@ if (!function_exists('dashboard_cenro_run_filtered_query')) {
             $status  = trim((string)($row['status'] ?? 'Pending')) ?: 'Pending';
             $documentType = trim((string)($row['document_type'] ?? 'Uncategorized')) ?: 'Uncategorized';
             $artaCategory = trim((string)($row['arta_category'] ?? ''));
-            $documentTypeLabel = $artaCategory !== ''
-                ? $documentType . ' (' . $artaCategory . ')'
-                : $documentType;
+            $documentTypeRemarks = trim((string)($row['custom_others_remarks'] ?? ''));
+            if ($documentTypeRemarks === '') {
+                $documentTypeRemarks = trim((string)($row['last_remarks'] ?? ''));
+            }
+            $documentTypeLabel = workflow_format_document_type_label($documentType, $artaCategory, $documentTypeRemarks);
             $documentId = (int)($row['id'] ?? 0);
             $effectiveHasSignedAction = (int)($row['has_signed_action'] ?? 0) > 0 ? 1 : 0;
-            $localSignedAction = dashboard_internal_admin_local_signed_action($pdo, $documentId, $contextOfficeId);
+            $localSignedAction = dashboard_queue_local_signed_action($pdo, $documentId, $contextOfficeId);
             if ($localSignedAction !== null) {
                 $effectiveHasSignedAction = $localSignedAction ? 1 : 0;
             }
@@ -2550,7 +3453,9 @@ if (!function_exists('dashboard_cenro_run_filtered_query')) {
                 'origin_office_id'  => (int)($row['originating_office_id'] ?? 0),
                 'current_office_id' => (int)($row['current_office_id'] ?? 0),
                 'pending_office_id' => (int)($row['pending_office_id'] ?? 0),
-                'last_remarks'      => trim((string)($row['last_remarks'] ?? '')),
+                'last_remarks'      => workflow_strip_custom_others_document_type_from_remarks(
+                    trim((string)($row['last_remarks'] ?? ''))
+                ),
                 'has_signed_action' => $effectiveHasSignedAction,
                 'document_type'     => $documentTypeLabel,
                 'arta_category'     => $artaCategory !== '' ? $artaCategory : 'Simple',
@@ -2583,11 +3488,41 @@ if (!function_exists('dashboard_cenro_run_filtered_query')) {
  * ----------------------------------------------------------------------- */
 
 if (!function_exists('dashboard_fetch_workflow_trend')) {
-    function dashboard_fetch_workflow_trend(PDO $pdo, int $officeId, int $days = 7): array
+    function dashboard_fetch_workflow_trend(PDO $pdo, int $officeId, int $days = 7, ?array $dateRange = null): array
     {
-        $safeDays = max(5, min($days, 31));
-        $today = new DateTimeImmutable('today');
-        $start = $today->sub(new DateInterval('P' . ($safeDays - 1) . 'D'));
+        $range = dashboard_effective_date_range($dateRange);
+        $startDate = null;
+        $endDate = null;
+        if (isset($range['from_input']) && trim((string)$range['from_input']) !== '') {
+            try {
+                $startDate = (new DateTimeImmutable((string)$range['from_input']))->setTime(0, 0, 0);
+            } catch (Throwable $exception) {
+                $startDate = null;
+            }
+        }
+        if (isset($range['to_input']) && trim((string)$range['to_input']) !== '') {
+            try {
+                $endDate = (new DateTimeImmutable((string)$range['to_input']))->setTime(0, 0, 0);
+            } catch (Throwable $exception) {
+                $endDate = null;
+            }
+        }
+
+        if ($startDate !== null && $endDate !== null) {
+            $spanDays = (int)$startDate->diff($endDate)->days + 1;
+            $safeDays = max(1, min($spanDays, 31));
+            $start = $startDate;
+        } elseif ($startDate !== null) {
+            $safeDays = max(5, min($days, 31));
+            $start = $startDate;
+        } elseif ($endDate !== null) {
+            $safeDays = max(5, min($days, 31));
+            $start = $endDate->sub(new DateInterval('P' . ($safeDays - 1) . 'D'));
+        } else {
+            $safeDays = max(5, min($days, 31));
+            $today = new DateTimeImmutable('today');
+            $start = $today->sub(new DateInterval('P' . ($safeDays - 1) . 'D'));
+        }
 
         $result = [
             'labels' => [],
@@ -2610,23 +3545,26 @@ if (!function_exists('dashboard_fetch_workflow_trend')) {
 
         $hasPendingOfficeColumn = dashboard_column_exists($pdo, 'documents', 'pending_office_id');
         $scope = dashboard_build_office_scope($officeId, $hasPendingOfficeColumn);
+        $dateClause = dashboard_build_date_range_clause('al.created_at', $dateRange, 'workflow_trend_date');
         $startAt = $start->format('Y-m-d 00:00:00');
 
         $sql = 'SELECT
-                    DATE(al.created_at) AS activity_day,
+                    ' . dashboard_sql_date_only_expr('al.created_at') . ' AS activity_day,
                     SUM(CASE WHEN LOWER(al.action_type) = \'received\' THEN 1 ELSE 0 END) AS received_count,
                     SUM(CASE WHEN LOWER(al.action_type) IN (\'forwarded\', \'forward\', \'rerouted\', \'reroute\', \'released\', \'overridden\', \'override\') THEN 1 ELSE 0 END) AS forwarded_count,
                     SUM(CASE WHEN LOWER(al.action_type) IN (\'approved\', \'signed\', \'completed\', \'released\', \'closed\', \'resolved\', \'done\') THEN 1 ELSE 0 END) AS completed_count
                 FROM activity_logs al
                 INNER JOIN documents d ON d.id = al.document_id
                 WHERE ' . $scope['where'] . '
+                  ' . $dateClause['sql'] . '
                   AND al.created_at >= :start_at
-                GROUP BY DATE(al.created_at)
+                GROUP BY ' . dashboard_sql_date_only_expr('al.created_at') . '
                 ORDER BY activity_day ASC';
 
         $stmt = $pdo->prepare($sql);
         $params = $scope['params'];
         $params['start_at'] = $startAt;
+        $params = array_merge($params, $dateClause['params']);
         $stmt->execute($params);
         $rows = $stmt->fetchAll() ?: [];
 

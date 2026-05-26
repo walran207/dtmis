@@ -20,7 +20,7 @@ $trackingId = trim((string)($_GET['tracking_id'] ?? ''));
 $isEmbedded = ((string)($_GET['embedded'] ?? '') === '1');
 $printPackagePath = app_url('print-package.php') . ($trackingId !== '' ? '?tracking_id=' . rawurlencode($trackingId) : '');
 $publicTrackingSlipUrl = $trackingId !== ''
-    ? app_url('tracking-slip.php') . '?tracking_id=' . rawurlencode($trackingId) . '&public=1'
+    ? app_public_url('tracking-slip.php') . '?tracking_id=' . rawurlencode($trackingId) . '&public=1'
     : '';
 $qrText = $publicTrackingSlipUrl !== '' ? $publicTrackingSlipUrl : ($trackingId !== '' ? $trackingId : 'QR-STAMP');
 ?>
@@ -713,10 +713,10 @@ $qrText = $publicTrackingSlipUrl !== '' ? $publicTrackingSlipUrl : ($trackingId 
             }
 
             function buildQrSource() {
-                if (!window.edatsLocalQr || typeof window.edatsLocalQr.generateDataUrl !== 'function') {
+                if (!window.DTMISLocalQr || typeof window.DTMISLocalQr.generateDataUrl !== 'function') {
                     throw new Error('Local QR generator is not available.');
                 }
-                return window.edatsLocalQr.generateDataUrl(qrText, {
+                return window.DTMISLocalQr.generateDataUrl(qrText, {
                     size: 512,
                     margin: 2,
                     errorCorrection: 'M',
@@ -1139,7 +1139,7 @@ $qrText = $publicTrackingSlipUrl !== '' ? $publicTrackingSlipUrl : ($trackingId 
             placeHandleFromState(true);
         })();
 
-        // Sync theme with parent edats dashboard if available
+        // Sync theme with parent DTMIS dashboard if available
         (function() {
             function syncTheme() {
                 try {

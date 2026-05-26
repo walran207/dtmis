@@ -82,7 +82,7 @@ foreach ($actedRows as $row) {
 }
 $roleName = 'PENRO_DIVISION';
 $initialsFallback = 'DC';
-$pageTitle = 'Unit Monitor (With Staff) | DENR Region XII eDATS';
+$pageTitle = 'Unit Monitor (With Staff) | DENR Region XII DTMIS';
 $activeMenu = 'unit_monitor_with_staff';
 $brandSubtitle = 'PENRO Division Portal';
 $pageHeading = 'Unit Monitor (With Staff) - Live Action Tracker';

@@ -4,12 +4,12 @@
     if (typeof window === 'undefined' || typeof window.fetch !== 'function' || typeof window.indexedDB === 'undefined') {
         return;
     }
-    if (window.__edatsOfflineOutboxInstalled) {
+    if (window.__DTMISOfflineOutboxInstalled) {
         return;
     }
-    window.__edatsOfflineOutboxInstalled = true;
+    window.__DTMISOfflineOutboxInstalled = true;
 
-    var DB_NAME = 'edats-offline-outbox';
+    var DB_NAME = 'DTMIS-offline-outbox';
     var STORE_NAME = 'operations';
     var ROUTE_CONFIGS = [
         {
@@ -41,6 +41,7 @@
     var MAX_DELAY_MS = 300000;
     var TERMINAL_DELAY_MS = 900000;
     var REAUTH_BLOCK_DELAY_MS = 1800000;
+    var STALE_SYNCING_MS = 15000;
     var HEARTBEAT_MS = 10000;
     var MAX_PENDING_PER_SCOPE = 50;
     var MAX_PENDING_BYTES_PER_SCOPE = 120 * 1024 * 1024;
@@ -50,10 +51,10 @@
     var REAUTH_REQUIRED_STATUS = 428;
     var AUTH_PAGE_PATTERN = /\/auth\/(?:login|register|forgot-password|logout)\.php$/i;
     var EXPLICIT_OFFLINE_CLEAR_QUERY_KEY = 'offline_clear';
-    var SERVICE_WORKER_CACHE_PREFIXES = ['edats-shell'];
+    var SERVICE_WORKER_CACHE_PREFIXES = ['DTMIS-shell'];
     var SENSITIVE_LOCAL_STORAGE_PREFIXES = [
-        'edats_intake_draft_',
-        'edats_notif_read_until_'
+        'DTMIS_intake_draft_',
+        'DTMIS_notif_read_until_'
     ];
 
     var nativeFetch = window.fetch.bind(window);
@@ -61,6 +62,7 @@
     var syncBusy = false;
     var syncQueued = false;
     var sessionInvalidated = false;
+    var connectivityForcedOffline = !navigator.onLine;
     var state = { online: navigator.onLine, pending: 0, syncing: 0, failed: 0, blocked: 0, synced: 0 };
     var syncedAt = 0;
     var badge = null;
@@ -164,8 +166,21 @@
 
     function now() { return Date.now(); }
 
+    function isEffectiveOnline() {
+        return !!navigator.onLine && !connectivityForcedOffline;
+    }
+
+    function setForcedOffline(nextValue) {
+        var normalized = !!nextValue;
+        if (connectivityForcedOffline === normalized) {
+            return false;
+        }
+        connectivityForcedOffline = normalized;
+        return true;
+    }
+
     function scopeKey() {
-        var explicit = String(window.__EDATS_CACHE_SCOPE || '').trim();
+        var explicit = String(window.__DTMIS_CACHE_SCOPE || '').trim();
         if (explicit !== '') {
             return explicit;
         }
@@ -347,7 +362,7 @@
     }
 
     function readOfflinePolicy() {
-        var raw = window.__EDATS_OFFLINE_POLICY;
+        var raw = window.__DTMIS_OFFLINE_POLICY;
         var policy = (raw && typeof raw === 'object') ? raw : {};
         var bodyRoleKey = '';
         try {
@@ -583,9 +598,9 @@
             await clearOutboxByFilter(function () { return true; });
         }
 
-        if (includeReadCache && window.edatsOfflineReadCache && typeof window.edatsOfflineReadCache.clear === 'function') {
+        if (includeReadCache && window.DTMISOfflineReadCache && typeof window.DTMISOfflineReadCache.clear === 'function') {
             try {
-                await window.edatsOfflineReadCache.clear();
+                await window.DTMISOfflineReadCache.clear();
             } catch (error) {
                 // Ignore read-cache cleanup errors.
             }
@@ -604,7 +619,7 @@
         }
 
         try {
-            window.dispatchEvent(new CustomEvent('edats:offline-data-cleared', {
+            window.dispatchEvent(new CustomEvent('DTMIS:offline-data-cleared', {
                 detail: {
                     reason: String(reason || 'manual'),
                     source: 'offline-outbox'
@@ -617,7 +632,7 @@
 
     function notifySessionInvalid(reason, statusCode, source) {
         try {
-            window.dispatchEvent(new CustomEvent('edats:session-invalid', {
+            window.dispatchEvent(new CustomEvent('DTMIS:session-invalid', {
                 detail: {
                     reason: String(reason || 'session-invalid'),
                     statusCode: Number(statusCode || 0),
@@ -701,7 +716,7 @@
         }), {
             status: 202,
             statusText: 'Accepted',
-            headers: { 'Content-Type': 'application/json; charset=UTF-8', 'X-eDATS-Outbox': 'QUEUED' }
+            headers: { 'Content-Type': 'application/json; charset=UTF-8', 'X-DTMIS-Outbox': 'QUEUED' }
         });
     }
 
@@ -714,7 +729,7 @@
         }), {
             status: 413,
             statusText: 'Payload Too Large',
-            headers: { 'Content-Type': 'application/json; charset=UTF-8', 'X-eDATS-Outbox': 'LIMIT' }
+            headers: { 'Content-Type': 'application/json; charset=UTF-8', 'X-DTMIS-Outbox': 'LIMIT' }
         });
     }
 
@@ -781,7 +796,7 @@
     }
 
     function resolveSyncLogUrl(contextUrl) {
-        var explicit = String(window.__EDATS_OFFLINE_SYNC_LOG_URL || '').trim();
+        var explicit = String(window.__DTMIS_OFFLINE_SYNC_LOG_URL || '').trim();
         var base = '';
         if (contextUrl) {
             try {
@@ -863,7 +878,7 @@
     function ensureBadge() {
         if (badge || !document.body) { return; }
         badge = document.createElement('aside');
-        badge.id = 'edatsOfflineOutboxBadge';
+        badge.id = 'DTMISOfflineOutboxBadge';
         badge.style.position = 'fixed';
         badge.style.left = 'auto';
         badge.style.right = '16px';
@@ -907,7 +922,7 @@
                 return;
             }
             try {
-                window.dispatchEvent(new CustomEvent('edats:offline-badge-click', {
+                window.dispatchEvent(new CustomEvent('DTMIS:offline-badge-click', {
                     detail: { online: !!navigator.onLine, state: Object.assign({}, state) }
                 }));
             } catch (error) {
@@ -921,7 +936,7 @@
             }
             event.preventDefault();
             try {
-                window.dispatchEvent(new CustomEvent('edats:offline-badge-click', {
+                window.dispatchEvent(new CustomEvent('DTMIS:offline-badge-click', {
                     detail: { online: !!navigator.onLine, state: Object.assign({}, state) }
                 }));
             } catch (error) {
@@ -998,7 +1013,7 @@
     async function publish() {
         var rows = await allOps();
         var scope = scopeKey();
-        var next = { online: navigator.onLine, pending: 0, syncing: 0, failed: 0, blocked: 0, synced: 0 };
+        var next = { online: isEffectiveOnline(), pending: 0, syncing: 0, failed: 0, blocked: 0, synced: 0 };
         rows.forEach(function (row) {
             if (String(row.scopeKey || '') !== scope) { return; }
             var status = String(row.status || '').toLowerCase();
@@ -1019,7 +1034,7 @@
         render();
 
         try {
-            window.dispatchEvent(new CustomEvent('edats:outbox-state', { detail: { scopeKey: scope, state: next } }));
+            window.dispatchEvent(new CustomEvent('DTMIS:outbox-state', { detail: { scopeKey: scope, state: next } }));
         } catch (error) {
             // noop
         }
@@ -1081,6 +1096,35 @@
         }
     }
 
+    async function recoverInterruptedSyncingOps() {
+        if (syncBusy) {
+            return false;
+        }
+
+        var rows = await allOps();
+        var changed = false;
+        var currentTime = now();
+        for (var i = 0; i < rows.length; i += 1) {
+            var row = rows[i];
+            if (String(row && row.status ? row.status : '').toLowerCase() !== 'syncing') {
+                continue;
+            }
+            if ((currentTime - Number(row.updatedAt || 0)) < STALE_SYNCING_MS) {
+                continue;
+            }
+
+            row.status = 'failed';
+            row.updatedAt = currentTime;
+            row.nextRetryAt = currentTime;
+            row.lastError = 'Recovered interrupted offline sync attempt. Retrying.';
+            row.lastHttpStatus = Number(row.lastHttpStatus || 0);
+            await putOp(row);
+            changed = true;
+        }
+
+        return changed;
+    }
+
     async function syncOne(op, force) {
         op.status = 'syncing';
         op.attemptCount = Number(op.attemptCount || 0) + 1;
@@ -1100,9 +1144,10 @@
             var response = await nativeFetch(op.url, {
                 method: 'POST',
                 credentials: 'same-origin',
-                headers: { 'X-eDATS-Outbox-Sync': '1' },
+                headers: { 'X-DTMIS-Outbox-Sync': '1' },
                 body: fromEntries(withSyncMarker(op.bodyEntries || []))
             });
+            setForcedOffline(false);
 
             var json = null;
             try {
@@ -1178,7 +1223,7 @@
             }, op.url);
 
             try {
-                window.dispatchEvent(new CustomEvent('edats:outbox-synced', {
+                window.dispatchEvent(new CustomEvent('DTMIS:outbox-synced', {
                     detail: {
                         operationId: op.operationId,
                         trackingId: json && json.tracking_id ? String(json.tracking_id) : '',
@@ -1193,6 +1238,7 @@
             if (sessionInvalidated) {
                 return;
             }
+            setForcedOffline(true);
             op.status = 'failed';
             op.updatedAt = now();
             op.lastHttpStatus = 0;
@@ -1214,6 +1260,11 @@
 
     async function sync(force) {
         if (!navigator.onLine) {
+            setForcedOffline(true);
+            await publish();
+            return;
+        }
+        if (connectivityForcedOffline && !force) {
             await publish();
             return;
         }
@@ -1333,14 +1384,16 @@
         }, requestUrl);
 
         try {
-            window.dispatchEvent(new CustomEvent('edats:outbox-queued', {
+            window.dispatchEvent(new CustomEvent('DTMIS:outbox-queued', {
                 detail: { operationId: operationId, kind: op.kind, action: op.action, sizeBytes: opSizeBytes }
             }));
         } catch (error) {
             // noop
         }
 
-        sync(false);
+        if (isEffectiveOnline()) {
+            sync(false);
+        }
         return op;
     }
 
@@ -1385,7 +1438,7 @@
             body: fromEntries(bodyEntries)
         };
 
-        if (!navigator.onLine) {
+        if (!isEffectiveOnline()) {
             if (!queueAllowed) {
                 logSyncEvent('QUEUE_BLOCKED_POLICY', {
                     route_kind: String(routeConfig && routeConfig.kind ? routeConfig.kind : ''),
@@ -1423,11 +1476,15 @@
 
         try {
             var liveResponse = await nativeFetch(requestUrl.toString(), requestInit);
+            if (setForcedOffline(false)) {
+                publish();
+            }
             if (SESSION_INVALID_STATUSES[Number(liveResponse.status || 0)]) {
                 await markSessionInvalid('session-expired-live-request', Number(liveResponse.status || 0));
             }
             return liveResponse;
         } catch (error) {
+            setForcedOffline(true);
             if (!queueAllowed) {
                 logSyncEvent('QUEUE_BLOCKED_POLICY', {
                     route_kind: String(routeConfig && routeConfig.kind ? routeConfig.kind : ''),
@@ -1456,7 +1513,7 @@
         }
     };
 
-    window.edatsOfflineOutbox = {
+    window.DTMISOfflineOutbox = {
         version: 'phase7',
         limits: {
             maxPendingPerScope: MAX_PENDING_PER_SCOPE,
@@ -1504,7 +1561,7 @@
         }
     };
 
-    window.edatsOfflineSecurity = Object.assign({}, window.edatsOfflineSecurity || {}, {
+    window.DTMISOfflineSecurity = Object.assign({}, window.DTMISOfflineSecurity || {}, {
         version: 'phase7',
         clearSensitiveData: function (reason) {
             return clearSensitiveOfflineData(reason || 'manual-clear', {
@@ -1518,7 +1575,7 @@
         }
     });
 
-    window.addEventListener('edats:session-invalid', function (event) {
+    window.addEventListener('DTMIS:session-invalid', function (event) {
         var detail = event && event.detail ? event.detail : {};
         if (String(detail.source || '') === 'offline-outbox') {
             return;
@@ -1526,7 +1583,7 @@
         markSessionInvalid(String(detail.reason || 'session-invalid'), Number(detail.statusCode || 0));
     });
 
-    window.addEventListener('edats:offline-security-clear', function (event) {
+    window.addEventListener('DTMIS:offline-security-clear', function (event) {
         var detail = event && event.detail ? event.detail : {};
         clearSensitiveOfflineData(String(detail.reason || 'manual-clear'), {
             includeReadCache: true,
@@ -1536,16 +1593,20 @@
     });
 
     window.addEventListener('online', function () {
-        publish();
-        sync(true);
+        setForcedOffline(false);
+        recoverInterruptedSyncingOps().finally(function () {
+            publish();
+            sync(true);
+        });
     });
 
     window.addEventListener('offline', function () {
+        setForcedOffline(true);
         publish();
     });
 
     document.addEventListener('visibilitychange', function () {
-        if (!document.hidden && navigator.onLine) {
+        if (!document.hidden && isEffectiveOnline()) {
             sync(false);
         }
     });
@@ -1563,8 +1624,9 @@
             });
             clearAuthBootFlagFromUrl();
         }
+        await recoverInterruptedSyncingOps();
         await publish();
-        if (navigator.onLine && !sessionInvalidated) {
+        if (isEffectiveOnline() && !sessionInvalidated) {
             sync(false);
         }
     }

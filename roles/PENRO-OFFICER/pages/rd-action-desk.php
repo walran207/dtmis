@@ -52,8 +52,7 @@ try {
 }
 
 $pendingReceivedTotal = (int)($metrics['pending_total'] ?? 0);
-$pendingApprovalTotal = (int)($metrics['pending_approval_total'] ?? 0);
-$pendingSignFromQueue = 0;
+$inQueueTotal = max((int)($metrics['pending_total'] ?? 0), count($queueRows));
 $pendingForwardFromQueue = 0;
 foreach ($queueRows as $queueRow) {
     $status = strtolower(trim((string)($queueRow['status'] ?? '')));
@@ -71,25 +70,16 @@ foreach ($queueRows as $queueRow) {
     if ($isTerminal) {
         continue;
     }
-    $isAwaitingSignature = str_contains($status, 'signature')
-        || str_contains($status, 'pending sign')
-        || str_contains($status, 'for sign')
-        || str_contains($status, 'approved');
-    $isApproved = str_contains($status, 'approved') || str_contains($status, 'approval');
+    $isReceived = str_contains($status, 'received') || str_contains($status, 'recieved');
     $isForwarded = str_contains($status, 'forward') || str_starts_with($status, 'assigned to ');
-    $isSignedCompleted = str_contains($status, 'signed') || str_contains($status, 'completed');
-    if ($isAwaitingSignature && !$isSignedCompleted && !$isForwarded) {
-        $pendingSignFromQueue++;
-    }
-    if ($isApproved && !$isForwarded) {
+    if ($isReceived && !$isForwarded) {
         $pendingForwardFromQueue++;
     }
 }
-$pendingSignTotal = max((int)($metrics['pending_sign_total'] ?? 0), $pendingSignFromQueue);
 $pendingForwardTotal = max((int)($metrics['pending_forward_total'] ?? 0), $pendingForwardFromQueue);
-$snapshotBase = max($pendingApprovalTotal, $pendingSignTotal, $pendingForwardTotal, 1);
-$pendingApprovalWidth = (string)(int)round(($pendingApprovalTotal / $snapshotBase) * 100) . '%';
-$pendingSignWidth = (string)(int)round(($pendingSignTotal / $snapshotBase) * 100) . '%';
+$snapshotBase = max($pendingReceivedTotal, $inQueueTotal, $pendingForwardTotal, 1);
+$pendingReceivedWidth = (string)(int)round(($pendingReceivedTotal / $snapshotBase) * 100) . '%';
+$inQueueWidth = (string)(int)round(($inQueueTotal / $snapshotBase) * 100) . '%';
 $pendingForwardWidth = (string)(int)round(($pendingForwardTotal / $snapshotBase) * 100) . '%';
 
 $tableRows = [];
@@ -103,7 +93,7 @@ foreach ($queueRows as $queueRow) {
             (string)($queueRow['time_remaining'] ?? '-'),
             (string)($queueRow['date_received'] ?? '-'),
             (string)($queueRow['status'] ?? '-'),
-            'View Tracking Slip | Receive | Approve | Sign | Pending | Forward | Print Package',
+            'View Tracking Slip | Receive | Pending | Forward | Send Back to Admin Record | Print Package',
         ],
         'meta' => [
             'document_id' => (string)($queueRow['document_id'] ?? 0),
@@ -120,15 +110,15 @@ foreach ($queueRows as $queueRow) {
     ];
 }
 
-$pageTitle = 'PENRO Officer Action Desk | DENR Region XII eDATS';
+$pageTitle = 'PENRO Officer Action Desk | DENR Region XII DTMIS';
 $brandSubtitle = 'PENRO Officer Portal';
 $pageHeading = 'PENRO Officer Action Desk';
-$pageSubtitle = 'Dedicated queue for approval, signature, and forwarding actions.';
+$pageSubtitle = 'Dedicated queue for receive, forwarding, and return actions.';
 $activeMenu = 'penro_officer_action_desk';
 $dashboardLivePath = app_url('actions/dashboard-live.php?scope=pending_receive_action');
 $tableTitle = 'PENRO Officer Action Desk';
 $tableColumns = ['Tracking ID', 'Subject', 'Document Type (+ ARTA)', 'Date Created', 'Time Remaining', 'Date Received', 'Status', 'Quick Actions'];
-$pageActions = ['View Tracking Slip', 'Print Package', 'Receive', 'Approve', 'Sign', 'Forward'];
+$pageActions = ['View Tracking Slip', 'Print Package', 'Receive', 'Forward', 'Send Back to Admin Record'];
 $stickyActions = [];
 $enableQueueRerouteAction = false;
 $queueControlsPlacement = 'table_card';
@@ -137,46 +127,12 @@ $statusFilterOptions = [
     ['value' => '', 'label' => 'All Status Categories'],
     ['value' => 'awaiting_receive', 'label' => 'Awaiting Receive'],
     ['value' => 'received', 'label' => 'Received'],
-    ['value' => 'approved', 'label' => 'Approved'],
-    ['value' => 'signed_completed', 'label' => 'Signed / Completed'],
     ['value' => 'pending_forward', 'label' => 'Pending Forward'],
 ];
 $dateFilterPlacement = 'table_card';
 $routeOffices = is_array($routeOffices ?? null) ? $routeOffices : [];
 
-$kpiCards = [
-    ['label' => 'Pending Received', 'value' => (string)$pendingReceivedTotal, 'icon' => 'blue'],
-    ['label' => 'Pending Approval', 'value' => (string)$pendingApprovalTotal, 'icon' => 'orange'],
-    ['label' => 'Pending Sign', 'value' => (string)$pendingSignTotal, 'icon' => 'violet'],
-    ['label' => 'Pending forward', 'value' => (string)$pendingForwardTotal, 'icon' => 'green'],
-];
-
-$panels = [
-    [
-        'title' => 'PENRO Officer Queue Snapshot',
-        'rows' => [
-            ['label' => 'Pending Approval', 'value' => (string)$pendingApprovalTotal, 'width' => $pendingApprovalWidth],
-            ['label' => 'Pending Sign', 'value' => (string)$pendingSignTotal, 'width' => $pendingSignWidth],
-            ['label' => 'Pending Forward', 'value' => (string)$pendingForwardTotal, 'width' => $pendingForwardWidth],
-        ],
-    ],
-    [
-        'title' => 'PENRO Officer Control Signals',
-        'rows' => [
-            ['label' => 'Received events', 'value' => '0', 'width' => '34%'],
-            ['label' => 'Approved events', 'value' => '0', 'width' => '33%'],
-            ['label' => 'Forwarded events', 'value' => '0', 'width' => '33%'],
-        ],
-    ],
-    [
-        'title' => 'Desk Focus',
-        'chips' => [
-            'Receive before policy action',
-            'Approve before sign/forward stage',
-            'Route only within your PENRO internal chain',
-            'Record clear executive remarks',
-        ],
-    ],
-];
+$kpiCards = [];
+$panels = [];
 
 require dirname(__DIR__, 3) . '/app/templates/role-page-template.php';

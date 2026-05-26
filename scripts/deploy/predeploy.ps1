@@ -1,6 +1,6 @@
 param(
     [string]$ProjectRoot = '',
-    [string]$BaseUrl = 'http://localhost/edats',
+    [string]$BaseUrl = 'http://localhost/DTMIS',
     [switch]$SkipDb,
     [switch]$SkipSmoke
 )

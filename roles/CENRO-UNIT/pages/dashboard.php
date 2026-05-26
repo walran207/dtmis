@@ -90,7 +90,7 @@ foreach ($queueRows as $queueRow) {
     ];
 }
 
-$pageTitle = 'CENRO Unit Dashboard | DENR Region XII eDATS';
+$pageTitle = 'CENRO Unit Dashboard | DENR Region XII DTMIS';
 $brandSubtitle = 'CENRO Unit Portal';
 $pageHeading = 'CENRO Unit Dashboard';
 $pageSubtitle = 'Day-to-day processing, work notes, and forwarding to CENRO Section.';

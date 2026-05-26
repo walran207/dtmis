@@ -1,6 +1,6 @@
 {
-  "name": "DENR Region XII eDATS",
-  "short_name": "eDATS",
+  "name": "DENR Region XII DTMIS",
+  "short_name": "DTMIS",
   "description": "Electronic document action tracking system for DENR Region XII.",
   "lang": "en-PH",
   "start_url": "./",

@@ -3,12 +3,10 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__, 2) . '/config/app.php';
 require_once dirname(__DIR__, 2) . '/config/database.php';
+require_once dirname(__DIR__, 2) . '/config/attachment-backups.php';
 require_once dirname(__DIR__, 2) . '/config/workflow.php';
 require_once dirname(__DIR__, 2) . '/config/offline-sync.php';
 
-const CREATE_DOC_MAX_FILE_SIZE = 15728640; // 15 MB
-const CREATE_DOC_MAX_ATTACHMENTS = 40;
-const CREATE_DOC_MAX_TOTAL_UPLOAD_SIZE = 251658240; // 240 MB
 const INTAKE_IDEMPOTENCY_TABLE = 'api_idempotency_operations';
 const INTAKE_IDEMPOTENCY_ACTION_KEY = 'create_document_intake';
 
@@ -51,6 +49,47 @@ function intake_color_classification_options(): array
     ];
 }
 
+function intake_resolve_others_document_type_id(PDO $pdo): int
+{
+    $lookup = $pdo->query("
+        SELECT TOP (1) id
+        FROM document_types
+        WHERE
+            LOWER(LTRIM(RTRIM(COALESCE(name, '')))) IN ('others', 'other')
+            OR LOWER(LTRIM(RTRIM(COALESCE(category, '')))) = 'others'
+        ORDER BY id ASC
+    ");
+    $existingId = $lookup ? (int)($lookup->fetchColumn() ?: 0) : 0;
+    if ($existingId > 0) {
+        return $existingId;
+    }
+
+    $insert = $pdo->prepare(
+        'INSERT INTO document_types (
+            name, category, arta_days_limit, indicator_color, is_custom, created_by_role_id, is_active
+         ) VALUES (
+            :name, :category, :days, :color, 0, NULL, 1
+         )'
+    );
+    $insert->execute([
+        'name' => 'Others',
+        'category' => 'Others',
+        'days' => 3,
+        'color' => 'Yellow',
+    ]);
+
+    $confirm = $pdo->query("
+        SELECT TOP (1) id
+        FROM document_types
+        WHERE
+            LOWER(LTRIM(RTRIM(COALESCE(name, '')))) IN ('others', 'other')
+            OR LOWER(LTRIM(RTRIM(COALESCE(category, '')))) = 'others'
+        ORDER BY id ASC
+    ");
+
+    return $confirm ? (int)($confirm->fetchColumn() ?: 0) : 0;
+}
+
 function intake_build_success_payload(
     int $documentId,
     string $trackingId,
@@ -81,26 +120,51 @@ function intake_idempotency_ensure_table(PDO $pdo): void
     }
 
     $tableName = INTAKE_IDEMPOTENCY_TABLE;
-    $pdo->exec(
-        "CREATE TABLE IF NOT EXISTS `{$tableName}` (
-            `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-            `user_id` INT NOT NULL,
-            `action_key` VARCHAR(64) NOT NULL,
-            `operation_id` VARCHAR(80) NOT NULL,
-            `request_hash` CHAR(64) NOT NULL,
-            `status` ENUM('PENDING','COMPLETED','FAILED') NOT NULL DEFAULT 'PENDING',
-            `document_id` INT NULL,
-            `tracking_id` VARCHAR(64) NULL,
-            `attachment_count` INT NULL,
-            `response_code` SMALLINT UNSIGNED NULL,
-            `response_json` MEDIUMTEXT NULL,
-            `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            PRIMARY KEY (`id`),
-            UNIQUE KEY `uq_idempotency_operation` (`user_id`, `action_key`, `operation_id`),
-            KEY `idx_idempotency_status_updated` (`status`, `updated_at`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
-    );
+    if (db_is_sql_server($pdo)) {
+        $pdo->exec(
+            "IF OBJECT_ID(N'dbo.{$tableName}', N'U') IS NULL
+             BEGIN
+                 CREATE TABLE dbo.{$tableName} (
+                     id BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                     user_id INT NOT NULL,
+                     action_key NVARCHAR(64) NOT NULL,
+                     operation_id NVARCHAR(80) NOT NULL,
+                     request_hash CHAR(64) NOT NULL,
+                     status NVARCHAR(16) NOT NULL CONSTRAINT DF_{$tableName}_status DEFAULT 'PENDING',
+                     document_id INT NULL,
+                     tracking_id NVARCHAR(64) NULL,
+                     attachment_count INT NULL,
+                     response_code SMALLINT NULL,
+                     response_json NVARCHAR(MAX) NULL,
+                     created_at DATETIME2 NOT NULL CONSTRAINT DF_{$tableName}_created_at DEFAULT SYSDATETIME(),
+                     updated_at DATETIME2 NOT NULL CONSTRAINT DF_{$tableName}_updated_at DEFAULT SYSDATETIME(),
+                     CONSTRAINT UQ_{$tableName}_operation UNIQUE (user_id, action_key, operation_id)
+                 );
+                 CREATE INDEX IDX_{$tableName}_status_updated ON dbo.{$tableName}(status, updated_at);
+             END"
+        );
+    } else {
+        $pdo->exec(
+            "CREATE TABLE IF NOT EXISTS {$tableName} (
+                `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                `user_id` INT NOT NULL,
+                `action_key` VARCHAR(64) NOT NULL,
+                `operation_id` VARCHAR(80) NOT NULL,
+                `request_hash` CHAR(64) NOT NULL,
+                `status` ENUM('PENDING','COMPLETED','FAILED') NOT NULL DEFAULT 'PENDING',
+                `document_id` INT NULL,
+                `tracking_id` VARCHAR(64) NULL,
+                `attachment_count` INT NULL,
+                `response_code` SMALLINT UNSIGNED NULL,
+                `response_json` MEDIUMTEXT NULL,
+                `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uq_idempotency_operation` (`user_id`, `action_key`, `operation_id`),
+                KEY `idx_idempotency_status_updated` (`status`, `updated_at`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+        );
+    }
 
     $ensured = true;
 }
@@ -121,7 +185,10 @@ function intake_idempotency_request_hash(array $payload, array $uploadedFiles): 
     $normalized = [
         'subject' => trim((string)($payload['subject'] ?? '')),
         'source_type' => strtoupper(trim((string)($payload['source_type'] ?? 'INTERNAL'))),
+        'sender' => trim((string)($payload['sender'] ?? '')),
         'external_client_name' => trim((string)($payload['external_client_name'] ?? '')),
+        'client_address' => trim((string)($payload['client_address'] ?? '')),
+        'originating_entity_name' => trim((string)($payload['originating_entity_name'] ?? '')),
         'document_type_id' => (int)($payload['document_type_id'] ?? 0),
         'action_required' => trim((string)($payload['action_required'] ?? '')),
         'remarks' => trim((string)($payload['remarks'] ?? '')),
@@ -149,13 +216,12 @@ function intake_idempotency_begin(
     $pdo->beginTransaction();
     try {
         $select = $pdo->prepare(
-            "SELECT id, request_hash, status, document_id, tracking_id, attachment_count, response_code, response_json, updated_at
-             FROM `{$tableName}`
+            "SELECT TOP (1) id, request_hash, status, document_id, tracking_id, attachment_count, response_code, response_json, updated_at
+             FROM {$tableName} WITH (UPDLOCK, ROWLOCK)
              WHERE user_id = :user_id
                AND action_key = :action_key
                AND operation_id = :operation_id
-             LIMIT 1
-             FOR UPDATE"
+             "
         );
         $select->execute([
             'user_id' => $userId,
@@ -167,10 +233,10 @@ function intake_idempotency_begin(
         if (!$existing) {
             try {
                 $insert = $pdo->prepare(
-                    "INSERT INTO `{$tableName}` (
+                    "INSERT INTO {$tableName} (
                         user_id, action_key, operation_id, request_hash, status, created_at, updated_at
                     ) VALUES (
-                        :user_id, :action_key, :operation_id, :request_hash, 'PENDING', NOW(), NOW()
+                        :user_id, :action_key, :operation_id, :request_hash, 'PENDING', SYSDATETIME(), SYSDATETIME()
                     )"
                 );
                 $insert->execute([
@@ -261,11 +327,11 @@ function intake_idempotency_begin(
         }
 
         $reset = $pdo->prepare(
-            "UPDATE `{$tableName}`
+            "UPDATE {$tableName}
              SET status = 'PENDING',
                  response_code = NULL,
                  response_json = NULL,
-                 updated_at = NOW()
+                 updated_at = SYSDATETIME()
              WHERE id = :id"
         );
         $reset->execute(['id' => (int)$existing['id']]);
@@ -288,10 +354,10 @@ function intake_idempotency_mark_created_document(PDO $pdo, int $userId, string 
 
     $tableName = INTAKE_IDEMPOTENCY_TABLE;
     $stmt = $pdo->prepare(
-        "UPDATE `{$tableName}`
+        "UPDATE {$tableName}
          SET document_id = :document_id,
              tracking_id = :tracking_id,
-             updated_at = NOW()
+             updated_at = SYSDATETIME()
          WHERE user_id = :user_id
            AND action_key = :action_key
            AND operation_id = :operation_id"
@@ -314,14 +380,14 @@ function intake_idempotency_mark_completed(PDO $pdo, int $userId, string $operat
     $tableName = INTAKE_IDEMPOTENCY_TABLE;
     $encoded = (string)json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     $stmt = $pdo->prepare(
-        "UPDATE `{$tableName}`
+        "UPDATE {$tableName}
          SET status = 'COMPLETED',
              document_id = :document_id,
              tracking_id = :tracking_id,
              attachment_count = :attachment_count,
              response_code = :response_code,
              response_json = :response_json,
-             updated_at = NOW()
+             updated_at = SYSDATETIME()
          WHERE user_id = :user_id
            AND action_key = :action_key
            AND operation_id = :operation_id"
@@ -353,11 +419,11 @@ function intake_idempotency_mark_failed(PDO $pdo, int $userId, string $operation
     ];
 
     $stmt = $pdo->prepare(
-        "UPDATE `{$tableName}`
+        "UPDATE {$tableName}
          SET status = 'FAILED',
              response_code = :response_code,
              response_json = :response_json,
-             updated_at = NOW()
+             updated_at = SYSDATETIME()
          WHERE user_id = :user_id
            AND action_key = :action_key
            AND operation_id = :operation_id"
@@ -463,17 +529,11 @@ function validate_uploaded_intake_files(array $files): array
     ];
 
     $validated = [];
-    $nonEmptyFileCount = 0;
-    $totalUploadSize = 0;
     $finfo = new finfo(FILEINFO_MIME_TYPE);
     foreach ($files as $file) {
         $error = (int)($file['error'] ?? UPLOAD_ERR_NO_FILE);
         if ($error === UPLOAD_ERR_NO_FILE) {
             continue;
-        }
-        $nonEmptyFileCount++;
-        if ($nonEmptyFileCount > CREATE_DOC_MAX_ATTACHMENTS) {
-            throw new InvalidArgumentException('You can upload up to 40 attachments per intake.');
         }
         if ($error !== UPLOAD_ERR_OK) {
             if ($error === UPLOAD_ERR_INI_SIZE || $error === UPLOAD_ERR_FORM_SIZE) {
@@ -491,13 +551,6 @@ function validate_uploaded_intake_files(array $files): array
         if ($size <= 0) {
             // Skip empty file slots instead of throwing, allowing remarks-only submission.
             continue;
-        }
-        if ($size > CREATE_DOC_MAX_FILE_SIZE) {
-            throw new InvalidArgumentException('Each attachment must be 15 MB or smaller.');
-        }
-        $totalUploadSize += $size;
-        if ($totalUploadSize > CREATE_DOC_MAX_TOTAL_UPLOAD_SIZE) {
-            throw new InvalidArgumentException('Total upload size is too large. Keep the combined attachments around 240 MB or less per intake.');
         }
 
         $tmpName = (string)($file['tmp_name'] ?? '');
@@ -531,8 +584,7 @@ function store_document_attachments(PDO $pdo, int $documentId, int $uploadedByUs
         return 0;
     }
 
-    $tableCheck = $pdo->query("SHOW TABLES LIKE 'document_attachments'");
-    if (!$tableCheck || !$tableCheck->fetchColumn()) {
+    if (!db_table_exists($pdo, 'document_attachments')) {
         throw new RuntimeException('Attachment storage table is not available.');
     }
 
@@ -540,19 +592,13 @@ function store_document_attachments(PDO $pdo, int $documentId, int $uploadedByUs
     $versionStmt->execute(['document_id' => $documentId]);
     $currentVersion = (int)($versionStmt->fetchColumn() ?: 0);
 
-    $year = date('Y');
-    $month = date('m');
-    $relativeDir = 'storage/uploads/attachments/' . $year . '/' . $month;
-    $absoluteDir = dirname(__DIR__) . '/' . str_replace('/', DIRECTORY_SEPARATOR, $relativeDir);
-    if (!is_dir($absoluteDir) && !mkdir($absoluteDir, 0775, true) && !is_dir($absoluteDir)) {
-        throw new RuntimeException('Unable to create attachment storage directory.');
-    }
+    [$relativeDir, $absoluteDir] = app_attachment_storage_directory();
 
     $insert = $pdo->prepare(
         'INSERT INTO document_attachments (
             document_id, uploaded_by, file_name, file_path, version_number, is_internal_only, uploaded_at
          ) VALUES (
-            :document_id, :uploaded_by, :file_name, :file_path, :version_number, :is_internal_only, NOW()
+            :document_id, :uploaded_by, :file_name, :file_path, :version_number, :is_internal_only, SYSDATETIME()
          )'
     );
 
@@ -579,6 +625,16 @@ function store_document_attachments(PDO $pdo, int $documentId, int $uploadedByUs
             'version_number' => $versionNumber,
             'is_internal_only' => 0,
         ]);
+        $attachmentId = attachment_binary_backup_resolve_attachment_id($pdo, $documentId, $versionNumber, $relativePath);
+        if ($attachmentId > 0) {
+            attachment_binary_backup_upsert_from_file(
+                $pdo,
+                $attachmentId,
+                $documentId,
+                (string)$file['original_name'],
+                $absolutePath
+            );
+        }
         $saved++;
     }
 
@@ -620,7 +676,10 @@ if (empty($_SESSION['csrf_token']) || !hash_equals((string)$_SESSION['csrf_token
 
 $subject = trim((string)($_POST['subject'] ?? ''));
 $sourceType = strtoupper(trim((string)($_POST['source_type'] ?? 'INTERNAL')));
+$sender = trim((string)($_POST['sender'] ?? ''));
 $externalClientName = trim((string)($_POST['external_client_name'] ?? ''));
+$clientAddress = trim((string)($_POST['client_address'] ?? ''));
+$originatingEntityName = trim((string)($_POST['originating_entity_name'] ?? ''));
 $documentTypeId = (int)($_POST['document_type_id'] ?? 0);
 $actionRequired = trim((string)($_POST['action_required'] ?? ''));
 $remarks = trim((string)($_POST['remarks'] ?? ''));
@@ -631,7 +690,7 @@ $intakeColorClassificationRaw = strtoupper(trim((string)($_POST['intake_color_cl
 $expectedAttachmentCount = (int)($_POST['attachment_count_expected'] ?? 0);
 $operationIdRaw = (string)($_POST['operation_id'] ?? '');
 $syncModeRaw = trim((string)($_POST['sync_mode'] ?? ''));
-$syncHeaderRaw = trim((string)($_SERVER['HTTP_X_EDATS_OUTBOX_SYNC'] ?? ''));
+$syncHeaderRaw = trim((string)($_SERVER['HTTP_X_DTMIS_OUTBOX_SYNC'] ?? ''));
 $isOutboxSyncRequest = $syncModeRaw === '1' || $syncHeaderRaw === '1';
 $operationId = '';
 try {
@@ -664,25 +723,9 @@ if ($intakeComplexityDays < 1 || $intakeComplexityDays > 365) {
     exit;
 }
 
-if ($expectedAttachmentCount > CREATE_DOC_MAX_ATTACHMENTS) {
-    http_response_code(422);
-    echo json_encode(['ok' => false, 'message' => 'You can upload up to 40 attachments per intake.']);
-    exit;
-}
-
 if ($subject === '') {
     http_response_code(422);
     echo json_encode(['ok' => false, 'message' => 'Subject is required.']);
-    exit;
-}
-
-if ($sourceType !== 'INTERNAL' && $sourceType !== 'EXTERNAL') {
-    $sourceType = 'INTERNAL';
-}
-
-if ($sourceType === 'EXTERNAL' && $externalClientName === '') {
-    http_response_code(422);
-    echo json_encode(['ok' => false, 'message' => 'External client name is required for external intake.']);
     exit;
 }
 
@@ -705,19 +748,72 @@ try {
         throw new InvalidArgumentException('Soft copy not uploaded. Please provide remarks explaining why no digital file was attached.');
     }
 
-    if ($customTypeName !== '') {
-        throw new InvalidArgumentException('Custom type creation was moved to Document Type Requests.');
-    }
-
-    if ($documentTypeId <= 0) {
-        throw new InvalidArgumentException('Please select a document type.');
+    if (strlen($customTypeName) > 255) {
+        throw new InvalidArgumentException('Other document type text is too long. Keep it under 255 characters.');
     }
 
     $pdo = getDatabaseConnection();
     workflow_ensure_document_arta_override_columns($pdo);
     workflow_ensure_document_row_version_column($pdo);
+    workflow_ensure_document_sender_column($pdo);
+    workflow_ensure_document_client_address_column($pdo);
+    workflow_ensure_document_originating_entity_column($pdo);
     $actor = workflow_get_user_context($pdo, $actorUserId);
     $actorRoleKey = app_normalize_role_key((string)($actor['role_name'] ?? ''));
+    $sourceType = workflow_normalize_source_type($sourceType);
+
+    if ($sourceType === 'INTERNAL') {
+        if ($sender === '') {
+            $actorOffice = workflow_get_office_context($pdo, (int)($actor['office_id'] ?? 0));
+            $sender = trim((string)($actorOffice['name'] ?? ''));
+        }
+        if ($originatingEntityName === '') {
+            $actorOffice = $actorOffice ?? workflow_get_office_context($pdo, (int)($actor['office_id'] ?? 0));
+            $originatingEntityName = trim((string)($actorOffice['name'] ?? ''));
+        }
+        $externalClientName = '';
+    } else {
+        if ($sender === '') {
+            $sender = $externalClientName;
+        }
+        if ($externalClientName === '') {
+            $externalClientName = $sender;
+        }
+    }
+    if ($originatingEntityName === '') {
+        throw new InvalidArgumentException('Originating office / entity is required.');
+    }
+
+    $attemptedImplicitOthersSubmission = $documentTypeId <= 0 && $customTypeName !== '';
+    if ($attemptedImplicitOthersSubmission) {
+        $documentTypeId = intake_resolve_others_document_type_id($pdo);
+    }
+    if ($documentTypeId <= 0) {
+        if ($attemptedImplicitOthersSubmission) {
+            throw new InvalidArgumentException('Custom document type cannot be saved because the Others document type is not configured.');
+        }
+        throw new InvalidArgumentException('Please select a document type.');
+    }
+
+    $documentTypeStmt = $pdo->prepare('SELECT TOP (1) name, category FROM document_types WHERE id = :id');
+    $documentTypeStmt->execute(['id' => $documentTypeId]);
+    $documentTypeRow = $documentTypeStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    if (!$documentTypeRow) {
+        throw new InvalidArgumentException('Selected document type is not valid.');
+    }
+    $selectedDocTypeName = trim((string)($documentTypeRow['name'] ?? ''));
+    $selectedDocTypeCategory = trim((string)($documentTypeRow['category'] ?? ''));
+    $selectedDocTypeNameNormalized = strtolower(preg_replace('/\s+/', ' ', $selectedDocTypeName) ?? '');
+    $selectedDocTypeCategoryNormalized = strtolower($selectedDocTypeCategory);
+    $isOthersDocumentType = $selectedDocTypeNameNormalized === 'others'
+        || $selectedDocTypeNameNormalized === 'other'
+        || $selectedDocTypeCategoryNormalized === 'others';
+    if ($customTypeName !== '' && !$isOthersDocumentType) {
+        throw new InvalidArgumentException('Use the Others document type before entering a custom document type.');
+    }
+    if ($customTypeName === '' && $isOthersDocumentType) {
+        throw new InvalidArgumentException('Please specify the document type for Others.');
+    }
 
     if ($isOutboxSyncRequest && !app_offline_is_intake_outbox_enabled((string)($actor['role_name'] ?? ''))) {
         $rolloutMessage = intake_rollout_block_message();
@@ -753,6 +849,9 @@ try {
     if ($remarks !== '') {
         $remarksParts[] = $remarks;
     }
+    if ($customTypeName !== '') {
+        $remarksParts[] = 'Specified document type (Others): ' . $customTypeName;
+    }
 
     if ($operationId !== '') {
         $idempotencyDecision = intake_idempotency_begin(
@@ -772,7 +871,10 @@ try {
         'subject' => $subject,
         'document_type_id' => $documentTypeId,
         'source_type' => $sourceType,
-        'external_client_name' => $sourceType === 'EXTERNAL' ? $externalClientName : null,
+        'sender' => $sender,
+        'external_client_name' => $externalClientName !== '' ? $externalClientName : null,
+        'client_address' => $clientAddress !== '' ? $clientAddress : null,
+        'originating_entity_name' => $originatingEntityName !== '' ? $originatingEntityName : null,
         'originating_office_id' => (int)($actor['office_id'] ?? (int)($_SESSION['office_id'] ?? 0)),
         'arta_category_override' => $intakeComplexityType,
         'arta_days_limit_override' => $intakeComplexityDays,

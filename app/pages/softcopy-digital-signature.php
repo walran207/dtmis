@@ -2,6 +2,8 @@
 declare(strict_types=1);
 
 require_once dirname(__DIR__, 2) . '/config/app.php';
+require_once dirname(__DIR__, 2) . '/config/database.php';
+require_once dirname(__DIR__, 2) . '/config/workflow.php';
 
 if (session_status() !== PHP_SESSION_ACTIVE) {
     session_start();
@@ -13,9 +15,20 @@ if (empty($_SESSION['user_id'])) {
 
 $sessionRoleName = (string)($_SESSION['role_name'] ?? '');
 $roleKey = app_normalize_role_key($sessionRoleName);
-if (!in_array($roleKey, ['ORED', 'CENRO_OFFICER', 'PENRO_OFFICER', 'PASU_OFFICER'], true)) {
+$userId = (int)($_SESSION['user_id'] ?? 0);
+$canUseDigitalSignatureWorkspace = in_array($roleKey, ['CENRO_OFFICER', 'PENRO_OFFICER', 'PASU_OFFICER'], true);
+if (!$canUseDigitalSignatureWorkspace && $userId > 0) {
+    try {
+        $pdo = getDatabaseConnection();
+        $actorContext = workflow_get_user_context($pdo, $userId);
+        $canUseDigitalSignatureWorkspace = workflow_actor_is_ored_signer($pdo, $actorContext);
+    } catch (Throwable $exception) {
+        $canUseDigitalSignatureWorkspace = false;
+    }
+}
+if (!$canUseDigitalSignatureWorkspace) {
     http_response_code(403);
-    echo 'Digital signature workspace is available for ORED, CENRO Officer, PENRO Officer, and PASU only.';
+    echo 'Digital signature workspace is available only for the ORED signing account, CENRO Officer, PENRO Officer, and PASU.';
     exit;
 }
 
@@ -60,8 +73,8 @@ $offlineSyncLogUrl = app_url('actions/offline-sync-log.php');
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Digital Signature Workspace</title>
     <script>
-        window.__EDATS_OFFLINE_POLICY = <?php echo json_encode($offlinePolicy, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
-        window.__EDATS_OFFLINE_SYNC_LOG_URL = <?php echo json_encode($offlineSyncLogUrl); ?>;
+        window.__DTMIS_OFFLINE_POLICY = <?php echo json_encode($offlinePolicy, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
+        window.__DTMIS_OFFLINE_SYNC_LOG_URL = <?php echo json_encode($offlineSyncLogUrl); ?>;
     </script>
     <script src="<?php echo e(app_url('assets/js/offline-read-cache.js')); ?>"></script>
     <script src="<?php echo e(app_url('assets/js/offline-outbox.js')); ?>"></script>
@@ -588,7 +601,7 @@ $offlineSyncLogUrl = app_url('actions/offline-sync-log.php');
             const csrfToken = <?php echo json_encode($csrfToken); ?>;
             const currentUserId = <?php echo json_encode($currentUserId); ?>;
             if (Number.isFinite(currentUserId) && currentUserId > 0) {
-                window.__EDATS_CACHE_SCOPE = 'user:' + String(currentUserId);
+                window.__DTMIS_CACHE_SCOPE = 'user:' + String(currentUserId);
             }
             const selectedTrackingId = <?php echo json_encode($trackingId); ?>;
             const selectedDocumentId = <?php echo json_encode($documentId); ?>;

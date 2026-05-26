@@ -54,16 +54,108 @@ function format_year_only(?string $value): string
 function tracking_status_from_action_type(?string $actionType): string
 {
     $normalized = strtoupper(trim((string)$actionType));
+    if ($normalized === 'CREATED') {
+        return 'Created';
+    }
+    if (in_array($normalized, ['FORWARDED', 'FORWARD', 'REROUTED', 'REROUTE', 'SENT', 'OVERRIDDEN', 'OVERRIDE'], true)) {
+        return 'Forwarded';
+    }
+    if (in_array($normalized, ['RECEIVED', 'RECIEVED'], true)) {
+        return 'Received';
+    }
+    if ($normalized === 'COMPLETED') {
+        return 'Completed';
+    }
     if ($normalized === 'RELEASED') {
         return 'Released';
     }
     if ($normalized === 'SIGNED') {
         return 'Signed/Completed';
     }
-    if ($normalized === 'RETURNED') {
+    if (in_array($normalized, ['RETURNED', 'RETURN'], true)) {
         return 'Returned for Correction';
     }
-    return 'Received';
+    return $normalized !== '' ? ucwords(strtolower(str_replace('_', ' ', $normalized))) : '-';
+}
+
+function tracking_default_action_text(?string $actionType): string
+{
+    $normalized = strtoupper(trim((string)$actionType));
+    if ($normalized === 'CREATED') {
+        return 'Document intake created.';
+    }
+    if (in_array($normalized, ['FORWARDED', 'FORWARD', 'REROUTED', 'REROUTE', 'SENT', 'OVERRIDDEN', 'OVERRIDE'], true)) {
+        return 'Forwarded to next office.';
+    }
+    if (in_array($normalized, ['RETURNED', 'RETURN'], true)) {
+        return 'Returned for correction.';
+    }
+    if (in_array($normalized, ['RECEIVED', 'RECIEVED'], true)) {
+        return 'Document officially received.';
+    }
+    if ($normalized === 'COMPLETED') {
+        return 'Document transaction completed at originating office.';
+    }
+    if ($normalized === 'SIGNED') {
+        return 'Document signed by authorized signatory.';
+    }
+    if ($normalized === 'RELEASED') {
+        return 'Document released to originating office.';
+    }
+
+    return 'Document updated.';
+}
+
+function tracking_attachment_category(string $fileName): string
+{
+    $name = strtolower(trim($fileName));
+    if ($name === '') {
+        return 'attachment';
+    }
+
+    $isPreparedResponse = (
+        str_contains($name, 'prepared')
+        || str_contains($name, 'prepare')
+        || str_contains($name, 'response')
+        || str_contains($name, 'reply')
+    ) && (
+        str_contains($name, 'response')
+        || str_contains($name, 'prepared')
+        || str_contains($name, 'prepare')
+    );
+    if ($isPreparedResponse) {
+        return 'prepared_response';
+    }
+
+    if (str_contains($name, 'endorsement') || str_contains($name, 'endorse')) {
+        return 'endorsement';
+    }
+
+    return 'attachment';
+}
+
+function tracking_attachment_category_label(string $category): string
+{
+    $normalized = strtolower(trim($category));
+    if ($normalized === 'prepared_response') {
+        return 'Prepared Response';
+    }
+    if ($normalized === 'endorsement') {
+        return 'Endorsement';
+    }
+    return 'Attachment';
+}
+
+function tracking_attachment_preview_type(string $fileName): string
+{
+    $extension = strtolower((string)pathinfo(trim($fileName), PATHINFO_EXTENSION));
+    if ($extension === 'pdf') {
+        return 'pdf';
+    }
+    if (in_array($extension, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'], true)) {
+        return 'image';
+    }
+    return 'none';
 }
 
 const SUBJECT_CHANGE_REMARK_PREFIX = 'SUBJECT_CHANGE_JSON:';
@@ -93,15 +185,13 @@ function tracking_parse_subject_change_remarks(?string $remarks): ?array
 
 function tracking_slip_column_exists(PDO $pdo, string $table, string $column): bool
 {
-    $safeTable = str_replace('`', '', trim($table));
-    $safeColumn = str_replace(['\\', "'"], ['\\\\', "\\'"], trim($column));
+    $safeTable = trim($table);
+    $safeColumn = trim($column);
     if ($safeTable === '' || $safeColumn === '') {
         return false;
     }
 
-    $sql = "SHOW COLUMNS FROM `{$safeTable}` LIKE '{$safeColumn}'";
-    $stmt = $pdo->query($sql);
-    return $stmt ? (bool)$stmt->fetch() : false;
+    return db_column_exists($pdo, $safeTable, $safeColumn);
 }
 
 function tracking_slip_arta_category_expr(PDO $pdo): string
@@ -111,6 +201,24 @@ function tracking_slip_arta_category_expr(PDO $pdo): string
     }
 
     return 'dt.category';
+}
+
+function tracking_slip_sender_expr(PDO $pdo): string
+{
+    if (tracking_slip_column_exists($pdo, 'documents', 'sender')) {
+        return "COALESCE(NULLIF(TRIM(d.sender), ''), NULLIF(TRIM(d.external_client_name), ''), o.name)";
+    }
+
+    return "COALESCE(NULLIF(TRIM(d.external_client_name), ''), o.name)";
+}
+
+function tracking_slip_originating_entity_expr(PDO $pdo): string
+{
+    if (tracking_slip_column_exists($pdo, 'documents', 'originating_entity_name')) {
+        return "COALESCE(NULLIF(TRIM(d.originating_entity_name), ''), o.name)";
+    }
+
+    return 'o.name';
 }
 
 $pdo = getDatabaseConnection();
@@ -131,7 +239,7 @@ $showNewSubjectRow = false;
 
 if ($trackingId === '' && !$publicMode) {
     // Internal users without an explicit tracking ID default to the latest document.
-    $latestStmt = $pdo->query('SELECT tracking_id FROM documents ORDER BY id DESC LIMIT 1');
+    $latestStmt = $pdo->query('SELECT TOP (1) tracking_id FROM documents ORDER BY id DESC');
     $trackingId = (string)($latestStmt->fetchColumn() ?: '');
 }
 
@@ -142,6 +250,8 @@ if ($trackingId === '') {
 } else {
     try {
         $artaCategoryExpr = tracking_slip_arta_category_expr($pdo);
+        $senderExpr = tracking_slip_sender_expr($pdo);
+        $originatingEntityExpr = tracking_slip_originating_entity_expr($pdo);
         // Core document payload for header/meta fields in the printed tracking slip.
         $docStmt = $pdo->prepare(
             'SELECT
@@ -149,9 +259,14 @@ if ($trackingId === '') {
                 d.tracking_id,
                 d.subject,
                 d.created_at,
+                d.source_type,
+                d.external_client_name,
+                d.client_address,
+                ' . $senderExpr . ' AS sender_label,
                 dt.name AS document_type,
                 ' . $artaCategoryExpr . ' AS arta_category,
-                o.name AS originating_office,
+                ' . $originatingEntityExpr . ' AS originating_office,
+                o.name AS routing_office,
                 CONCAT(COALESCE(sender.first_name, \'\'), \' \', COALESCE(sender.last_name, \'\')) AS sender_name,
                 (
                     SELECT COUNT(*)
@@ -162,15 +277,13 @@ if ($trackingId === '') {
              LEFT JOIN document_types dt ON dt.id = d.document_type_id
              LEFT JOIN offices o ON o.id = d.originating_office_id
              LEFT JOIN users sender ON sender.id = (
-                SELECT al.user_id
+                SELECT TOP (1) al.user_id
                 FROM activity_logs al
                 WHERE al.document_id = d.id
                   AND al.action_type = \'Created\'
                 ORDER BY al.created_at ASC, al.id ASC
-                LIMIT 1
              )
-             WHERE d.tracking_id = :tracking_id
-             LIMIT 1'
+             WHERE d.tracking_id = :tracking_id'
         );
         $docStmt->execute(['tracking_id' => $trackingId]);
         $document = $docStmt->fetch();
@@ -297,10 +410,17 @@ if ($trackingId === '') {
 
             if ($canViewAttachments) {
                 $attachmentStmt = $pdo->prepare(
-                    'SELECT file_name, uploaded_at
-                     FROM document_attachments
+                    'SELECT
+                        da.id,
+                        da.file_name,
+                        da.uploaded_at,
+                        CONCAT(COALESCE(u.first_name, \'\'), \' \', COALESCE(u.last_name, \'\')) AS uploaded_by_name,
+                        COALESCE(r.name, \'\') AS uploaded_by_role
+                     FROM document_attachments da
+                     LEFT JOIN users u ON u.id = da.uploaded_by
+                     LEFT JOIN roles r ON r.id = u.role_id
                      WHERE document_id = :document_id
-                     ORDER BY uploaded_at DESC, id DESC'
+                     ORDER BY da.uploaded_at DESC, da.id DESC'
                 );
                 $attachmentStmt->execute(['document_id' => (int)$document['id']]);
                 $attachments = $attachmentStmt->fetchAll();
@@ -350,7 +470,7 @@ if ($document) {
 
 $publicSlipLink = $trackingId === ''
     ? ''
-    : app_url('tracking-slip.php') . '?tracking_id=' . rawurlencode($trackingId) . '&public=1';
+    : app_public_url('tracking-slip.php') . '?tracking_id=' . rawurlencode($trackingId) . '&public=1';
 $qrText = $trackingId === ''
     ? ''
     : ($publicSlipLink !== '' ? $publicSlipLink : $trackingId);
@@ -359,12 +479,53 @@ $packagePrintUrl = app_url('print-package.php')
 
 // Build display rows by pairing each receive leg with its nearest route/release activity.
 $timelineRows = [];
+$createdEvent = null;
+foreach ($activityEvents as $event) {
+    if (strcasecmp(trim((string)($event['action_type'] ?? '')), 'Created') === 0) {
+        $createdEvent = $event;
+        break;
+    }
+}
+
+if ($document !== null) {
+    $createdAt = trim((string)($createdEvent['created_at'] ?? ($document['created_at'] ?? '')));
+    $createdBy = trim((string)($createdEvent['actor_name'] ?? ($document['sender_name'] ?? '')));
+    $createdOffice = trim((string)($createdEvent['actor_office'] ?? ($document['originating_office'] ?? '')));
+    $createdRemarks = trim((string)($createdEvent['remarks'] ?? ''));
+    if ($createdRemarks === '') {
+        $createdRemarks = tracking_default_action_text('CREATED');
+    }
+
+    if ($createdAt !== '') {
+        $timelineRows[] = [
+            'received' => $createdAt,
+            'from' => $createdOffice !== '' ? $createdOffice : '-',
+            'released' => null,
+            'to' => $createdOffice !== '' ? $createdOffice : '-',
+            'status' => tracking_status_from_action_type('CREATED'),
+            'action' => $createdRemarks,
+            'received_by' => $createdBy,
+            'received_by_prefix' => 'Created by',
+            'route_action_type' => 'Created',
+            'route_log_id' => (int)($createdEvent['id'] ?? 0),
+            'route_actor' => $createdBy,
+            'route_remarks' => $createdRemarks,
+            'route_timestamp' => $createdAt,
+            'sort_rank' => 10,
+            'row_activity_logs' => [],
+            'row_attachments' => [],
+            'sort_ts' => $createdAt,
+        ];
+    }
+}
+
 $usedReleaseEventIds = [];
 foreach ($slips as $index => $slip) {
     $release = null;
     $releaseKey = null;
     $rowReleaseTimestamp = null;
     $rowReleaseTimestampTs = null;
+    $receiveEvent = null;
     $receivedAtTs = strtotime((string)($slip['date_time_received'] ?? ''));
     $receivingOfficeId = (int)($slip['receiving_office_id'] ?? 0);
     $receivingOfficeName = trim((string)($slip['receiving_office'] ?? ''));
@@ -419,6 +580,40 @@ foreach ($slips as $index => $slip) {
         }
     }
 
+    if ($receivedAtTs !== false) {
+        $receivedByName = trim((string)($slip['received_by'] ?? ''));
+        foreach ($activityEvents as $event) {
+            $eventActionType = strtoupper(trim((string)($event['action_type'] ?? '')));
+            if (!in_array($eventActionType, ['RECEIVED', 'RECIEVED', 'COMPLETED'], true)) {
+                continue;
+            }
+
+            $eventTs = strtotime((string)($event['created_at'] ?? ''));
+            if ($eventTs === false || abs($eventTs - $receivedAtTs) > 120) {
+                continue;
+            }
+
+            if ($receivingOfficeName !== '') {
+                $eventDestinationOffice = trim((string)($event['destination_office'] ?? ''));
+                if ($eventDestinationOffice !== '' && strcasecmp($eventDestinationOffice, $receivingOfficeName) !== 0) {
+                    continue;
+                }
+            }
+
+            if ($receivedByName !== '') {
+                $eventActor = trim((string)($event['actor_name'] ?? ''));
+                if ($eventActor !== '' && strcasecmp($eventActor, $receivedByName) !== 0) {
+                    continue;
+                }
+            }
+
+            $receiveEvent = $event;
+            if ($eventActionType === 'COMPLETED') {
+                break;
+            }
+        }
+    }
+
     if ($release !== null) {
         $releaseId = (int)($release['id'] ?? 0);
         if ($releaseId > 0) {
@@ -435,7 +630,9 @@ foreach ($slips as $index => $slip) {
     if ($actionTaken === '') {
         $actionTaken = '-';
     }
-    $statusLabel = tracking_status_from_action_type((string)($release['action_type'] ?? ''));
+    $statusLabel = workflow_resolve_display_status(
+        tracking_status_from_action_type((string)($receiveEvent['action_type'] ?? 'Received'))
+    );
 
     $timelineRows[] = [
         'received' => (string)$slip['date_time_received'],
@@ -452,30 +649,23 @@ foreach ($slips as $index => $slip) {
         'route_remarks' => trim((string)($release['remarks'] ?? '')),
         'route_timestamp' => (string)($release['created_at'] ?? ''),
         'row_activity_logs' => [],
+        'row_attachments' => [],
         'sort_ts' => (string)($slip['date_time_received'] ?? ''),
+        'sort_rank' => 40,
     ];
 }
 
-// Add remaining terminal actions (Signed/Released) that are not tied to a receive leg.
-foreach ($releaseEvents as $eventKey => $event) {
-    $eventId = (int)($event['id'] ?? 0);
-    $isUsed = ($eventId > 0 && isset($usedReleaseEventIds[$eventId]))
-        || isset($usedReleaseEventIds['idx_' . (string)$eventKey]);
-    if ($isUsed) {
-        continue;
-    }
-
+// Add standalone routing/action rows so the slip explicitly shows forwarded/returned/released milestones.
+foreach ($releaseEvents as $event) {
     $actionType = strtoupper(trim((string)($event['action_type'] ?? '')));
-    if (!in_array($actionType, ['RELEASED', 'SIGNED'], true)) {
+    if ($actionType === '') {
         continue;
     }
 
     $statusLabel = tracking_status_from_action_type($actionType);
     $actionTaken = trim((string)($event['remarks'] ?? ''));
     if ($actionTaken === '') {
-        $actionTaken = $actionType === 'SIGNED'
-            ? 'Document signed by ORED.'
-            : 'Document released to originating office.';
+        $actionTaken = tracking_default_action_text($actionType);
     }
 
     $actorOffice = trim((string)($event['actor_office'] ?? ''));
@@ -483,7 +673,7 @@ foreach ($releaseEvents as $eventKey => $event) {
     $actorName = trim((string)($event['actor_name'] ?? ''));
 
     $timelineRows[] = [
-        'received' => (string)($event['created_at'] ?? ''),
+        'received' => null,
         'from' => $actorOffice !== '' ? $actorOffice : '-',
         'released' => (string)($event['created_at'] ?? ''),
         'to' => $destinationOffice !== '' ? $destinationOffice : ($actorOffice !== '' ? $actorOffice : '-'),
@@ -497,15 +687,22 @@ foreach ($releaseEvents as $eventKey => $event) {
         'route_remarks' => (string)($event['remarks'] ?? ''),
         'route_timestamp' => (string)($event['created_at'] ?? ''),
         'row_activity_logs' => [],
+        'row_attachments' => [],
         'sort_ts' => (string)($event['created_at'] ?? ''),
+        'sort_rank' => 20,
     ];
+
 }
 
 usort($timelineRows, static function (array $left, array $right): int {
     $leftTs = strtotime((string)($left['sort_ts'] ?? ''));
     $rightTs = strtotime((string)($right['sort_ts'] ?? ''));
     if ($leftTs !== false && $rightTs !== false) {
-        return $leftTs <=> $rightTs;
+        $compare = $leftTs <=> $rightTs;
+        if ($compare !== 0) {
+            return $compare;
+        }
+        return ((int)($left['sort_rank'] ?? 100)) <=> ((int)($right['sort_rank'] ?? 100));
     }
     if ($leftTs !== false) {
         return -1;
@@ -716,7 +913,71 @@ if (!empty($timelineRows)) {
                 ];
             }
 
+            $normalizedAttachments = [];
+            if ($canViewAttachments && !empty($attachments)) {
+                $attachmentWindowStart = $rowTs !== false ? max(0, $rowTs - 1800) : null;
+                $attachmentWindowEnd = $nextTs !== null ? ($nextTs + 300) : null;
+                $seenAttachmentIds = [];
+
+                foreach ($attachments as $attachment) {
+                    $attachmentId = (int)($attachment['id'] ?? 0);
+                    if ($attachmentId > 0 && isset($seenAttachmentIds[$attachmentId])) {
+                        continue;
+                    }
+
+                    $uploadedAtRaw = (string)($attachment['uploaded_at'] ?? '');
+                    $uploadedAtTs = strtotime($uploadedAtRaw);
+                    if ($uploadedAtTs === false) {
+                        continue;
+                    }
+                    if ($attachmentWindowStart !== null && $uploadedAtTs < $attachmentWindowStart) {
+                        continue;
+                    }
+                    if ($attachmentWindowEnd !== null && $uploadedAtTs >= $attachmentWindowEnd) {
+                        continue;
+                    }
+
+                    $fileName = trim((string)($attachment['file_name'] ?? 'Attachment'));
+                    $category = tracking_attachment_category($fileName);
+                    $previewType = tracking_attachment_preview_type($fileName);
+                    $previewUrl = $attachmentId > 0
+                        ? app_url('actions/attachment-file.php?attachment_id=' . $attachmentId)
+                        : '';
+                    $normalizedAttachments[] = [
+                        'id' => $attachmentId,
+                        'file_name' => $fileName !== '' ? $fileName : 'Attachment',
+                        'uploaded_at' => $uploadedAtRaw,
+                        'uploaded_by' => trim((string)($attachment['uploaded_by_name'] ?? '')),
+                        'uploaded_by_role' => trim((string)($attachment['uploaded_by_role'] ?? '')),
+                        'category' => $category,
+                        'category_label' => tracking_attachment_category_label($category),
+                        'preview_type' => $previewType,
+                        'preview_url' => $previewUrl,
+                    ];
+
+                    if ($attachmentId > 0) {
+                        $seenAttachmentIds[$attachmentId] = true;
+                    }
+                }
+
+                usort($normalizedAttachments, static function (array $left, array $right): int {
+                    $leftTs = strtotime((string)($left['uploaded_at'] ?? ''));
+                    $rightTs = strtotime((string)($right['uploaded_at'] ?? ''));
+                    if ($leftTs !== false && $rightTs !== false) {
+                        return $rightTs <=> $leftTs;
+                    }
+                    if ($leftTs !== false) {
+                        return -1;
+                    }
+                    if ($rightTs !== false) {
+                        return 1;
+                    }
+                    return 0;
+                });
+            }
+
             $timelineRows[$rowIndex]['row_activity_logs'] = $normalizedLogs;
+            $timelineRows[$rowIndex]['row_attachments'] = $normalizedAttachments;
         }
     }
 }
@@ -741,14 +1002,15 @@ if (count($timelineRows) < $minimumTimelineRows) {
             'route_remarks' => '',
             'route_timestamp' => '',
             'row_activity_logs' => [],
+            'row_attachments' => [],
             'sort_ts' => '',
         ];
     }
 }
 $printTargetTimelineRows = 14;
 $layoutDefaultFontPercent = 100;
-$layoutDefaultLogoScreenPx = 78;
-$layoutDefaultLogoPrintPx = 58;
+$layoutDefaultLogoScreenPx = 100;
+$layoutDefaultLogoPrintPx = 100;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -964,6 +1226,10 @@ $layoutDefaultLogoPrintPx = 58;
             color: var(--muted);
         }
 
+        .slip-viewport {
+            width: 100%;
+        }
+
         .slip-paper {
             width: min(794px, 100%);
             margin: 0 auto;
@@ -972,6 +1238,37 @@ $layoutDefaultLogoPrintPx = 58;
             border: 2px solid var(--line);
             box-shadow: 0 8px 22px rgba(0, 0, 0, 0.18);
             padding: 8px;
+        }
+        .print-pages {
+            display: none;
+        }
+        .print-page {
+            width: 8.5in;
+            min-height: 13in;
+            margin: 0 auto 12px;
+            background: #fff;
+            color: #1c1c1c;
+            border: 1px solid var(--line);
+            box-shadow: none;
+            padding: 5mm 5mm 0 5mm;
+            box-sizing: border-box;
+            overflow: hidden;
+            page-break-after: always;
+            break-after: page;
+        }
+        .print-page:last-child {
+            page-break-after: auto;
+            break-after: auto;
+        }
+        .print-page-row-gap {
+            display: none;
+        }
+        .print-page.print-page-continuation .timeline-wrap {
+            margin-top: 4mm;
+        }
+        .print-page.print-page-continuation .print-page-row-gap {
+            display: block;
+            height: 6mm;
         }
 
         .slip-header {
@@ -1107,7 +1404,7 @@ $layoutDefaultLogoPrintPx = 58;
         .timeline-head,
         .timeline-row {
             display: grid;
-            grid-template-columns: 150px 132px 150px 132px 98px 1fr;
+            grid-template-columns: 140px 116px 140px 116px 82px 1.55fr;
         }
         .timeline-head {
             background: rgba(255, 255, 255, 0.22);
@@ -1157,19 +1454,47 @@ $layoutDefaultLogoPrintPx = 58;
         }
         .timeline-cell-action {
             position: relative;
+            overflow: visible;
+        }
+        .row-popover-triggers {
+            margin-top: 6px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+        .row-popover-trigger {
+            position: relative;
         }
         .row-flow-hint {
-            margin-top: 6px;
             font-size: 9px;
             color: #5a6f84;
             font-weight: 600;
             letter-spacing: 0.15px;
+            border: 1px solid #c9d7e6;
+            border-radius: 999px;
+            padding: 2px 7px;
+            background: #f2f8ff;
+            cursor: default;
+            white-space: nowrap;
+        }
+        .row-preview-hint {
+            font-size: 9px;
+            color: #5a6f84;
+            font-weight: 600;
+            letter-spacing: 0.15px;
+            border: 1px solid #c9d7e6;
+            border-radius: 999px;
+            padding: 2px 7px;
+            background: #f8f5ff;
+            cursor: default;
+            white-space: nowrap;
         }
         .row-flow-popover {
             position: absolute;
             top: calc(100% + 2px);
-            right: 8px;
-            width: min(420px, 84vw);
+            right: 0;
+            left: auto;
+            width: min(420px, calc(100vw - 56px));
             max-height: 300px;
             overflow: auto;
             border: 1px solid #c9d3dd;
@@ -1182,7 +1507,33 @@ $layoutDefaultLogoPrintPx = 58;
             font-size: 12px;
             color: #2b425a;
         }
+        .row-preview-popover {
+            position: absolute;
+            top: calc(100% + 2px);
+            right: 0;
+            width: min(440px, calc(100vw - 56px));
+            max-height: 320px;
+            overflow: auto;
+            border: 1px solid #c9d3dd;
+            border-radius: 10px;
+            background: #ffffff;
+            box-shadow: 0 12px 26px rgba(12, 20, 31, 0.2);
+            padding: 10px;
+            display: none;
+            z-index: 25;
+            font-size: 12px;
+            color: #2b425a;
+        }
         .row-flow-popover::before {
+            content: "";
+            position: absolute;
+            left: -18px;
+            right: -18px;
+            top: -16px;
+            height: 16px;
+            background: transparent;
+        }
+        .row-preview-popover::before {
             content: "";
             position: absolute;
             left: -18px;
@@ -1223,10 +1574,91 @@ $layoutDefaultLogoPrintPx = 58;
             font-weight: 600;
             white-space: nowrap;
         }
-        .timeline-row.has-flow-details:hover .row-flow-popover,
-        .timeline-row.has-flow-details:focus-within .row-flow-popover,
-        .timeline-row.has-flow-details .timeline-cell-action:hover .row-flow-popover,
+        .row-flow-attachment-wrap {
+            margin-top: 4px;
+            padding-top: 6px;
+            border-top: 1px dashed #d2deea;
+            display: grid;
+            gap: 5px;
+        }
+        .row-flow-attachment-empty {
+            font-size: 11px;
+            color: #516a84;
+        }
+        .row-flow-attachment-list {
+            display: grid;
+            gap: 6px;
+        }
+        .row-flow-attachment-item {
+            border: 1px solid #d6e0ea;
+            border-radius: 8px;
+            padding: 6px 7px;
+            background: #fefefe;
+            display: grid;
+            gap: 2px;
+        }
+        .row-flow-attachment-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 8px;
+        }
+        .row-flow-attachment-type {
+            font-size: 11px;
+            font-weight: 700;
+            color: #153a61;
+            background: #eaf3ff;
+            border: 1px solid #cbdff8;
+            border-radius: 999px;
+            padding: 1px 7px;
+        }
+        .row-flow-attachment-name {
+            font-weight: 700;
+            color: #233b55;
+            overflow-wrap: anywhere;
+        }
+        .row-flow-attachment-meta {
+            font-size: 11px;
+            color: #48617a;
+        }
+        .row-flow-attachment-preview {
+            margin-top: 4px;
+            border: 1px solid #d5dfeb;
+            border-radius: 8px;
+            background: #fff;
+            overflow: hidden;
+        }
+        .row-flow-attachment-preview img {
+            display: block;
+            width: 100%;
+            max-height: 180px;
+            object-fit: contain;
+            background: #f5f9ff;
+        }
+        .row-flow-attachment-preview iframe {
+            display: block;
+            width: 100%;
+            height: 180px;
+            border: 0;
+            background: #f5f9ff;
+        }
+        .row-flow-attachment-preview-empty {
+            font-size: 11px;
+            color: #5b7186;
+            padding: 6px 7px;
+            background: #f8fbff;
+            border: 1px dashed #d2deea;
+            border-radius: 7px;
+        }
+        .timeline-row.has-flow-details .row-popover-trigger:hover .row-flow-popover,
+        .timeline-row.has-flow-details .row-popover-trigger:focus-within .row-flow-popover,
         .timeline-row.has-flow-details .row-flow-popover:hover {
+            display: grid;
+            gap: 4px;
+        }
+        .timeline-row.has-flow-details .row-popover-trigger:hover .row-preview-popover,
+        .timeline-row.has-flow-details .row-popover-trigger:focus-within .row-preview-popover,
+        .timeline-row.has-flow-details .row-preview-popover:hover {
             display: grid;
             gap: 4px;
         }
@@ -1270,15 +1702,39 @@ $layoutDefaultLogoPrintPx = 58;
             font-size: 13px;
         }
 
+        @media (max-width: 640px) {
+            body {
+                padding: 12px;
+            }
+            .toolbar input[type="text"] {
+                min-width: 0;
+                width: 100%;
+            }
+            .layout-controls {
+                margin-left: 0;
+            }
+            .slip-viewport {
+                overflow-x: auto;
+                overflow-y: visible;
+                -webkit-overflow-scrolling: touch;
+                padding-bottom: 10px;
+            }
+            .slip-paper {
+                width: 794px;
+                min-width: 794px;
+                margin: 0;
+            }
+        }
+
         @page {
-            size: A4 portrait;
-            margin: 0;
+            size: 8.5in 13in;
+            margin: 5mm 5mm 0 5mm;
         }
         @media print {
             html,
             body {
-                width: 210mm;
-                height: 297mm;
+                width: auto;
+                min-height: auto;
                 margin: 0;
                 padding: 0;
             }
@@ -1287,11 +1743,20 @@ $layoutDefaultLogoPrintPx = 58;
                 -webkit-print-color-adjust: exact;
                 print-color-adjust: exact;
             }
+            body.has-print-pages .slip-paper {
+                display: none;
+            }
+            body.has-print-pages .print-pages {
+                display: block;
+            }
             .toolbar {
                 display: none;
             }
+            .row-popover-triggers,
             .row-flow-hint,
-            .row-flow-popover {
+            .row-flow-popover,
+            .row-preview-hint,
+            .row-preview-popover {
                 display: none !important;
             }
             .timeline-head {
@@ -1309,13 +1774,18 @@ $layoutDefaultLogoPrintPx = 58;
             }
             .slip-paper {
                 margin: 0;
-                width: 210mm;
-                height: 297mm;
-                padding: 2.8mm;
+                width: auto;
+                min-height: auto;
+                padding: 5mm 5mm 0 5mm;
                 box-shadow: none;
-                overflow: hidden;
+                overflow: visible;
                 box-sizing: border-box;
                 border-width: 1px;
+            }
+            .print-page {
+                margin: 0;
+                width: auto;
+                min-height: auto;
             }
             .slip-header,
             .title-strip,
@@ -1515,10 +1985,11 @@ $layoutDefaultLogoPrintPx = 58;
     <?php if ($error !== ''): ?>
     <div class="error"><?php echo e($error); ?></div>
     <?php elseif ($document): ?>
+    <div class="slip-viewport" aria-label="Tracking slip viewport">
     <section class="slip-paper" aria-label="Document Action Tracking Slip">
         <div class="slip-header">
             <div class="logo-cell">
-                <img src="./assets/Logo.png" alt="DENR Logo">
+                <img src="./assets/trackingslip-logo.png" alt="DENR Logo">
             </div>
             <div class="agency-cell">
                 <p class="agency-small">Republic of the Philippines</p>
@@ -1549,16 +2020,24 @@ $layoutDefaultLogoPrintPx = 58;
                 <div class="meta-cell"><?php echo e(format_date_only((string)($document['created_at'] ?? null))); ?></div>
             </div>
             <div class="meta-row" style="grid-template-columns: 170px 1fr;">
-                <div class="meta-cell meta-label">Originating Office</div>
+                <div class="meta-cell meta-label">Originating Office / Entity</div>
                 <div class="meta-cell"><?php echo e((string)($document['originating_office'] ?? '-')); ?></div>
             </div>
             <div class="meta-row" style="grid-template-columns: 170px 1fr;">
                 <div class="meta-cell meta-label">Sender</div>
+                <div class="meta-cell"><?php echo e(trim((string)($document['sender_label'] ?? '')) !== '' ? (string)$document['sender_label'] : '-'); ?></div>
+            </div>
+            <div class="meta-row" style="grid-template-columns: 170px 1fr;">
+                <div class="meta-cell meta-label">Encoder</div>
                 <div class="meta-cell"><?php echo e(trim((string)($document['sender_name'] ?? '')) !== '' ? (string)$document['sender_name'] : 'N/A'); ?></div>
             </div>
             <div class="meta-row" style="grid-template-columns: 170px 1fr;">
                 <div class="meta-cell meta-label">Address</div>
-                <div class="meta-cell"><?php echo e((string)($document['originating_office'] ?? 'N/A')); ?></div>
+                <div class="meta-cell"><?php echo e(
+                    trim((string)($document['client_address'] ?? '')) !== ''
+                        ? (string)$document['client_address']
+                        : (string)($document['originating_office'] ?? 'N/A')
+                ); ?></div>
             </div>
             <div class="subject-row">
                 <div class="meta-cell meta-label">Subject</div>
@@ -1568,7 +2047,7 @@ $layoutDefaultLogoPrintPx = 58;
             </div>
             <?php if ($showNewSubjectRow): ?>
             <div class="new-subject-row">
-                <div class="meta-cell meta-label">New Subject</div>
+                <div class="meta-cell meta-label">Response</div>
                 <div class="meta-cell">
                     <?php echo e($newSubjectRowValue); ?>
                 </div>
@@ -1597,16 +2076,21 @@ $layoutDefaultLogoPrintPx = 58;
                 <?php foreach ($timelineRows as $row): ?>
                 <?php $isEmpty = ($row['received'] === null && trim((string)$row['action']) === ''); ?>
                 <?php
+                    $displayReceivedAt = $row['received'];
+                    if ($displayReceivedAt === null || trim((string)$displayReceivedAt) === '') {
+                        $displayReceivedAt = $row['route_timestamp'] ?? $row['released'] ?? null;
+                    }
                     $hasFlowDetails = trim((string)($row['route_action_type'] ?? '')) !== ''
                         || trim((string)($row['route_actor'] ?? '')) !== ''
                         || trim((string)($row['route_remarks'] ?? '')) !== ''
                         || trim((string)($row['route_timestamp'] ?? '')) !== ''
-                        || !empty($row['row_activity_logs']);
+                        || !empty($row['row_activity_logs'])
+                        || !empty($row['row_attachments']);
                     $rowClass = trim(($isEmpty ? 'empty ' : '') . ($hasFlowDetails ? 'has-flow-details' : ''));
                 ?>
                 <div class="timeline-row <?php echo e($rowClass); ?>">
                     <div class="timeline-cell">
-                        <div class="cell-main"><?php echo e(format_dt($row['received'])); ?></div>
+                        <div class="cell-main"><?php echo e(format_dt($displayReceivedAt)); ?></div>
                         <?php if (!$isEmpty && trim((string)$row['received_by']) !== ''): ?>
                         <div class="cell-sub"><?php echo e((string)($row['received_by_prefix'] ?? 'Received by')); ?>: <?php echo e((string)$row['received_by']); ?></div>
                         <?php endif; ?>
@@ -1626,40 +2110,94 @@ $layoutDefaultLogoPrintPx = 58;
                     <div class="timeline-cell timeline-cell-action">
                         <div class="cell-main"><?php echo e((string)$row['action']); ?></div>
                         <?php if (!$isEmpty && $hasFlowDetails): ?>
-                        <div class="row-flow-hint">Hover row for full activity logs</div>
-                        <div class="row-flow-popover" role="tooltip" aria-label="Row activity logs">
-                            <div class="row-flow-popover-title">Row Activity Logs</div>
-                            <?php $rowLogs = is_array($row['row_activity_logs'] ?? null) ? $row['row_activity_logs'] : []; ?>
-                            <?php if (empty($rowLogs)): ?>
-                            <div><strong>Action:</strong> <?php echo e((string)($row['route_action_type'] !== '' ? $row['route_action_type'] : '-')); ?></div>
-                            <div><strong>At:</strong> <?php echo e(format_dt((string)($row['route_timestamp'] ?? null))); ?></div>
-                            <div><strong>To:</strong> <?php echo e((string)($row['to'] !== '' ? $row['to'] : '-')); ?></div>
-                            <div><strong>By:</strong> <?php echo e((string)($row['route_actor'] !== '' ? $row['route_actor'] : 'System')); ?></div>
-                            <?php if (trim((string)($row['route_remarks'] ?? '')) !== ''): ?>
-                            <div><strong>Remarks:</strong> <?php echo e((string)$row['route_remarks']); ?></div>
-                            <?php endif; ?>
-                            <?php else: ?>
-                            <div class="row-flow-log-list">
-                                <?php foreach ($rowLogs as $log): ?>
-                                <div class="row-flow-log-item">
-                                    <div class="row-flow-log-item-head">
-                                        <strong><?php echo e((string)($log['action'] ?? 'Action')); ?></strong>
-                                        <span class="row-flow-log-time"><?php echo e(format_dt((string)($log['time'] ?? null))); ?></span>
+                        <?php $rowLogs = is_array($row['row_activity_logs'] ?? null) ? $row['row_activity_logs'] : []; ?>
+                        <?php $rowAttachments = is_array($row['row_attachments'] ?? null) ? $row['row_attachments'] : []; ?>
+                        <div class="row-popover-triggers">
+                            <div class="row-popover-trigger">
+                                <div class="row-flow-hint">Hover for activity logs</div>
+                                <div class="row-flow-popover" role="tooltip" aria-label="Row activity logs">
+                                    <div class="row-flow-popover-title">Row Activity Logs</div>
+                                    <?php if (empty($rowLogs)): ?>
+                                    <div><strong>Action:</strong> <?php echo e((string)($row['route_action_type'] !== '' ? $row['route_action_type'] : '-')); ?></div>
+                                    <div><strong>At:</strong> <?php echo e(format_dt((string)($row['route_timestamp'] ?? null))); ?></div>
+                                    <div><strong>To:</strong> <?php echo e((string)($row['to'] !== '' ? $row['to'] : '-')); ?></div>
+                                    <div><strong>By:</strong> <?php echo e((string)($row['route_actor'] !== '' ? $row['route_actor'] : 'System')); ?></div>
+                                    <?php if (trim((string)($row['route_remarks'] ?? '')) !== ''): ?>
+                                    <div><strong>Remarks:</strong> <?php echo e((string)$row['route_remarks']); ?></div>
+                                    <?php endif; ?>
+                                    <?php else: ?>
+                                    <div class="row-flow-log-list">
+                                        <?php foreach ($rowLogs as $log): ?>
+                                        <div class="row-flow-log-item">
+                                            <div class="row-flow-log-item-head">
+                                                <strong><?php echo e((string)($log['action'] ?? 'Action')); ?></strong>
+                                                <span class="row-flow-log-time"><?php echo e(format_dt((string)($log['time'] ?? null))); ?></span>
+                                            </div>
+                                            <div><strong>By:</strong> <?php echo e(trim((string)($log['by'] ?? '')) !== '' ? (string)$log['by'] : 'System'); ?></div>
+                                            <?php if (trim((string)($log['office'] ?? '')) !== ''): ?>
+                                            <div><strong>Office:</strong> <?php echo e((string)$log['office']); ?></div>
+                                            <?php endif; ?>
+                                            <?php if (trim((string)($log['to'] ?? '')) !== ''): ?>
+                                            <div><strong>To:</strong> <?php echo e((string)$log['to']); ?></div>
+                                            <?php endif; ?>
+                                            <?php if (trim((string)($log['remarks'] ?? '')) !== ''): ?>
+                                            <div><strong>Remarks:</strong> <?php echo e((string)$log['remarks']); ?></div>
+                                            <?php endif; ?>
+                                        </div>
+                                        <?php endforeach; ?>
                                     </div>
-                                    <div><strong>By:</strong> <?php echo e(trim((string)($log['by'] ?? '')) !== '' ? (string)$log['by'] : 'System'); ?></div>
-                                    <?php if (trim((string)($log['office'] ?? '')) !== ''): ?>
-                                    <div><strong>Office:</strong> <?php echo e((string)$log['office']); ?></div>
-                                    <?php endif; ?>
-                                    <?php if (trim((string)($log['to'] ?? '')) !== ''): ?>
-                                    <div><strong>To:</strong> <?php echo e((string)$log['to']); ?></div>
-                                    <?php endif; ?>
-                                    <?php if (trim((string)($log['remarks'] ?? '')) !== ''): ?>
-                                    <div><strong>Remarks:</strong> <?php echo e((string)$log['remarks']); ?></div>
                                     <?php endif; ?>
                                 </div>
-                                <?php endforeach; ?>
                             </div>
-                            <?php endif; ?>
+
+                            <div class="row-popover-trigger">
+                                <div class="row-preview-hint">Hover for attachment preview</div>
+                                <div class="row-preview-popover" role="tooltip" aria-label="Row attachment previews">
+                                    <div class="row-flow-popover-title">Row Attachments</div>
+                                    <?php if ($canViewAttachments): ?>
+                                        <?php if (empty($rowAttachments)): ?>
+                                        <div class="row-flow-attachment-empty">No matching attachments for this row window.</div>
+                                        <?php else: ?>
+                                        <div class="row-flow-attachment-list">
+                                            <?php foreach ($rowAttachments as $attachment): ?>
+                                            <div class="row-flow-attachment-item">
+                                                <div class="row-flow-attachment-head">
+                                                    <span class="row-flow-attachment-type"><?php echo e((string)($attachment['category_label'] ?? 'Attachment')); ?></span>
+                                                    <span class="row-flow-log-time"><?php echo e(format_dt((string)($attachment['uploaded_at'] ?? null))); ?></span>
+                                                </div>
+                                                <div class="row-flow-attachment-name"><?php echo e((string)($attachment['file_name'] ?? 'Attachment')); ?></div>
+                                                <?php if (trim((string)($attachment['uploaded_by'] ?? '')) !== ''): ?>
+                                                <div class="row-flow-attachment-meta">
+                                                    Uploaded by: <?php echo e((string)$attachment['uploaded_by']); ?>
+                                                    <?php if (trim((string)($attachment['uploaded_by_role'] ?? '')) !== ''): ?>
+                                                        (<?php echo e((string)$attachment['uploaded_by_role']); ?>)
+                                                    <?php endif; ?>
+                                                </div>
+                                                <?php endif; ?>
+                                                <?php
+                                                    $previewType = strtolower(trim((string)($attachment['preview_type'] ?? 'none')));
+                                                    $previewUrl = trim((string)($attachment['preview_url'] ?? ''));
+                                                ?>
+                                                <?php if ($previewUrl !== '' && $previewType === 'image'): ?>
+                                                <div class="row-flow-attachment-preview">
+                                                    <img src="<?php echo e($previewUrl); ?>" alt="Attachment preview: <?php echo e((string)($attachment['file_name'] ?? 'Attachment')); ?>" loading="lazy">
+                                                </div>
+                                                <?php elseif ($previewUrl !== '' && $previewType === 'pdf'): ?>
+                                                <div class="row-flow-attachment-preview">
+                                                    <iframe src="<?php echo e($previewUrl); ?>#toolbar=0&navpanes=0&scrollbar=0" title="PDF preview: <?php echo e((string)($attachment['file_name'] ?? 'Attachment')); ?>" loading="lazy"></iframe>
+                                                </div>
+                                                <?php else: ?>
+                                                <div class="row-flow-attachment-preview-empty">Preview unavailable for this file type.</div>
+                                                <?php endif; ?>
+                                            </div>
+                                            <?php endforeach; ?>
+                                        </div>
+                                        <?php endif; ?>
+                                    <?php else: ?>
+                                    <div class="row-flow-attachment-empty">Login is required to view row attachments.</div>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
                         </div>
                         <?php endif; ?>
                     </div>
@@ -1689,17 +2227,19 @@ $layoutDefaultLogoPrintPx = 58;
             <p class="hint">Tracking Slip rows reflect custody receives and key workflow statuses (Signed/Completed and Released) from backend activity logs.</p>
         </div>
     </section>
+    </div>
+    <div id="printPages" class="print-pages" aria-hidden="true"></div>
     <?php endif; ?>
     <script src="<?php echo e(app_url('assets/js/vendor/qrcode-generator.js')); ?>"></script>
     <script src="<?php echo e(app_url('assets/js/local-qr.js')); ?>"></script>
     <script>
         (function () {
             const trackingQrImage = document.getElementById('trackingSlipQrImage');
-            if (trackingQrImage && window.edatsLocalQr && typeof window.edatsLocalQr.renderImage === 'function') {
+            if (trackingQrImage && window.DTMISLocalQr && typeof window.DTMISLocalQr.renderImage === 'function') {
                 const qrPayload = String(trackingQrImage.getAttribute('data-qr-text') || '').trim();
                 if (qrPayload !== '') {
                     try {
-                        window.edatsLocalQr.renderImage(trackingQrImage, qrPayload, {
+                        window.DTMISLocalQr.renderImage(trackingQrImage, qrPayload, {
                             size: 420,
                             margin: 2,
                             errorCorrection: 'M',
@@ -1713,16 +2253,21 @@ $layoutDefaultLogoPrintPx = 58;
 
             const root = document.documentElement;
             const paper = document.querySelector('.slip-paper');
+            const printPages = document.getElementById('printPages');
             const timelineWrap = paper ? paper.querySelector('.timeline-wrap') : null;
             const attachmentVault = paper ? paper.querySelector('.attachment-vault') : null;
+            const slipHeader = paper ? paper.querySelector('.slip-header') : null;
+            const titleStrip = paper ? paper.querySelector('.title-strip') : null;
+            const metaGrid = paper ? paper.querySelector('.meta-grid') : null;
+            const timelineHead = paper ? paper.querySelector('.timeline-head') : null;
             const layoutControls = document.getElementById('layoutControls');
             const fontScaleInput = document.getElementById('fontScaleInput');
             const logoScreenSizeInput = document.getElementById('logoScreenSizeInput');
             const logoPrintSizeInput = document.getElementById('logoPrintSizeInput');
             const printRowsInput = document.getElementById('printRowsInput');
             const resetLayoutBtn = document.getElementById('resetLayoutBtn');
-            const storageKey = 'edats_tracking_slip_layout_v1';
-            if (!paper || !timelineWrap || !attachmentVault) {
+            const storageKey = 'DTMIS_tracking_slip_layout_v2';
+            if (!paper || !timelineWrap || !attachmentVault || !printPages || !slipHeader || !titleStrip || !metaGrid || !timelineHead) {
                 return;
             }
 
@@ -1744,13 +2289,13 @@ $layoutDefaultLogoPrintPx = 58;
                 layoutControls ? layoutControls.getAttribute('data-default-logo-screen') : '',
                 50,
                 130,
-                78
+                100
             );
             const defaultLogoPrintPx = clampInt(
                 layoutControls ? layoutControls.getAttribute('data-default-logo-print') : '',
                 40,
                 110,
-                58
+                100
             );
             const defaultPrintRows = clampInt(
                 layoutControls ? layoutControls.getAttribute('data-default-print-rows') : '',
@@ -1861,6 +2406,113 @@ $layoutDefaultLogoPrintPx = 58;
                 timelineWrap.appendChild(createEmptyTimelineRow());
             }
 
+            function destroyPrintPages() {
+                printPages.innerHTML = '';
+                printPages.classList.remove('has-pages');
+                document.body.classList.remove('has-print-pages');
+            }
+
+            function pageHasOverflow(page) {
+                return page.scrollHeight > (page.clientHeight + 1);
+            }
+
+            function appendPrintPageBase(page) {
+                page.appendChild(slipHeader.cloneNode(true));
+                page.appendChild(titleStrip.cloneNode(true));
+                page.appendChild(metaGrid.cloneNode(true));
+            }
+
+            function createPrintTimelinePage(isContinuation) {
+                const page = document.createElement('section');
+                page.className = 'print-page';
+                if (isContinuation) {
+                    page.classList.add('print-page-continuation');
+                }
+                page.setAttribute('aria-hidden', 'true');
+                appendPrintPageBase(page);
+
+                if (isContinuation) {
+                    const rowGap = document.createElement('div');
+                    rowGap.className = 'print-page-row-gap';
+                    rowGap.setAttribute('aria-hidden', 'true');
+                    page.appendChild(rowGap);
+                }
+
+                const pageTimelineWrap = document.createElement('div');
+                pageTimelineWrap.className = 'timeline-wrap';
+                pageTimelineWrap.appendChild(timelineHead.cloneNode(true));
+                page.appendChild(pageTimelineWrap);
+
+                return {
+                    page: page,
+                    timelineBody: pageTimelineWrap,
+                };
+            }
+
+            function createPrintAttachmentPage() {
+                const page = document.createElement('section');
+                page.className = 'print-page';
+                page.setAttribute('aria-hidden', 'true');
+                appendPrintPageBase(page);
+                return page;
+            }
+
+            function trimPrintAutoFillRowsToFit(page, timelineBody) {
+                if (!page || !timelineBody) {
+                    return false;
+                }
+
+                let removedAny = false;
+                let autoRows = Array.from(timelineBody.querySelectorAll('.timeline-row.auto-fill-row'));
+                while (pageHasOverflow(page) && autoRows.length > 0) {
+                    const lastAutoRow = autoRows[autoRows.length - 1];
+                    lastAutoRow.remove();
+                    removedAny = true;
+                    autoRows = Array.from(timelineBody.querySelectorAll('.timeline-row.auto-fill-row'));
+                }
+
+                return removedAny;
+            }
+
+            function buildPrintPages() {
+                destroyPrintPages();
+
+                // Keep print filler rows so short timelines still occupy the intended page height.
+                const sourceRows = Array.from(timelineWrap.querySelectorAll('.timeline-row'));
+
+                const rowsToRender = sourceRows.length > 0 ? sourceRows : [createEmptyTimelineRow()];
+                let currentPage = createPrintTimelinePage(false);
+                printPages.appendChild(currentPage.page);
+
+                rowsToRender.forEach(function (sourceRow) {
+                    const rowClone = sourceRow.cloneNode(true);
+                    currentPage.timelineBody.appendChild(rowClone);
+
+                    const renderedRows = currentPage.timelineBody.querySelectorAll('.timeline-row').length;
+                    if (pageHasOverflow(currentPage.page) && renderedRows > 1) {
+                        rowClone.remove();
+                        currentPage = createPrintTimelinePage(true);
+                        printPages.appendChild(currentPage.page);
+                        currentPage.timelineBody.appendChild(sourceRow.cloneNode(true));
+                    }
+                });
+
+                const attachmentClone = attachmentVault.cloneNode(true);
+                currentPage.page.appendChild(attachmentClone);
+                trimPrintAutoFillRowsToFit(currentPage.page, currentPage.timelineBody);
+                if (pageHasOverflow(currentPage.page)) {
+                    attachmentClone.remove();
+                    const attachmentPage = createPrintAttachmentPage();
+                    attachmentPage.appendChild(attachmentClone);
+                    printPages.appendChild(attachmentPage);
+                }
+
+                if (printPages.children.length > 0) {
+                    printPages.classList.add('has-pages');
+                    document.body.classList.add('has-print-pages');
+                }
+            }
+
             function ensurePrintFillRows() {
                 clearAutoFillRows();
 
@@ -1950,13 +2602,23 @@ $layoutDefaultLogoPrintPx = 58;
                 }
             }
 
-            window.addEventListener('beforeprint', ensurePrintFillRows);
-            window.addEventListener('afterprint', ensurePrintFillRows);
+            window.addEventListener('beforeprint', function () {
+                ensurePrintFillRows();
+                buildPrintPages();
+            });
+            window.addEventListener('afterprint', function () {
+                destroyPrintPages();
+                ensurePrintFillRows();
+            });
 
             if (window.matchMedia) {
                 const printMedia = window.matchMedia('print');
                 const onPrintMediaChange = function (event) {
-                    if (!event.matches) {
+                    if (event.matches) {
+                        ensurePrintFillRows();
+                        buildPrintPages();
+                    } else {
+                        destroyPrintPages();
                         ensurePrintFillRows();
                     }
                 };
@@ -1968,7 +2630,7 @@ $layoutDefaultLogoPrintPx = 58;
             }
         })();
 
-        // Sync theme with parent edats dashboard if available
+        // Sync theme with parent DTMIS dashboard if available
         (function() {
             function syncTheme() {
                 try {

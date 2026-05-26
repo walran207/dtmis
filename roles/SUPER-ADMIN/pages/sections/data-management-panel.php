@@ -29,7 +29,7 @@ $superAdminCsrfToken = (string)($superAdminCsrfToken ?? ($csrfToken ?? ''));
         </div>
 
         <div class="super-admin-table-wrap">
-            <table class="super-admin-table" id="superAdminTypeTable">
+            <table class="super-admin-table super-admin-table-stack" id="superAdminTypeTable">
                 <thead>
                     <tr>
                         <th>Type</th>
@@ -46,6 +46,11 @@ $superAdminCsrfToken = (string)($superAdminCsrfToken ?? ($csrfToken ?? ''));
                     </tr>
                 </tbody>
             </table>
+        </div>
+        <div class="super-admin-pagination" aria-label="Document type table pagination">
+            <button type="button" class="super-admin-btn super-admin-btn-secondary" id="superAdminTypePrev">Back</button>
+            <p id="superAdminTypePageInfo" class="super-admin-pagination-info">Page 1 of 1</p>
+            <button type="button" class="super-admin-btn super-admin-btn-secondary" id="superAdminTypeNext">Next</button>
         </div>
         <p id="superAdminTypeEmpty" class="super-admin-empty" hidden>No document types match your current filters.</p>
     </article>
@@ -82,6 +87,7 @@ $superAdminCsrfToken = (string)($superAdminCsrfToken ?? ($csrfToken ?? ''));
             <div class="super-admin-form-actions">
                 <button type="submit" class="super-admin-btn super-admin-btn-primary" id="superAdminTypeSave">Save Data</button>
                 <button type="button" class="super-admin-btn super-admin-btn-secondary" id="superAdminTypeClear">Clear</button>
+                <button type="button" class="super-admin-btn super-admin-btn-danger" id="superAdminTypeDelete">Delete</button>
             </div>
         </form>
 
@@ -107,6 +113,9 @@ $superAdminCsrfToken = (string)($superAdminCsrfToken ?? ($csrfToken ?? ''));
     const emptyState = document.getElementById('superAdminTypeEmpty');
     const searchInput = document.getElementById('superAdminTypeSearch');
     const statusFilter = document.getElementById('superAdminTypeStatusFilter');
+    const paginationPrevButton = document.getElementById('superAdminTypePrev');
+    const paginationNextButton = document.getElementById('superAdminTypeNext');
+    const paginationInfo = document.getElementById('superAdminTypePageInfo');
 
     const form = document.getElementById('superAdminTypeForm');
     const typeIdInput = document.getElementById('superAdminTypeId');
@@ -115,11 +124,18 @@ $superAdminCsrfToken = (string)($superAdminCsrfToken ?? ($csrfToken ?? ''));
     const typeDaysInput = document.getElementById('superAdminTypeDays');
     const typeActiveCheckbox = document.getElementById('superAdminTypeActive');
     const clearButton = document.getElementById('superAdminTypeClear');
+    const deleteButton = document.getElementById('superAdminTypeDelete');
     const saveButton = document.getElementById('superAdminTypeSave');
     const statusMessage = document.getElementById('superAdminDataStatus');
     const miniMetrics = document.getElementById('superAdminDataMiniMetrics');
 
     let selectedTypeId = 0;
+    const typePager = window.createSuperAdminTablePager({
+        prevButton: paginationPrevButton,
+        nextButton: paginationNextButton,
+        infoNode: paginationInfo,
+        pageSize: 10
+    });
 
     function escapeHtml(value) {
         return String(value || '').replace(/[&<>\"']/g, function (character) {
@@ -146,6 +162,9 @@ $superAdminCsrfToken = (string)($superAdminCsrfToken ?? ($csrfToken ?? ''));
         if (saveButton) {
             saveButton.disabled = !!isBusy;
         }
+        if (deleteButton) {
+            deleteButton.disabled = !!isBusy || selectedTypeId <= 0;
+        }
     }
 
     function updateMiniMetrics() {
@@ -168,15 +187,11 @@ $superAdminCsrfToken = (string)($superAdminCsrfToken ?? ($csrfToken ?? ''));
         });
     }
 
-    function renderTable() {
-        if (!tableBody) {
-            return;
-        }
-
+    function getFilteredDocumentTypes() {
         const searchTerm = String(searchInput ? searchInput.value : '').toLowerCase().trim();
         const statusValue = String(statusFilter ? statusFilter.value : '').toLowerCase().trim();
 
-        const filtered = documentTypes.filter(function (type) {
+        return documentTypes.filter(function (type) {
             const rowText = [type.name, type.category, type.created_by_role].join(' ').toLowerCase();
             const matchesSearch = searchTerm === '' || rowText.indexOf(searchTerm) !== -1;
             const isActive = !!type.is_active;
@@ -188,8 +203,23 @@ $superAdminCsrfToken = (string)($superAdminCsrfToken ?? ($csrfToken ?? ''));
             }
             return matchesSearch && matchesStatus;
         });
+    }
+
+    function ensureSelectedTypeVisible(typeId) {
+        typePager.ensureItemVisible(getFilteredDocumentTypes(), function (type) {
+            return Number(type.id || 0) === Number(typeId || 0);
+        });
+    }
+
+    function renderTable() {
+        if (!tableBody) {
+            return;
+        }
+
+        const filtered = getFilteredDocumentTypes();
 
         if (filtered.length === 0) {
+            typePager.slice([]);
             tableBody.innerHTML = '<tr><td colspan="6" class="table-empty-state">No document types found.</td></tr>';
             if (emptyState) {
                 emptyState.hidden = false;
@@ -201,7 +231,8 @@ $superAdminCsrfToken = (string)($superAdminCsrfToken ?? ($csrfToken ?? ''));
             emptyState.hidden = true;
         }
 
-        tableBody.innerHTML = filtered.map(function (type) {
+        const visibleTypes = typePager.slice(filtered);
+        tableBody.innerHTML = visibleTypes.map(function (type) {
             const typeId = Number(type.id || 0);
             const statusClass = type.is_active ? 'status-pill is-active' : 'status-pill is-inactive';
             const statusText = type.is_active ? 'Active' : 'Inactive';
@@ -209,12 +240,12 @@ $superAdminCsrfToken = (string)($superAdminCsrfToken ?? ($csrfToken ?? ''));
 
             return `
                 <tr class="${rowClass}">
-                    <td>${escapeHtml(type.name || '-')}</td>
-                    <td>${escapeHtml(type.category || '-')}</td>
-                    <td>${escapeHtml(type.arta_days_limit || '-')}</td>
-                    <td><span class="${statusClass}">${escapeHtml(statusText)}</span></td>
-                    <td>${escapeHtml(type.created_by_role || '-')}</td>
-                    <td><button type="button" class="super-admin-table-btn" data-type-select="${typeId}">Edit</button></td>
+                    <td data-label="Type">${escapeHtml(type.name || '-')}</td>
+                    <td data-label="Category">${escapeHtml(type.category || '-')}</td>
+                    <td data-label="Days">${escapeHtml(type.arta_days_limit || '-')}</td>
+                    <td data-label="Status"><span class="${statusClass}">${escapeHtml(statusText)}</span></td>
+                    <td data-label="Created By Role">${escapeHtml(type.created_by_role || '-')}</td>
+                    <td data-label="Actions"><button type="button" class="super-admin-table-btn" data-type-select="${typeId}">Edit</button></td>
                 </tr>
             `;
         }).join('');
@@ -244,6 +275,9 @@ $superAdminCsrfToken = (string)($superAdminCsrfToken ?? ($csrfToken ?? ''));
         if (typeActiveCheckbox) {
             typeActiveCheckbox.checked = true;
         }
+        if (deleteButton) {
+            deleteButton.disabled = true;
+        }
         renderTable();
     }
 
@@ -256,6 +290,7 @@ $superAdminCsrfToken = (string)($superAdminCsrfToken ?? ($csrfToken ?? ''));
         }
 
         selectedTypeId = Number(target.id || 0);
+        ensureSelectedTypeVisible(selectedTypeId);
         if (typeIdInput) {
             typeIdInput.value = String(selectedTypeId);
         }
@@ -270,6 +305,9 @@ $superAdminCsrfToken = (string)($superAdminCsrfToken ?? ($csrfToken ?? ''));
         }
         if (typeActiveCheckbox) {
             typeActiveCheckbox.checked = !!target.is_active;
+        }
+        if (deleteButton) {
+            deleteButton.disabled = false;
         }
 
         renderTable();
@@ -298,12 +336,16 @@ $superAdminCsrfToken = (string)($superAdminCsrfToken ?? ($csrfToken ?? ''));
         return json;
     }
 
-    function applyResponse(json) {
-        if (Array.isArray(json.document_types)) {
-            documentTypes = json.document_types.slice();
+    function applyResponse(payload) {
+        if (!payload || typeof payload !== 'object') {
+            return;
         }
-        if (json.overview && typeof json.overview === 'object') {
-            overview = json.overview;
+
+        if (Array.isArray(payload.document_types)) {
+            documentTypes = payload.document_types.slice();
+        }
+        if (payload.overview && typeof payload.overview === 'object') {
+            overview = payload.overview;
         }
         renderTable();
         updateMiniMetrics();
@@ -312,8 +354,31 @@ $superAdminCsrfToken = (string)($superAdminCsrfToken ?? ($csrfToken ?? ''));
         }
     }
 
+    async function fetchDocumentTypes() {
+        const response = await fetch(endpoint, {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json'
+            }
+        });
+
+        const json = await response.json().catch(function () {
+            return { ok: false, message: 'Unexpected server response.' };
+        });
+
+        if (!response.ok || !json.ok) {
+            throw new Error(String(json.message || 'Unable to load document types right now.'));
+        }
+
+        applyResponse(json);
+        return json;
+    }
+
     if (searchInput) {
-        searchInput.addEventListener('input', renderTable);
+        searchInput.addEventListener('input', function () {
+            typePager.reset();
+            renderTable();
+        });
         const searchForm = searchInput.closest('form');
         if (searchForm) {
             searchForm.addEventListener('submit', function (event) {
@@ -323,13 +388,48 @@ $superAdminCsrfToken = (string)($superAdminCsrfToken ?? ($csrfToken ?? ''));
     }
 
     if (statusFilter) {
-        statusFilter.addEventListener('change', renderTable);
+        statusFilter.addEventListener('change', function () {
+            typePager.reset();
+            renderTable();
+        });
     }
+
+    typePager.bind(renderTable);
 
     if (clearButton) {
         clearButton.addEventListener('click', function () {
             clearSelection();
             setStatus('Selection cleared.', false);
+        });
+    }
+
+    if (deleteButton) {
+        deleteButton.addEventListener('click', async function () {
+            const typeId = Number(typeIdInput ? typeIdInput.value : 0);
+            if (!typeId) {
+                setStatus('Select a document type before deleting.', true);
+                return;
+            }
+
+            const typeName = String(typeNameInput ? typeNameInput.value : '').trim() || ('#' + String(typeId));
+            if (!window.confirm('Delete document type "' + typeName + '"? This action cannot be undone.')) {
+                return;
+            }
+
+            try {
+                setBusy(true);
+                const result = await postAction({
+                    action: 'DELETE_DOCUMENT_TYPE',
+                    document_type_id: typeId,
+                });
+                clearSelection();
+                applyResponse(result);
+                setStatus(result.message || 'Document type deleted.', false);
+            } catch (error) {
+                setStatus(error.message || 'Unable to delete document type.', true);
+            } finally {
+                setBusy(false);
+            }
         });
     }
 
@@ -368,5 +468,14 @@ $superAdminCsrfToken = (string)($superAdminCsrfToken ?? ($csrfToken ?? ''));
     updateMiniMetrics();
     renderTable();
     clearSelection();
+    setBusy(false);
+    setStatus('Refreshing latest document type data...', false);
+    fetchDocumentTypes()
+        .then(function () {
+            setStatus('Document types synced with the latest server data.', false);
+        })
+        .catch(function (error) {
+            setStatus(error && error.message ? error.message : 'Unable to refresh document types right now.', true);
+        });
 })();
 </script>

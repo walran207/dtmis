@@ -94,7 +94,7 @@ foreach ($queueRows as $queueRow) {
     ];
 }
 
-$pageTitle = 'ARD MS Dashboard | DENR Region XII eDATS';
+$pageTitle = 'ARD MS Dashboard | DENR Region XII DTMIS';
 $brandSubtitle = 'ARD MS Portal';
 $pageHeading = 'ARD MS Dashboard';
 $pageSubtitle = 'Supervisory review, approvals, and rerouting.';

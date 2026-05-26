@@ -28,7 +28,7 @@ body[data-role-key="SUPER_ADMIN"] .super-admin-grid {
 }
 
 body[data-role-key="SUPER_ADMIN"] .super-admin-panel {
-    grid-column: span 6;
+    grid-column: span 12;
     border-radius: var(--super-admin-radius);
     padding: clamp(12px, 1.6vw, 18px);
 }
@@ -116,8 +116,21 @@ body[data-role-key="SUPER_ADMIN"] .super-admin-table tbody td {
     vertical-align: middle;
 }
 
+body[data-role-key="SUPER_ADMIN"] .super-admin-actions-cell {
+    width: 1%;
+    min-width: 170px;
+}
+
 body[data-role-key="SUPER_ADMIN"] .super-admin-table tbody tr.is-selected-row {
-    background: color-mix(in srgb, var(--edats-accent-1, var(--super-admin-primary)) 28%, transparent);
+    background: color-mix(in srgb, var(--DTMIS-accent-1, var(--super-admin-primary)) 28%, transparent);
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-action-group {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 8px;
 }
 
 body[data-role-key="SUPER_ADMIN"] .super-admin-table-btn {
@@ -133,6 +146,104 @@ body[data-role-key="SUPER_ADMIN"] .super-admin-table-btn {
 body[data-role-key="SUPER_ADMIN"] .super-admin-table-btn:hover {
     border-color: var(--super-admin-primary);
     color: var(--super-admin-primary);
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-icon-btn {
+    width: 38px;
+    height: 38px;
+    border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+    background: color-mix(in srgb, var(--surface) 84%, transparent);
+    color: color-mix(in srgb, var(--super-admin-secondary) 70%, #10243f);
+    border-radius: 12px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: border-color 160ms ease, color 160ms ease, background-color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+    box-shadow: 0 10px 24px rgba(6, 18, 38, 0.08);
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-icon-btn svg {
+    width: 18px;
+    height: 18px;
+    display: block;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-icon-btn:hover {
+    transform: translateY(-1px);
+    border-color: color-mix(in srgb, var(--super-admin-secondary) 40%, var(--line));
+    background: color-mix(in srgb, var(--super-admin-secondary) 10%, var(--surface));
+    color: var(--super-admin-secondary);
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-icon-btn:focus-visible {
+    outline: none;
+    border-color: color-mix(in srgb, var(--super-admin-secondary) 54%, var(--line));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--super-admin-secondary) 20%, transparent);
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-icon-btn.is-warning {
+    color: color-mix(in srgb, #d97706 82%, #4a2104);
+    border-color: color-mix(in srgb, #f59e0b 38%, var(--line));
+    background: color-mix(in srgb, #f59e0b 10%, var(--surface));
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-icon-btn.is-warning:hover {
+    color: color-mix(in srgb, #d97706 92%, #4a2104);
+    border-color: color-mix(in srgb, #f59e0b 62%, var(--line));
+    background: color-mix(in srgb, #f59e0b 18%, var(--surface));
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-icon-btn.is-success {
+    color: color-mix(in srgb, var(--color-success, #10b981) 84%, #063d35);
+    border-color: color-mix(in srgb, var(--color-success, #10b981) 36%, var(--line));
+    background: color-mix(in srgb, var(--color-success, #10b981) 10%, var(--surface));
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-icon-btn.is-success:hover {
+    color: color-mix(in srgb, var(--color-success, #10b981) 92%, #063d35);
+    border-color: color-mix(in srgb, var(--color-success, #10b981) 58%, var(--line));
+    background: color-mix(in srgb, var(--color-success, #10b981) 18%, var(--surface));
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-icon-btn.is-danger {
+    color: color-mix(in srgb, var(--color-danger, #ef4444) 88%, #3f0a0f);
+    border-color: color-mix(in srgb, var(--color-danger, #ef4444) 38%, var(--line));
+    background: color-mix(in srgb, var(--color-danger, #ef4444) 10%, var(--surface));
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-icon-btn.is-danger:hover {
+    color: color-mix(in srgb, var(--color-danger, #ef4444) 94%, #3f0a0f);
+    border-color: color-mix(in srgb, var(--color-danger, #ef4444) 58%, var(--line));
+    background: color-mix(in srgb, var(--color-danger, #ef4444) 17%, var(--surface));
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-table-btn-danger {
+    border-color: color-mix(in srgb, var(--color-danger, #ef4444) 45%, var(--line));
+    background: color-mix(in srgb, var(--color-danger, #ef4444) 10%, var(--surface));
+    color: color-mix(in srgb, var(--color-danger, #ef4444) 88%, #3f0a0f);
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-table-btn-danger:hover {
+    border-color: var(--color-danger, #ef4444);
+    background: color-mix(in srgb, var(--color-danger, #ef4444) 16%, var(--surface));
+    color: color-mix(in srgb, var(--color-danger, #ef4444) 92%, #3f0a0f);
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-pagination-info {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.88rem;
 }
 
 body[data-role-key="SUPER_ADMIN"] .super-admin-empty {
@@ -207,6 +318,17 @@ body[data-role-key="SUPER_ADMIN"] .super-admin-btn-secondary:hover {
     color: var(--super-admin-primary);
 }
 
+body[data-role-key="SUPER_ADMIN"] .super-admin-btn-danger {
+    border-color: color-mix(in srgb, var(--color-danger, #ef4444) 45%, var(--line));
+    background: color-mix(in srgb, var(--color-danger, #ef4444) 10%, var(--surface));
+    color: color-mix(in srgb, var(--color-danger, #ef4444) 88%, #3f0a0f);
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-btn-danger:hover {
+    border-color: var(--color-danger, #ef4444);
+    background: color-mix(in srgb, var(--color-danger, #ef4444) 16%, var(--surface));
+}
+
 body[data-role-key="SUPER_ADMIN"] .super-admin-status {
     margin-top: 12px;
     margin-bottom: 0;
@@ -216,6 +338,121 @@ body[data-role-key="SUPER_ADMIN"] .super-admin-status {
 
 body[data-role-key="SUPER_ADMIN"] .super-admin-status.is-error {
     color: var(--color-danger, #c0392b);
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-file-help {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.84rem;
+    line-height: 1.5;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-note-list {
+    margin: 0;
+    padding-left: 18px;
+    color: var(--muted);
+    font-size: 0.84rem;
+    line-height: 1.5;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-note-list li + li {
+    margin-top: 4px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-errors {
+    border: 1px solid color-mix(in srgb, var(--color-danger, #ef4444) 30%, var(--line));
+    background: color-mix(in srgb, var(--color-danger, #ef4444) 9%, var(--surface));
+    border-radius: 12px;
+    padding: 12px 14px;
+    color: color-mix(in srgb, var(--color-danger, #ef4444) 84%, #3f0a0f);
+    font-size: 0.84rem;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-errors ul {
+    margin: 0;
+    padding-left: 18px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-errors li + li {
+    margin-top: 4px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-confirm-dialog {
+    width: min(100%, 520px);
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-confirm-shell {
+    gap: 18px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-confirm-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-confirm-copy {
+    display: grid;
+    gap: 6px;
+    min-width: 0;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-confirm-copy .action-modal-title,
+body[data-role-key="SUPER_ADMIN"] .super-admin-confirm-copy .action-modal-meta {
+    margin: 0;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-confirm-icon {
+    width: 52px;
+    height: 52px;
+    border-radius: 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+    background: color-mix(in srgb, var(--super-admin-secondary) 10%, var(--surface));
+    color: var(--super-admin-secondary);
+    box-shadow: 0 14px 28px rgba(6, 18, 38, 0.1);
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-confirm-icon svg {
+    width: 24px;
+    height: 24px;
+    display: block;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-confirm-icon.is-danger {
+    background: color-mix(in srgb, var(--color-danger, #ef4444) 12%, var(--surface));
+    border-color: color-mix(in srgb, var(--color-danger, #ef4444) 32%, var(--line));
+    color: color-mix(in srgb, var(--color-danger, #ef4444) 88%, #3f0a0f);
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-confirm-icon.is-warning {
+    background: color-mix(in srgb, #f59e0b 12%, var(--surface));
+    border-color: color-mix(in srgb, #f59e0b 32%, var(--line));
+    color: color-mix(in srgb, #d97706 90%, #4a2104);
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-confirm-icon.is-success {
+    background: color-mix(in srgb, var(--color-success, #10b981) 12%, var(--surface));
+    border-color: color-mix(in srgb, var(--color-success, #10b981) 32%, var(--line));
+    color: color-mix(in srgb, var(--color-success, #10b981) 88%, #063d35);
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-confirm-note {
+    margin: 0;
+    padding: 12px 14px;
+    border-radius: 14px;
+    border: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
+    background: color-mix(in srgb, var(--surface) 90%, transparent);
+    color: var(--muted);
+    font-size: 0.88rem;
+    line-height: 1.5;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-confirm-actions {
+    justify-content: flex-end;
 }
 
 body[data-role-key="SUPER_ADMIN"] .status-pill {
@@ -305,13 +542,13 @@ body[data-role-key="SUPER_ADMIN"] .network-card h3 {
 
 body[data-role-key="SUPER_ADMIN"] .super-admin-network-grid {
     display: grid;
-    grid-template-columns: repeat(12, minmax(0, 1fr));
+    grid-template-columns: 1fr;
     gap: 14px;
     margin-bottom: 14px;
 }
 
 body[data-role-key="SUPER_ADMIN"] .network-block {
-    grid-column: span 6;
+    grid-column: span 12;
     border: 1px solid var(--line);
     border-radius: var(--super-admin-radius);
     padding: 12px;
@@ -662,9 +899,44 @@ body[data-role-key="SUPER_ADMIN"].super-admin-density-compact .super-admin-table
     body[data-role-key="SUPER_ADMIN"] .super-admin-network-cards {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+
+    body[data-role-key="SUPER_ADMIN"] .super-admin-pagination {
+        align-items: stretch;
+    }
 }
 
 @media (max-width: 640px) {
+    body[data-role-key="SUPER_ADMIN"] .super-admin-confirm-head {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    body[data-role-key="SUPER_ADMIN"] .super-admin-confirm-icon {
+        width: 46px;
+        height: 46px;
+    }
+
+    body[data-role-key="SUPER_ADMIN"] .super-admin-confirm-actions {
+        flex-direction: column-reverse;
+    }
+
+    body[data-role-key="SUPER_ADMIN"] .super-admin-confirm-actions .super-admin-btn {
+        width: 100%;
+    }
+
+    body[data-role-key="SUPER_ADMIN"] .super-admin-actions-cell {
+        min-width: 132px;
+    }
+
+    body[data-role-key="SUPER_ADMIN"] .super-admin-action-group {
+        gap: 6px;
+    }
+
+    body[data-role-key="SUPER_ADMIN"] .super-admin-icon-btn {
+        width: 34px;
+        height: 34px;
+    }
+
     body[data-role-key="SUPER_ADMIN"] .super-admin-network-cards {
         grid-template-columns: 1fr;
     }
@@ -675,5 +947,18 @@ body[data-role-key="SUPER_ADMIN"].super-admin-density-compact .super-admin-table
 
     body[data-role-key="SUPER_ADMIN"] .super-admin-btn {
         width: 100%;
+    }
+
+    body[data-role-key="SUPER_ADMIN"] .super-admin-pagination {
+        flex-direction: column;
+    }
+
+    body[data-role-key="SUPER_ADMIN"] .super-admin-pagination .super-admin-btn {
+        width: 100%;
+    }
+
+    body[data-role-key="SUPER_ADMIN"] .super-admin-pagination-info {
+        width: 100%;
+        text-align: center;
     }
 }

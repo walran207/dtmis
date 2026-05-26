@@ -1,0 +1,769 @@
+:root {
+    --admin-primary: #0f766e;
+    --admin-secondary: #2563eb;
+    --admin-radius: 16px;
+    --admin-sidebar-width: 280px;
+    --admin-content-max: 1280px;
+}
+
+body[data-role-key="ADMIN"] {
+    --primary: var(--admin-primary);
+    --secondary: var(--admin-secondary);
+    --radius-lg: var(--admin-radius);
+}
+
+body[data-role-key="ADMIN"] .dashboard-shell {
+    --sidebar-width: var(--admin-sidebar-width);
+}
+
+body[data-role-key="ADMIN"] .content {
+    max-width: var(--admin-content-max);
+    margin-inline: auto;
+}
+
+body[data-role-key="ADMIN"] .admin-grid {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: 16px;
+}
+
+body[data-role-key="ADMIN"] .admin-panel {
+    grid-column: span 6;
+    border-radius: var(--admin-radius);
+    padding: clamp(12px, 1.6vw, 18px);
+}
+
+body[data-role-key="ADMIN"] .admin-panel-full {
+    grid-column: span 12;
+}
+
+body[data-role-key="ADMIN"] .admin-scope-banner {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    align-items: start;
+    justify-content: space-between;
+}
+
+body[data-role-key="ADMIN"] .admin-scope-kicker {
+    margin: 0 0 6px;
+    color: var(--muted);
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+body[data-role-key="ADMIN"] .admin-scope-copy h2 {
+    margin: 0;
+    font-size: 1.25rem;
+}
+
+body[data-role-key="ADMIN"] .admin-scope-copy p {
+    margin: 6px 0 0;
+    color: var(--muted);
+}
+
+body[data-role-key="ADMIN"] .admin-scope-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+body[data-role-key="ADMIN"] .admin-scope-chip {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 7px 11px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    background: color-mix(in srgb, var(--admin-primary) 12%, var(--surface));
+    color: color-mix(in srgb, var(--admin-primary) 78%, var(--text));
+    border: 1px solid color-mix(in srgb, var(--admin-primary) 28%, var(--line));
+}
+
+body[data-role-key="ADMIN"] .admin-dashboard-grid {
+    gap: 18px;
+}
+
+body[data-role-key="ADMIN"] .admin-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 14px;
+}
+
+body[data-role-key="ADMIN"] .admin-stat-card {
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 16px;
+    background:
+        radial-gradient(circle at top right, color-mix(in srgb, var(--admin-secondary) 20%, transparent), transparent 55%),
+        linear-gradient(180deg, color-mix(in srgb, var(--surface) 88%, #0b1220) 0%, var(--surface) 100%);
+}
+
+body[data-role-key="ADMIN"] .admin-stat-label {
+    margin: 0 0 10px;
+    color: var(--muted);
+    font-size: 0.82rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+}
+
+body[data-role-key="ADMIN"] .admin-stat-value {
+    margin: 0;
+    font-size: clamp(1.6rem, 2vw, 2.2rem);
+    font-weight: 800;
+}
+
+body[data-role-key="ADMIN"] .admin-stat-note {
+    margin: 10px 0 0;
+    color: var(--muted);
+    font-size: 0.84rem;
+}
+
+body[data-role-key="ADMIN"] .admin-panel-head {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+
+body[data-role-key="ADMIN"] .admin-panel-head h2 {
+    margin: 0;
+    font-size: 1.1rem;
+}
+
+body[data-role-key="ADMIN"] .admin-panel-head p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.92rem;
+}
+
+body[data-role-key="ADMIN"] .admin-split-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 16px;
+    align-items: center;
+}
+
+body[data-role-key="ADMIN"] .admin-inline-kicker {
+    margin: 0 0 6px;
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+body[data-role-key="ADMIN"] .admin-split-actions h3 {
+    margin: 0;
+    font-size: 1.05rem;
+}
+
+body[data-role-key="ADMIN"] .admin-split-actions p:last-child {
+    margin-bottom: 0;
+}
+
+body[data-role-key="ADMIN"] .admin-inline-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+body[data-role-key="ADMIN"] .admin-donut-layout {
+    display: grid;
+    grid-template-columns: minmax(220px, 260px) 1fr;
+    gap: 20px;
+    align-items: center;
+}
+
+body[data-role-key="ADMIN"] .admin-donut {
+    width: 220px;
+    height: 220px;
+    border-radius: 50%;
+    position: relative;
+    margin-inline: auto;
+    background: conic-gradient(#243245 0deg 360deg);
+}
+
+body[data-role-key="ADMIN"] .admin-donut::after {
+    content: "";
+    position: absolute;
+    inset: 26px;
+    border-radius: 50%;
+    background: var(--panel, #101826);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--line) 70%, transparent);
+}
+
+body[data-role-key="ADMIN"] .admin-donut-hole {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    text-align: center;
+    z-index: 1;
+}
+
+body[data-role-key="ADMIN"] .admin-donut-hole strong {
+    display: block;
+    font-size: 2rem;
+}
+
+body[data-role-key="ADMIN"] .admin-donut-hole span {
+    color: var(--muted);
+    font-size: 0.9rem;
+}
+
+body[data-role-key="ADMIN"] .admin-legend-list {
+    display: grid;
+    gap: 10px;
+}
+
+body[data-role-key="ADMIN"] .admin-legend-item {
+    display: flex;
+    gap: 12px;
+    align-items: start;
+}
+
+body[data-role-key="ADMIN"] .admin-legend-item p {
+    margin: 4px 0 0;
+    color: var(--muted);
+    font-size: 0.86rem;
+}
+
+body[data-role-key="ADMIN"] .admin-legend-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-top: 5px;
+    flex: none;
+}
+
+body[data-role-key="ADMIN"] .admin-insight-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+body[data-role-key="ADMIN"] .admin-insight-card {
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 14px;
+    background: color-mix(in srgb, var(--surface) 92%, #0d1526);
+}
+
+body[data-role-key="ADMIN"] .admin-insight-label {
+    margin: 0 0 8px;
+    color: var(--muted);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 700;
+}
+
+body[data-role-key="ADMIN"] .admin-insight-card h3 {
+    margin: 0;
+    font-size: 1.02rem;
+}
+
+body[data-role-key="ADMIN"] .admin-insight-note {
+    margin: 8px 0 0;
+    color: var(--muted);
+    font-size: 0.84rem;
+}
+
+body[data-role-key="ADMIN"] .admin-spline-card {
+    display: grid;
+    gap: 10px;
+}
+
+body[data-role-key="ADMIN"] .admin-spline-chart {
+    width: 100%;
+    height: auto;
+    border-radius: 18px;
+    background:
+        linear-gradient(180deg, color-mix(in srgb, var(--surface) 90%, #112032) 0%, color-mix(in srgb, var(--surface) 98%, #0b111d) 100%);
+    border: 1px solid var(--line);
+}
+
+body[data-role-key="ADMIN"] .admin-spline-grid line {
+    stroke: color-mix(in srgb, var(--line) 65%, transparent);
+    stroke-width: 1;
+}
+
+body[data-role-key="ADMIN"] .admin-spline-area {
+    fill: color-mix(in srgb, var(--admin-primary) 22%, transparent);
+}
+
+body[data-role-key="ADMIN"] .admin-spline-line {
+    fill: none;
+    stroke: var(--admin-primary);
+    stroke-width: 4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+body[data-role-key="ADMIN"] .admin-spline-points circle {
+    fill: var(--admin-primary);
+    stroke: #fff;
+    stroke-width: 2;
+}
+
+body[data-role-key="ADMIN"] .admin-spline-points text {
+    fill: var(--text);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+body[data-role-key="ADMIN"] .admin-trend-labels {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 8px;
+    color: var(--muted);
+    font-size: 0.82rem;
+    text-align: center;
+}
+
+body[data-role-key="ADMIN"] .admin-office-bars {
+    display: grid;
+    gap: 12px;
+}
+
+body[data-role-key="ADMIN"] .admin-office-bar-row {
+    display: grid;
+    grid-template-columns: minmax(180px, 240px) 1fr;
+    gap: 14px;
+    align-items: center;
+}
+
+body[data-role-key="ADMIN"] .admin-office-bar-copy {
+    display: grid;
+    gap: 4px;
+}
+
+body[data-role-key="ADMIN"] .admin-office-bar-copy span {
+    color: var(--muted);
+    font-size: 0.84rem;
+}
+
+body[data-role-key="ADMIN"] .admin-office-bar-rail {
+    height: 14px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: color-mix(in srgb, var(--line) 65%, transparent);
+}
+
+body[data-role-key="ADMIN"] .admin-office-bar-fill {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+}
+
+body[data-role-key="ADMIN"] .admin-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: end;
+    margin-bottom: 10px;
+}
+
+body[data-role-key="ADMIN"] .admin-toolbar-top {
+    margin-bottom: 16px;
+}
+
+body[data-role-key="ADMIN"] .admin-search,
+body[data-role-key="ADMIN"] .admin-filter {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+body[data-role-key="ADMIN"] .admin-search {
+    flex: 1 1 260px;
+}
+
+body[data-role-key="ADMIN"] .admin-search input,
+body[data-role-key="ADMIN"] .admin-filter select,
+body[data-role-key="ADMIN"] .admin-form input,
+body[data-role-key="ADMIN"] .admin-form select {
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+    color: var(--text);
+    padding: 10px 12px;
+    font-size: 0.92rem;
+}
+
+body[data-role-key="ADMIN"] .admin-table-wrap {
+    overflow: auto;
+    border: 1px solid var(--line);
+    border-radius: var(--admin-radius);
+}
+
+body[data-role-key="ADMIN"] .admin-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 780px;
+}
+
+body[data-role-key="ADMIN"] .admin-table thead th {
+    text-align: left;
+    padding: 11px 12px;
+    border-bottom: 1px solid var(--line);
+    font-size: 0.82rem;
+    letter-spacing: 0.02em;
+    color: var(--muted);
+}
+
+body[data-role-key="ADMIN"] .admin-table tbody td {
+    padding: 11px 12px;
+    border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+    font-size: 0.89rem;
+    vertical-align: middle;
+}
+
+body[data-role-key="ADMIN"] .admin-table tbody tr.is-selected-row {
+    background: color-mix(in srgb, var(--admin-primary) 18%, transparent);
+}
+
+body[data-role-key="ADMIN"] .admin-table tbody tr[data-user-id] {
+    cursor: pointer;
+}
+
+body[data-role-key="ADMIN"] .admin-table tbody tr[data-user-id]:hover {
+    background: color-mix(in srgb, var(--admin-secondary) 10%, transparent);
+}
+
+body[data-role-key="ADMIN"] .admin-table-btn {
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--text);
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 0.82rem;
+    cursor: pointer;
+}
+
+body[data-role-key="ADMIN"] .admin-row-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+body[data-role-key="ADMIN"] .admin-icon-btn {
+    width: 36px;
+    height: 36px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+}
+
+body[data-role-key="ADMIN"] .admin-icon-btn svg {
+    width: 16px;
+    height: 16px;
+}
+
+body[data-role-key="ADMIN"] .admin-icon-btn:hover {
+    border-color: var(--admin-primary);
+    color: var(--admin-primary);
+}
+
+body[data-role-key="ADMIN"] .admin-icon-btn-danger {
+    color: color-mix(in srgb, var(--color-danger, #ef4444) 78%, #fff);
+    border-color: color-mix(in srgb, var(--color-danger, #ef4444) 35%, var(--line));
+    background: color-mix(in srgb, var(--color-danger, #ef4444) 12%, transparent);
+}
+
+body[data-role-key="ADMIN"] .admin-icon-btn-danger:hover {
+    border-color: var(--color-danger, #ef4444);
+    color: var(--color-danger, #ef4444);
+}
+
+body[data-role-key="ADMIN"] .admin-table-btn:hover {
+    border-color: var(--admin-primary);
+    color: var(--admin-primary);
+}
+
+body[data-role-key="ADMIN"] .admin-empty {
+    margin-top: 10px;
+    color: var(--muted);
+    font-size: 0.9rem;
+}
+
+body[data-role-key="ADMIN"] .admin-command-strip {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 18px;
+    padding: 18px 20px;
+    border: 1px solid var(--line);
+    border-radius: 22px;
+    background: color-mix(in srgb, var(--surface) 92%, #102034);
+}
+
+body[data-role-key="ADMIN"] .admin-selected-summary {
+    display: grid;
+    gap: 6px;
+}
+
+body[data-role-key="ADMIN"] .admin-selected-label {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.84rem;
+}
+
+body[data-role-key="ADMIN"] .admin-selected-value {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 700;
+}
+
+body[data-role-key="ADMIN"] .admin-selected-meta {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.88rem;
+}
+
+body[data-role-key="ADMIN"] .admin-command-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+body[data-role-key="ADMIN"] .admin-inline-status {
+    margin-top: 14px;
+}
+
+body[data-role-key="ADMIN"] .admin-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+body[data-role-key="ADMIN"] .admin-pagination-info {
+    margin: 0;
+    min-width: 110px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.88rem;
+}
+
+body[data-role-key="ADMIN"] .admin-form {
+    display: grid;
+    gap: 12px;
+}
+
+body[data-role-key="ADMIN"] .admin-account-modal-dialog {
+    max-width: 760px;
+}
+
+body[data-role-key="ADMIN"] .admin-modal-form {
+    display: grid;
+    gap: 14px;
+}
+
+body[data-role-key="ADMIN"] .admin-field-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+body[data-role-key="ADMIN"] .admin-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+body[data-role-key="ADMIN"] .admin-field-spacer {
+    visibility: hidden;
+}
+
+body[data-role-key="ADMIN"] .admin-field span {
+    font-weight: 600;
+    font-size: 0.87rem;
+}
+
+body[data-role-key="ADMIN"] .admin-form-hint {
+    color: var(--muted);
+    font-size: 0.8rem;
+}
+
+body[data-role-key="ADMIN"] .admin-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.9rem;
+}
+
+body[data-role-key="ADMIN"] .admin-checkbox input {
+    width: auto;
+}
+
+body[data-role-key="ADMIN"] .admin-form-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+body[data-role-key="ADMIN"] .admin-btn {
+    border: 1px solid transparent;
+    border-radius: 12px;
+    padding: 9px 14px;
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+
+body[data-role-key="ADMIN"] .admin-btn:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+
+body[data-role-key="ADMIN"] .admin-btn-primary {
+    background: var(--admin-primary);
+    color: #fff;
+}
+
+body[data-role-key="ADMIN"] .admin-btn-primary:hover {
+    filter: brightness(1.05);
+}
+
+body[data-role-key="ADMIN"] .admin-btn-secondary {
+    border-color: var(--line);
+    background: var(--surface);
+    color: var(--text);
+}
+
+body[data-role-key="ADMIN"] .admin-btn-secondary:hover {
+    border-color: var(--admin-primary);
+    color: var(--admin-primary);
+}
+
+body[data-role-key="ADMIN"] .admin-btn-danger {
+    border-color: color-mix(in srgb, var(--color-danger, #ef4444) 40%, var(--line));
+    background: color-mix(in srgb, var(--color-danger, #ef4444) 18%, transparent);
+    color: color-mix(in srgb, var(--color-danger, #ef4444) 75%, #fff);
+}
+
+body[data-role-key="ADMIN"] .admin-btn-danger:hover {
+    filter: brightness(1.05);
+}
+
+body[data-role-key="ADMIN"] .admin-mini-metrics {
+    margin-top: 12px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 10px 12px;
+    background: var(--surface);
+}
+
+body[data-role-key="ADMIN"] .admin-mini-metrics p {
+    margin: 4px 0;
+    font-size: 0.88rem;
+}
+
+body[data-role-key="ADMIN"] .admin-creation-preview {
+    display: grid;
+    gap: 14px;
+}
+
+body[data-role-key="ADMIN"] .admin-note-list {
+    margin: 0;
+    padding-left: 18px;
+    color: var(--muted);
+    display: grid;
+    gap: 8px;
+}
+
+body[data-role-key="ADMIN"] .admin-status {
+    margin-top: 12px;
+    margin-bottom: 0;
+    font-size: 0.9rem;
+    color: var(--muted);
+}
+
+body[data-role-key="ADMIN"] .admin-status.is-error {
+    color: var(--color-danger, #c0392b);
+}
+
+body[data-role-key="ADMIN"] .status-pill {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    padding: 3px 10px;
+}
+
+body[data-role-key="ADMIN"] .status-pill.is-active {
+    color: color-mix(in srgb, var(--color-success, #10b981) 80%, #063d35);
+    background: color-mix(in srgb, var(--color-success, #10b981) 22%, transparent);
+}
+
+body[data-role-key="ADMIN"] .status-pill.is-inactive {
+    color: color-mix(in srgb, var(--color-danger, #ef4444) 82%, #3f0a0f);
+    background: color-mix(in srgb, var(--color-danger, #ef4444) 18%, transparent);
+}
+
+@media (max-width: 992px) {
+    body[data-role-key="ADMIN"] .admin-panel {
+        grid-column: span 12;
+    }
+
+    body[data-role-key="ADMIN"] .admin-stat-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    body[data-role-key="ADMIN"] .admin-donut-layout,
+    body[data-role-key="ADMIN"] .admin-office-bar-row {
+        grid-template-columns: 1fr;
+    }
+
+    body[data-role-key="ADMIN"] .admin-command-strip {
+        align-items: stretch;
+    }
+}
+
+@media (max-width: 640px) {
+    body[data-role-key="ADMIN"] .admin-stat-grid,
+    body[data-role-key="ADMIN"] .admin-insight-grid,
+    body[data-role-key="ADMIN"] .admin-trend-labels {
+        grid-template-columns: 1fr;
+    }
+
+    body[data-role-key="ADMIN"] .admin-pagination {
+        justify-content: stretch;
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    body[data-role-key="ADMIN"] .admin-command-actions {
+        flex-direction: column;
+    }
+
+    body[data-role-key="ADMIN"] .admin-pagination-info {
+        min-width: 0;
+    }
+
+    body[data-role-key="ADMIN"] .admin-field-grid {
+        grid-template-columns: 1fr;
+    }
+
+    body[data-role-key="ADMIN"] .admin-form-actions {
+        flex-direction: column;
+    }
+
+    body[data-role-key="ADMIN"] .admin-btn {
+        width: 100%;
+    }
+}

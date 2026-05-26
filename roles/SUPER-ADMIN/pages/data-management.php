@@ -27,7 +27,7 @@ foreach ($documentTypes as $type) {
     }
 }
 
-$pageTitle = 'Data Management | DENR Region XII eDATS';
+$pageTitle = 'Data Management | DENR Region XII DTMIS';
 $brandSubtitle = 'Super Admin Portal';
 $pageHeading = 'Data Management';
 $pageSubtitle = 'Modify document type complexity rules and system data controls.';

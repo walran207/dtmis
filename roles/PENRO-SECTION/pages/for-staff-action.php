@@ -84,7 +84,7 @@ foreach ($queueRows as $queueRow) {
     ];
 }
 
-$pageTitle = 'For PENRO Section Action | DENR Region XII eDATS';
+$pageTitle = 'For PENRO Section Action | DENR Region XII DTMIS';
 $activeMenu = 'cenro_unit_action';
 $brandSubtitle = 'PENRO Section Portal';
 $pageHeading = 'For PENRO Section Action';
@@ -139,5 +139,8 @@ $panels = [
         'chips' => ['Receive and validate incoming docs', 'Prepare approval-ready notes', 'Coordinate pending signatures', 'Forward and close ready items'],
     ],
 ];
+
+$kpiCards = [];
+$panels = [];
 
 require dirname(__DIR__, 3) . '/app/templates/role-page-template.php';

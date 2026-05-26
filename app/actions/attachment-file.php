@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__, 2) . '/config/app.php';
 require_once dirname(__DIR__, 2) . '/config/database.php';
+require_once dirname(__DIR__, 2) . '/config/attachment-backups.php';
 
 if (session_status() !== PHP_SESSION_ACTIVE) {
     session_start();
@@ -32,31 +33,7 @@ if ($attachmentId <= 0) {
 
 function resolve_attachment_absolute_path(string $rawPath): ?string
 {
-    $trimmed = trim($rawPath);
-    if ($trimmed === '') {
-        return null;
-    }
-
-    $normalized = str_replace('\\', '/', $trimmed);
-    if (str_starts_with($normalized, 'http://') || str_starts_with($normalized, 'https://')) {
-        return null;
-    }
-
-    $isWindowsAbsolute = (bool)preg_match('/^[A-Za-z]:\//', $normalized);
-    $isUnixAbsolute = str_starts_with($normalized, '/');
-
-    if ($isWindowsAbsolute || $isUnixAbsolute) {
-        $candidate = $normalized;
-    } else {
-        $candidate = str_replace('\\', '/', __DIR__ . '/../' . ltrim($normalized, '/'));
-    }
-
-    $real = realpath($candidate);
-    if ($real === false || !is_file($real) || !is_readable($real)) {
-        return null;
-    }
-
-    return $real;
+    return app_resolve_attachment_absolute_path($rawPath);
 }
 
 try {
@@ -72,8 +49,7 @@ try {
             d.created_by_user_id
          FROM document_attachments da
          INNER JOIN documents d ON d.id = da.document_id
-         WHERE da.id = :id
-         LIMIT 1'
+         WHERE da.id = :id'
     );
     $stmt->execute(['id' => $attachmentId]);
     $attachment = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -107,8 +83,7 @@ try {
         $historyStmt = $pdo->prepare(
             'SELECT 1 FROM activity_logs 
              WHERE document_id = :doc_id 
-               AND (source_office_id = :office_id OR destination_office_id = :office_id) 
-             LIMIT 1'
+               AND (source_office_id = :office_id OR destination_office_id = :office_id)'
         );
         $historyStmt->execute(['doc_id' => $docId, 'office_id' => $userOfficeId]);
         if ($historyStmt->fetch()) {
@@ -123,42 +98,77 @@ try {
         exit;
     }
 
+    $fileName = trim((string)($attachment['file_name'] ?? 'attachment'));
     $filePath = (string)($attachment['file_path'] ?? '');
     $absolutePath = resolve_attachment_absolute_path($filePath);
-    if ($absolutePath === null) {
+    $isImageAttachment = attachment_binary_backup_is_image_filename($fileName !== '' ? $fileName : $filePath);
+    if ($absolutePath !== null && $isImageAttachment && !attachment_binary_backup_is_valid_image_file($absolutePath)) {
+        $absolutePath = null;
+    }
+
+    if ($absolutePath !== null) {
+        $mime = 'application/octet-stream';
+        if (function_exists('finfo_open')) {
+            $finfo = finfo_open(FILEINFO_MIME_TYPE);
+            if ($finfo !== false) {
+                $detected = finfo_file($finfo, $absolutePath);
+                if (is_string($detected) && trim($detected) !== '') {
+                    $mime = $detected;
+                }
+                finfo_close($finfo);
+            }
+        }
+
+        if ($fileName === '') {
+            $fileName = basename($absolutePath);
+        }
+
+        header('Content-Type: ' . $mime);
+        header('Content-Length: ' . (string)filesize($absolutePath));
+        header('Content-Disposition: inline; filename="' . str_replace('"', '', $fileName) . '"');
+        header('Cache-Control: private, max-age=300');
+
+        readfile($absolutePath);
+        exit;
+    }
+
+    $backup = attachment_binary_backup_fetch($pdo, $attachmentId);
+    if (!is_array($backup)) {
         http_response_code(404);
         header('Content-Type: text/plain; charset=utf-8');
         echo 'Attachment file not found.';
         exit;
     }
 
-    $mime = 'application/octet-stream';
-    if (function_exists('finfo_open')) {
-        $finfo = finfo_open(FILEINFO_MIME_TYPE);
-        if ($finfo !== false) {
-            $detected = finfo_file($finfo, $absolutePath);
-            if (is_string($detected) && trim($detected) !== '') {
-                $mime = $detected;
-            }
-            finfo_close($finfo);
-        }
+    $backupContent = (string)($backup['binary_content'] ?? '');
+    if ($backupContent === '') {
+        http_response_code(404);
+        header('Content-Type: text/plain; charset=utf-8');
+        echo 'Attachment backup not found.';
+        exit;
     }
 
-    $fileName = trim((string)($attachment['file_name'] ?? 'attachment'));
-    if ($fileName === '') {
-        $fileName = basename($absolutePath);
+    $backupMime = trim((string)($backup['mime_type'] ?? ''));
+    if ($backupMime === '') {
+        $backupMime = 'application/octet-stream';
     }
 
-    header('Content-Type: ' . $mime);
-    header('Content-Length: ' . (string)filesize($absolutePath));
+    $backupName = trim((string)($backup['file_name'] ?? ''));
+    if ($backupName !== '') {
+        $fileName = $backupName;
+    } elseif ($fileName === '') {
+        $fileName = 'attachment';
+    }
+
+    header('Content-Type: ' . $backupMime);
+    header('Content-Length: ' . (string)strlen($backupContent));
     header('Content-Disposition: inline; filename="' . str_replace('"', '', $fileName) . '"');
     header('Cache-Control: private, max-age=300');
 
-    readfile($absolutePath);
+    echo $backupContent;
     exit;
 } catch (Throwable $exception) {
     http_response_code(500);
     header('Content-Type: text/plain; charset=utf-8');
     echo 'Unable to load attachment.';
 }
-

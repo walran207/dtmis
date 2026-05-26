@@ -58,7 +58,7 @@ $superAdminNetworkSnapshot = is_array($superAdminNetworkSnapshot ?? null) ? $sup
                     <h3>Action Mix (Last 1 Hour)</h3>
                 </div>
                 <div class="super-admin-table-wrap">
-                    <table class="super-admin-table">
+                    <table class="super-admin-table super-admin-table-stack">
                         <thead>
                             <tr>
                                 <th>Action</th>
@@ -70,6 +70,11 @@ $superAdminNetworkSnapshot = is_array($superAdminNetworkSnapshot ?? null) ? $sup
                         </tbody>
                     </table>
                 </div>
+                <div class="super-admin-pagination" aria-label="Action mix table pagination">
+                    <button id="superAdminActionMixPrev" type="button" class="super-admin-btn super-admin-btn-secondary">Back</button>
+                    <p id="superAdminActionMixPageInfo" class="super-admin-pagination-info">Page 1 of 1</p>
+                    <button id="superAdminActionMixNext" type="button" class="super-admin-btn super-admin-btn-secondary">Next</button>
+                </div>
             </section>
         </div>
 
@@ -79,7 +84,7 @@ $superAdminNetworkSnapshot = is_array($superAdminNetworkSnapshot ?? null) ? $sup
                 <p id="superAdminNetworkTimestamp">Updated just now</p>
             </div>
             <div class="super-admin-table-wrap">
-                <table class="super-admin-table">
+                <table class="super-admin-table super-admin-table-stack">
                     <thead>
                         <tr>
                             <th>Time</th>
@@ -93,6 +98,11 @@ $superAdminNetworkSnapshot = is_array($superAdminNetworkSnapshot ?? null) ? $sup
                         <tr><td colspan="5" class="table-empty-state">No recent network events.</td></tr>
                     </tbody>
                 </table>
+            </div>
+            <div class="super-admin-pagination" aria-label="Recent events table pagination">
+                <button id="superAdminNetworkEventsPrev" type="button" class="super-admin-btn super-admin-btn-secondary">Back</button>
+                <p id="superAdminNetworkEventsPageInfo" class="super-admin-pagination-info">Page 1 of 1</p>
+                <button id="superAdminNetworkEventsNext" type="button" class="super-admin-btn super-admin-btn-secondary">Next</button>
             </div>
         </section>
 
@@ -112,6 +122,18 @@ $superAdminNetworkSnapshot = is_array($superAdminNetworkSnapshot ?? null) ? $sup
     const eventsBody = document.getElementById('superAdminNetworkEventsBody');
     const timestampNode = document.getElementById('superAdminNetworkTimestamp');
     const statusNode = document.getElementById('superAdminNetworkStatus');
+    const actionMixPager = window.createSuperAdminTablePager({
+        prevButton: document.getElementById('superAdminActionMixPrev'),
+        nextButton: document.getElementById('superAdminActionMixNext'),
+        infoNode: document.getElementById('superAdminActionMixPageInfo'),
+        pageSize: 10
+    });
+    const eventsPager = window.createSuperAdminTablePager({
+        prevButton: document.getElementById('superAdminNetworkEventsPrev'),
+        nextButton: document.getElementById('superAdminNetworkEventsNext'),
+        infoNode: document.getElementById('superAdminNetworkEventsPageInfo'),
+        pageSize: 10
+    });
 
     let pollHandle = null;
 
@@ -197,12 +219,14 @@ $superAdminNetworkSnapshot = is_array($superAdminNetworkSnapshot ?? null) ? $sup
             return;
         }
         if (!Array.isArray(items) || items.length === 0) {
+            actionMixPager.slice([]);
             actionMixBody.innerHTML = '<tr><td colspan="2" class="table-empty-state">No action data yet.</td></tr>';
             return;
         }
 
-        actionMixBody.innerHTML = items.map(function (item) {
-            return '<tr><td>' + escapeHtml(item.action || '-') + '</td><td>' + escapeHtml(item.total || 0) + '</td></tr>';
+        const visibleItems = actionMixPager.slice(items);
+        actionMixBody.innerHTML = visibleItems.map(function (item) {
+            return '<tr><td data-label="Action">' + escapeHtml(item.action || '-') + '</td><td data-label="Total">' + escapeHtml(item.total || 0) + '</td></tr>';
         }).join('');
     }
 
@@ -211,18 +235,20 @@ $superAdminNetworkSnapshot = is_array($superAdminNetworkSnapshot ?? null) ? $sup
             return;
         }
         if (!Array.isArray(items) || items.length === 0) {
+            eventsPager.slice([]);
             eventsBody.innerHTML = '<tr><td colspan="5" class="table-empty-state">No recent network events.</td></tr>';
             return;
         }
 
-        eventsBody.innerHTML = items.map(function (item) {
+        const visibleItems = eventsPager.slice(items);
+        eventsBody.innerHTML = visibleItems.map(function (item) {
             return `
                 <tr>
-                    <td>${escapeHtml(item.created_label || '-')}</td>
-                    <td>${escapeHtml(item.action_type || '-')}</td>
-                    <td>${escapeHtml(item.tracking_id || '-')}</td>
-                    <td>${escapeHtml(item.source_office || '-')}</td>
-                    <td>${escapeHtml(item.destination_office || '-')}</td>
+                    <td data-label="Time">${escapeHtml(item.created_label || '-')}</td>
+                    <td data-label="Action">${escapeHtml(item.action_type || '-')}</td>
+                    <td data-label="Tracking ID">${escapeHtml(item.tracking_id || '-')}</td>
+                    <td data-label="Source Office">${escapeHtml(item.source_office || '-')}</td>
+                    <td data-label="Destination Office">${escapeHtml(item.destination_office || '-')}</td>
                 </tr>
             `;
         }).join('');
@@ -306,6 +332,8 @@ $superAdminNetworkSnapshot = is_array($superAdminNetworkSnapshot ?? null) ? $sup
         setStatus('Browser is offline. Showing last loaded telemetry.', true);
     });
 
+    actionMixPager.bind(renderSnapshot);
+    eventsPager.bind(renderSnapshot);
     renderSnapshot();
     setLiveBadge(!!navigator.onLine);
     startPolling();

@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require __DIR__ . '/_bootstrap.php';
+require_once dirname(__DIR__, 3) . '/config/role-office-rules.php';
 
 $overview = [
     'users_total' => 0,
@@ -34,7 +35,7 @@ foreach ($users as $user) {
     }
 }
 
-$pageTitle = 'Users Management | DENR Region XII eDATS';
+$pageTitle = 'Users Management | DENR Region XII DTMIS';
 $brandSubtitle = 'Super Admin Portal';
 $pageHeading = 'Users Management';
 $pageSubtitle = 'Modify user role assignments, office mapping, status, and security lock states.';
@@ -49,6 +50,13 @@ $dtrCsrfToken = (string)($_SESSION['csrf_token'] ?? '');
 $superAdminUsers = $users;
 $superAdminRoles = $roles;
 $superAdminOffices = $offices;
+$superAdminOfficeDirectory = DTMIS_build_office_directory($offices);
+$superAdminOfficeOptionsPayload = is_array($superAdminOfficeDirectory['office_options_payload'] ?? null)
+    ? $superAdminOfficeDirectory['office_options_payload']
+    : [];
+$superAdminFixedOfficeIdByRoleName = is_array($superAdminOfficeDirectory['fixed_office_id_by_role_name'] ?? null)
+    ? $superAdminOfficeDirectory['fixed_office_id_by_role_name']
+    : [];
 $superAdminUsersEndpoint = app_url('actions/super-admin-users.php');
 
 $kpiCards = [

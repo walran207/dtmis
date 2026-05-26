@@ -1,5 +1,5 @@
 (function () {
-    var STORAGE_KEY = "edats_theme";
+    var STORAGE_KEY = "DTMIS_theme";
     var THEMES = ["light", "dark", "system"];
 
     function normalizeTheme(value) {
@@ -22,7 +22,7 @@
             document.body.setAttribute("data-theme", resolved);
         }
         try {
-            document.dispatchEvent(new CustomEvent("edats:theme-changed", { detail: { theme: resolved } }));
+            document.dispatchEvent(new CustomEvent("DTMIS:theme-changed", { detail: { theme: resolved } }));
         } catch (error) {
             // Ignore environments without CustomEvent support.
         }
@@ -88,7 +88,7 @@
         bindToggleButtons();
         updateToggleButtons(resolvedTheme);
 
-        document.addEventListener("edats:theme-changed", function (event) {
+        document.addEventListener("DTMIS:theme-changed", function (event) {
             var detailTheme = event && event.detail && event.detail.theme ? String(event.detail.theme).toLowerCase() : "";
             var resolved = detailTheme === "dark" || detailTheme === "light" ? detailTheme : getResolvedThemeFromDom();
             updateToggleButtons(resolved);
@@ -132,7 +132,7 @@
         initTheme();
     }
 
-    window.EDATSTheme = {
+    window.DTMISTheme = {
         get: function () { return getStoredTheme(); },
         set: function (themeValue) { return setStoredTheme(themeValue); },
         apply: function (themeValue) { return applyTheme(themeValue); }

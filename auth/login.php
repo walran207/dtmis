@@ -21,6 +21,8 @@ $pwaManifestPath = app_url('manifest.webmanifest');
 $offlineReadCacheScript = app_url('assets/js/offline-read-cache.js');
 $offlineOutboxScript = app_url('assets/js/offline-outbox.js');
 $pwaBootstrapScript = app_url('assets/js/pwa-init.js');
+$loginUrl = app_url('auth/login.php');
+$forgotPasswordUrl = app_url('auth/forgot-password.php');
 $pwaBasePath = rtrim((string)app_url(''), '/');
 if ($pwaBasePath === '') {
     $pwaBasePath = '/';
@@ -31,16 +33,16 @@ auth_clear_pending_mfa_session();
 $flashSuccess = (string)($_SESSION['flash_success'] ?? '');
 unset($_SESSION['flash_success']);
 
-$email = '';
+$username = '';
 $fieldErrors = [
-    'email' => '',
+    'username' => '',
     'password' => '',
 ];
 $formError = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Normalize inputs early so every validation path uses consistent values.
-    $email = strtolower(trim((string)($_POST['email'] ?? '')));
+    $username = auth_normalize_username((string)($_POST['username'] ?? ''));
     $password = (string)($_POST['password'] ?? '');
     $csrfToken = (string)($_POST['csrf_token'] ?? '');
 
@@ -49,24 +51,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $formError = 'Your session expired. Please try again.';
     }
 
-    if ($email === '') {
-        $fieldErrors['email'] = 'Email is required.';
-    } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        $fieldErrors['email'] = 'Enter a valid email address.';
-    } elseif (!(str_ends_with($email, '@gmail.com') || str_ends_with($email, '@denr.gov.ph'))) {
-        $fieldErrors['email'] = 'Use a Gmail or DENR email address.';
+    if ($username === '') {
+        $fieldErrors['username'] = 'Username is required.';
+    } elseif (!auth_username_is_valid($username)) {
+        $fieldErrors['username'] = 'Use 3 to 50 lowercase letters, numbers, dots, underscores, or hyphens.';
     }
 
     if ($password === '') {
         $fieldErrors['password'] = 'Password is required.';
     }
 
-    $hasFieldErrors = $fieldErrors['email'] !== '' || $fieldErrors['password'] !== '';
+    $hasFieldErrors = $fieldErrors['username'] !== '' || $fieldErrors['password'] !== '';
 
     if ($formError === '' && !$hasFieldErrors) {
         try {
             $pdo = getDatabaseConnection();
-            $user = auth_fetch_user_for_login($pdo, $email);
+            $user = auth_fetch_user_for_login($pdo, $username);
         } catch (Throwable $exception) {
             // Keep error generic to avoid exposing DB internals.
             $user = false;
@@ -80,7 +80,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $formError = 'Account temporarily locked due to repeated failed logins. Try again in ' . $lockedRemaining . '.';
                 auth_log_security_event($pdo, [
                     'user_id' => (int)$user['id'],
-                    'email' => $email,
+                    'email' => (string)$user['email'],
                     'event_type' => 'LOGIN_BLOCKED_LOCKOUT',
                     'event_status' => 'BLOCKED',
                     'remarks' => 'Login blocked due to active lockout.',
@@ -115,7 +115,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 auth_log_security_event($pdo, [
                     'user_id' => (int)$user['id'],
-                    'email' => $email,
+                    'email' => (string)$user['email'],
                     'event_type' => 'LOGIN_PASSWORD_FAILED',
                     'event_status' => 'FAILED',
                     'remarks' => $lockUntil ? 'Lockout triggered due to repeated failed password attempts.' : 'Invalid password.',
@@ -123,14 +123,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 auth_log_security_event($pdo, [
                     'user_id' => null,
-                    'email' => $email,
+                    'email' => null,
                     'event_type' => 'LOGIN_USER_NOT_FOUND',
                     'event_status' => 'FAILED',
-                    'remarks' => 'Login email not found or inactive account.',
+                    'remarks' => 'Login username not found or inactive account.',
                 ]);
             }
 
-            $formError = 'Invalid email or password.';
+            $formError = 'Invalid username or password.';
         }
 
         if ($formError === '' && $user) {
@@ -139,7 +139,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'UPDATE users
                  SET failed_login_attempts = 0,
                      locked_until = NULL,
-                     last_login_at = NOW(),
+                     last_login_at = SYSDATETIME(),
                      last_login_ip = :last_login_ip
                  WHERE id = :id'
             );
@@ -158,11 +158,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'remarks' => 'Password verified. MFA login step is currently disabled.',
             ]);
 
-            // First-login forced reset is temporarily disabled.
-            unset($_SESSION['force_reset_user_id'], $_SESSION['force_reset_email']);
+            if ((int)($user['must_change_password'] ?? 0) === 1) {
+                $_SESSION['force_reset_user_id'] = (int)$user['id'];
+                $_SESSION['force_reset_username'] = (string)$user['username'];
+                app_redirect('auth/first-login-reset.php');
+            }
 
             auth_set_authenticated_session([
                 'id' => $user['id'],
+                'username' => $user['username'],
                 'email' => $user['email'],
                 'first_name' => $user['first_name'],
                 'last_name' => $user['last_name'],
@@ -172,7 +176,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ]);
             auth_apply_remember_me_cookie(!empty($_SESSION['pending_remember_me']));
             unset($_SESSION['pending_remember_me']);
-            unset($_SESSION['force_reset_user_id'], $_SESSION['force_reset_email']);
+            unset($_SESSION['force_reset_user_id'], $_SESSION['force_reset_username'], $_SESSION['force_reset_email']);
             // Defensive clear in case a previous session left MFA flags behind.
             auth_clear_pending_mfa_session();
             $welcomeFirstName = trim((string)($user['first_name'] ?? ''));
@@ -192,10 +196,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#1f4d7a">
-    <title>Login | DENR Region XII eDATS</title>
+    <title>Login | DENR Region XII DTMIS</title>
     <link rel="manifest" href="<?php echo htmlspecialchars((string)$pwaManifestPath, ENT_QUOTES, 'UTF-8'); ?>">
     <link rel="apple-touch-icon" href="<?php echo htmlspecialchars((string)app_url('assets/Logo.png'), ENT_QUOTES, 'UTF-8'); ?>">
     <link rel="stylesheet" href="./css/login.css">
+    <link rel="stylesheet" href="<?= auth_e(app_url('assets/css/support-modals.css')) ?>">
     <script src="<?php echo htmlspecialchars((string)$offlineReadCacheScript, ENT_QUOTES, 'UTF-8'); ?>"></script>
     <script src="<?php echo htmlspecialchars((string)$offlineOutboxScript, ENT_QUOTES, 'UTF-8'); ?>"></script>
     <script src="./js/theme-sync.js"></script>
@@ -218,9 +223,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </div>
 
         <div class="heading">
-            <p class="gov-label">Republic of the Philippines</p>
-            <h1 id="portalTitle">DENR Region XII eDATS Portal</h1>
-            <p class="portal-label">Official government system for authorized personnel.</p>
+           
+            <h1 id="portalTitle">DTMIS</h1>
+            <p class="portal-label">Document Tracking and Monitoring <br> Information System</p>
         </div>
 
         <?php if ($formError !== ''): ?>
@@ -229,23 +234,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php if ($flashSuccess !== ''): ?>
             <p class="form-success" role="status"><?= auth_e($flashSuccess) ?></p>
         <?php endif; ?>
-
-        <form id="loginForm" method="post" action="./login.php" novalidate>
+        <form id="loginForm" method="post" action="<?= auth_e($loginUrl) ?>" novalidate>
             <input type="hidden" name="csrf_token" value="<?= auth_e((string)$_SESSION['csrf_token']) ?>">
 
             <div class="form-group">
-                <label for="email">Email Address</label>
+                <label for="username">Username</label>
                 <div class="input-wrapper">
                     <span class="input-icon" aria-hidden="true">
                         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <rect x="3" y="5" width="18" height="14" rx="2"></rect>
-                            <polyline points="3 7 12 13 21 7"></polyline>
+                            <path d="M20 21a8 8 0 1 0-16 0"></path>
+                            <circle cx="12" cy="8" r="4"></circle>
                         </svg>
                     </span>
-                    <input id="email" type="email" name="email" placeholder="example@gmail.com or name@denr.gov.ph" autocomplete="username" value="<?= auth_e($email) ?>" required>
+                    <input id="username" type="text" name="username" placeholder="Enter your username" autocomplete="username" value="<?= auth_e($username) ?>" required>
                 </div>
-                <?php if ($fieldErrors['email'] !== ''): ?>
-                    <p class="field-error" role="alert"><?= auth_e($fieldErrors['email']) ?></p>
+                <?php if ($fieldErrors['username'] !== ''): ?>
+                    <p class="field-error" role="alert"><?= auth_e($fieldErrors['username']) ?></p>
                 <?php endif; ?>
             </div>
 
@@ -276,7 +280,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <input id="rememberMe" type="checkbox" name="rememberMe" <?= !empty($_POST['rememberMe']) ? 'checked' : '' ?>>
                     <span>Remember me</span>
                 </label>
-                <a href="./forgot-password.php">Forgot password?</a>
+                <a href="<?= auth_e($forgotPasswordUrl) ?>">Forgot password?</a>
             </div>
 
             <button id="signInBtn" type="submit" class="btn-primary">
@@ -285,8 +289,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </form>
 
         <p class="auth-switch">
-            Need an account?
-            <a href="./register.php">Register here</a>
+            Need an account? Contact your administrator for DTMIS access.
         </p>
 
         <p class="security-note">
@@ -294,13 +297,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </p>
 
         <div class="support-links">
-            <a href="#privacy">Privacy Notice</a>
-            <a href="#terms">Terms</a>
-            <a href="#helpdesk">Help Desk</a>
-            <a href="#report">Report phishing</a>
+            <a href="<?= auth_e(app_url('support-center.php#privacy-notice')) ?>" data-support-modal="privacy-notice">Privacy Notice</a>
+            <a href="<?= auth_e(app_url('support-center.php#terms-of-use')) ?>" data-support-modal="terms-of-use">Terms</a>
+            <a href="<?= auth_e(app_url('support-center.php#help-desk')) ?>" data-support-modal="help-desk">Help Desk</a>
+            <a href="<?= auth_e(app_url('support-center.php#report-phishing')) ?>" data-support-modal="report-phishing">Report phishing</a>
         </div>
+
+        <p class="auth-copyright">&copy; 2026 DENR Region XII. All rights reserved.</p>
     </main>
 
+    <?php include dirname(__DIR__) . '/app/templates/_support_modals.php'; ?>
     <script src="./js/login.js"></script>
+    <script src="<?= auth_e(app_url('assets/js/support-modals.js')) ?>"></script>
 </body>
 </html>

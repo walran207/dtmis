@@ -1,10 +1,10 @@
 (function () {
     'use strict';
 
-    var STORAGE_KEY = 'edats_super_admin_design_tokens_v2';
-    var LEGACY_STORAGE_KEY = 'edats_super_admin_design_tokens';
-    var BREAKPOINT_STYLE_ID = 'edats-runtime-breakpoints-style';
-    var ROLE_ACCENT_STYLE_ID = 'edats-runtime-role-accents-style';
+    var STORAGE_KEY = 'DTMIS_super_admin_design_tokens_v2';
+    var LEGACY_STORAGE_KEY = 'DTMIS_super_admin_design_tokens';
+    var BREAKPOINT_STYLE_ID = 'DTMIS-runtime-breakpoints-style';
+    var ROLE_ACCENT_STYLE_ID = 'DTMIS-runtime-role-accents-style';
 
     var ROLE_ACCENT_DEFAULTS = {
         CENRO_ADMIN_RECORD: '#2f8f83',
@@ -346,10 +346,10 @@
         root.style.setProperty('--semantic-danger', palette.semantic.error);
         root.style.setProperty('--semantic-info', palette.semantic.info);
 
-        root.style.setProperty('--edats-accent-1', palette.accents.accent1);
-        root.style.setProperty('--edats-accent-2', palette.accents.accent2);
-        root.style.setProperty('--edats-accent-3', palette.accents.accent3);
-        root.style.setProperty('--edats-accent-4', palette.accents.accent4);
+        root.style.setProperty('--DTMIS-accent-1', palette.accents.accent1);
+        root.style.setProperty('--DTMIS-accent-2', palette.accents.accent2);
+        root.style.setProperty('--DTMIS-accent-3', palette.accents.accent3);
+        root.style.setProperty('--DTMIS-accent-4', palette.accents.accent4);
         root.style.setProperty('--accent-1', palette.accents.accent1);
         root.style.setProperty('--accent-2', palette.accents.accent2);
         root.style.setProperty('--accent-3', palette.accents.accent3);
@@ -390,7 +390,7 @@
         var tabletMin = tablet + 1;
 
         return [
-            ':root { --edats-bp-mobile: ' + mobile + 'px; --edats-bp-tablet: ' + tablet + 'px; --edats-bp-tablet-landscape: ' + landscape + 'px; }',
+            ':root { --DTMIS-bp-mobile: ' + mobile + 'px; --DTMIS-bp-tablet: ' + tablet + 'px; --DTMIS-bp-tablet-landscape: ' + landscape + 'px; }',
             '@media (max-width: ' + landscape + 'px) { .hide-tablet-down { display: none !important; } }',
             '@media (max-width: ' + tablet + 'px) { .hide-mobile { display: none !important; } .flex-col-tablet { flex-direction: column !important; align-items: flex-start !important; } }',
             '@media (min-width: ' + tabletMin + 'px) { .show-mobile { display: none !important; } }',
@@ -429,12 +429,12 @@
         if (!settings || !settings.appearance) {
             return;
         }
-        if (window.EDATSTheme && typeof window.EDATSTheme.set === 'function') {
-            window.EDATSTheme.set(settings.appearance.themeMode);
+        if (window.DTMISTheme && typeof window.DTMISTheme.set === 'function') {
+            window.DTMISTheme.set(settings.appearance.themeMode);
             return;
         }
         try {
-            localStorage.setItem('edats_theme', settings.appearance.themeMode);
+            localStorage.setItem('DTMIS_theme', settings.appearance.themeMode);
         } catch (error) {
             // Ignore storage restrictions.
         }
@@ -443,7 +443,7 @@
     function bootstrap() {
         apply(load());
 
-        document.addEventListener('edats:theme-changed', function () {
+        document.addEventListener('DTMIS:theme-changed', function () {
             apply(load());
         });
 
@@ -457,7 +457,7 @@
         });
     }
 
-    window.EDATSDesignSystem = {
+    window.DTMISDesignSystem = {
         key: STORAGE_KEY,
         legacyKey: LEGACY_STORAGE_KEY,
         defaults: clone(DEFAULTS),

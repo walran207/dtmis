@@ -5,6 +5,8 @@ require_once __DIR__ . '/../config/app.php';
 
 session_start();
 
+app_clear_session_heartbeat();
+
 $_SESSION = [];
 
 if (ini_get('session.use_cookies')) {

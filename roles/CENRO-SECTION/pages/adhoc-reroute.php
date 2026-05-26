@@ -4,7 +4,7 @@ require_once dirname(__DIR__, 3) . '/config/app.php';
 $roleBasePath = dirname(__DIR__);
 $roleName = 'CENRO_SECTION';
 $initialsFallback = 'CS';
-$pageTitle = 'Ad-Hoc Reroute | DENR Region XII eDATS';
+$pageTitle = 'Ad-Hoc Reroute | DENR Region XII DTMIS';
 $activeMenu = 'adhoc_reroute';
 $brandSubtitle = 'CENRO Section Portal';
 $pageHeading = 'CENRO Section Ad-Hoc Reroute';
@@ -58,5 +58,8 @@ $statusFilterOptions = [
     ['value' => 'for_correction', 'label' => 'Returned / For Revision'],
 ];
 $notifications = json_decode('[{"title":"Queue updated","timeLabel":"Now","message":"CENRO Section reroute desk has a new routed document.","unread":true,"datetime":"2026-03-14T10:30:00"},{"title":"Tracking slip updated","timeLabel":"48m ago","message":"Custody timeline received a new event.","unread":true,"datetime":"2026-03-14T09:42:00"},{"title":"Reroute reminder","timeLabel":"2h ago","message":"Validate reroute reason before submitting.","unread":false,"datetime":"2026-03-14T08:05:00"}]', true);
+
+$kpiCards = [];
+$panels = [];
 
 require dirname(__DIR__, 3) . '/app/templates/role-page-template.php';

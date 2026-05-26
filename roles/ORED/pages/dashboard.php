@@ -16,6 +16,8 @@ if (empty($_SESSION['user_id'])) {
 }
 $officeId = (int)($_SESSION['office_id'] ?? 0);
 $roleName = 'ORED';
+$sessionRoleKey = app_normalize_role_key((string)($_SESSION['role_name'] ?? ''));
+$isOredSigningAccount = $sessionRoleKey === 'ORED_SIGN';
 $queueRows = [];
 $routeOffices = [];
 $needSignatureTotal = 0;
@@ -76,7 +78,9 @@ foreach ($queueRows as $queueRow) {
             (string)($queueRow['subject'] ?? '-') . ' [' . (string)($queueRow['status'] ?? 'Pending') . ']',
             (string)($queueRow['document_type'] ?? '-'),
             (string)($queueRow['date_received'] ?? '-'),
-            'View Tracking Slip | Receive | Approve | Sign | Pending | Forward | Return | Override | Print Package',
+            $isOredSigningAccount
+                ? 'View Tracking Slip | Receive | Approve | Sign | Pending | Forward | Return | Override | Print Package'
+                : 'View Tracking Slip | Receive | Approve | Pending | Forward | Return | Print Package',
         ],
         'meta' => [
             'document_id' => (string)($queueRow['document_id'] ?? 0),
@@ -93,15 +97,19 @@ foreach ($queueRows as $queueRow) {
     ];
 }
 
-$pageTitle = 'ORED Dashboard | DENR Region XII eDATS';
+$pageTitle = 'ORED Dashboard | DENR Region XII DTMIS';
 $brandSubtitle = 'ORED Portal';
 $pageHeading = 'Executive Dashboard (ORED)';
 $pageSubtitle = 'Final executive action, approvals, and path diversion.';
 $activeMenu = 'dashboard';
 $tableTitle = 'RD Action Desk (ARTA risk first)';
 $tableColumns = ['Tracking ID', 'Subject', 'Document Type (+ ARTA)', 'Date Received', 'Quick Actions'];
-$pageActions = ['View Tracking Slip', 'Print Package', 'Receive', 'Approve', 'Sign', 'Pending', 'Forward', 'Return', 'Override'];
-$stickyActions = ['Receive', 'Approve', 'Sign', 'Pending', 'Forward / Reroute', 'Return / Request Info', 'Print Slip', 'Print Package'];
+$pageActions = $isOredSigningAccount
+    ? ['View Tracking Slip', 'Print Package', 'Receive', 'Approve', 'Sign', 'Pending', 'Forward', 'Return', 'Override']
+    : ['View Tracking Slip', 'Print Package', 'Receive', 'Approve', 'Pending', 'Forward', 'Return'];
+$stickyActions = $isOredSigningAccount
+    ? ['Receive', 'Approve', 'Sign', 'Pending', 'Forward / Reroute', 'Return / Request Info', 'Print Slip', 'Print Package']
+    : ['Receive', 'Approve', 'Pending', 'Forward', 'Return / Request Info', 'Print Slip', 'Print Package'];
 $queueControlsPlacement = 'table_card';
 $showStatusCategoryFilter = false;
 $dateFilterPlacement = 'table_card';
@@ -128,4 +136,3 @@ $panels = [
 ];
 
 require dirname(__DIR__, 3) . '/app/templates/role-page-template.php';
-

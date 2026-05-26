@@ -2,7 +2,7 @@
 $roleBasePath = dirname(__DIR__);
 $roleName = 'PASU_OFFICER';
 $initialsFallback = 'OR';
-$pageTitle = 'QR Stamp Workspace | DENR Region XII eDATS';
+$pageTitle = 'QR Stamp Workspace | DENR Region XII DTMIS';
 $activeMenu = 'qr_stamp';
 $brandSubtitle = 'PASU Portal';
 $pageHeading = 'QR Stamp Workspace';
@@ -18,4 +18,3 @@ $kpiCards = [];
 $panels = [];
 
 require dirname(__DIR__, 3) . '/app/templates/role-page-template.php';
-

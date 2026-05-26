@@ -1,5 +1,5 @@
 param(
-    [string]$BaseUrl = 'http://localhost/edats'
+    [string]$BaseUrl = 'http://localhost/DTMIS'
 )
 
 . (Join-Path $PSScriptRoot 'common.ps1')

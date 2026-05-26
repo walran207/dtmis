@@ -1,0 +1,85 @@
+email,password,role_key,office_id,office_name,office_level,group_name,status
+seed.ard.ms.50@denr.gov.ph,DTMISTest123!,ARD_MS,50,"Assistant Regional Director for Management Services (ARD MS)",Regional,Regional,created
+seed.ard.ts.49@denr.gov.ph,DTMISTest123!,ARD_TS,49,"Assistant Regional Director for Technical Services (ARD TS)",Regional,Regional,created
+seed.cenro.admin.record.51@denr.gov.ph,DTMISTest123!,CENRO_ADMIN_RECORD,51,"CENRO Banga - Admin Records",CENRO_ADMIN_RECORD,"South Cotabato",created
+seed.cenro.officer.66@denr.gov.ph,DTMISTest123!,CENRO_OFFICER,66,"CENRO Banga - Officer",CENRO_OFFICER,"South Cotabato",created
+seed.cenro.section.81@denr.gov.ph,DTMISTest123!,CENRO_SECTION,81,"Monitoring and Enforcement Section (MES)",CENRO_SECTION,"South Cotabato",created
+seed.cenro.section.82@denr.gov.ph,DTMISTest123!,CENRO_SECTION,82,"Conservation and Development Section (CDS)",CENRO_SECTION,"South Cotabato",created
+seed.cenro.section.83@denr.gov.ph,DTMISTest123!,CENRO_SECTION,83,"Regulation and Permitting Section (RPS)",CENRO_SECTION,"South Cotabato",created
+seed.cenro.section.84@denr.gov.ph,DTMISTest123!,CENRO_SECTION,84,"Planning and Support Unit (PSU)",CENRO_SECTION,"South Cotabato",created
+seed.cenro.unit.144@denr.gov.ph,DTMISTest123!,CENRO_UNIT,144,"Patrolling/Forest Surveillance",CENRO_UNIT,"South Cotabato",created
+seed.cenro.unit.145@denr.gov.ph,DTMISTest123!,CENRO_UNIT,145,"Enforcement and Monitoring Tenure Assessment",CENRO_UNIT,"South Cotabato",created
+seed.cenro.unit.146@denr.gov.ph,DTMISTest123!,CENRO_UNIT,146,"National Greening Program",CENRO_UNIT,"South Cotabato",created
+seed.cenro.unit.147@denr.gov.ph,DTMISTest123!,CENRO_UNIT,147,"Coastal and Marine Ecosystem Management Program",CENRO_UNIT,"South Cotabato",created
+seed.cenro.unit.148@denr.gov.ph,DTMISTest123!,CENRO_UNIT,148,"Survey and Mapping Unit",CENRO_UNIT,"South Cotabato",created
+seed.cenro.unit.149@denr.gov.ph,DTMISTest123!,CENRO_UNIT,149,"Patents and Deeds Unit",CENRO_UNIT,"South Cotabato",created
+seed.cenro.unit.150@denr.gov.ph,DTMISTest123!,CENRO_UNIT,150,"Permitting and Licensing Unit",CENRO_UNIT,"South Cotabato",created
+seed.cenro.unit.151@denr.gov.ph,DTMISTest123!,CENRO_UNIT,151,"PSU Operations Unit",CENRO_UNIT,"South Cotabato",created
+seed.division.chief.10@denr.gov.ph,DTMISTest123!,DIVISION_CHIEF,10,"Surveys & Mapping Division",Division,Regional,created
+seed.division.chief.11@denr.gov.ph,DTMISTest123!,DIVISION_CHIEF,11,"Conservation & Devt. Division",Division,Regional,created
+seed.division.chief.12@denr.gov.ph,DTMISTest123!,DIVISION_CHIEF,12,"Enforcement Division",Division,Regional,created
+seed.division.chief.13@denr.gov.ph,DTMISTest123!,DIVISION_CHIEF,13,"Legal Division",Division,Regional,created
+seed.division.chief.14@denr.gov.ph,DTMISTest123!,DIVISION_CHIEF,14,"Administrative Division",Division,Regional,created
+seed.division.chief.15@denr.gov.ph,DTMISTest123!,DIVISION_CHIEF,15,"Finance Division",Division,Regional,created
+seed.division.chief.3@denr.gov.ph,DTMISTest123!,DIVISION_CHIEF,3,"Planning and Management Division (PMD)",Division,Regional,created
+seed.division.chief.9@denr.gov.ph,DTMISTest123!,DIVISION_CHIEF,9,"Licenses, Patents & Deeds Division",Division,Regional,created
+seed.ored.1@denr.gov.ph,DTMISTest123!,ORED,1,"Office of the Regional Executive Director (ORED)",Regional,Regional,created
+seed.ored.sign.1@denr.gov.ph,DTMISTest123!,ORED_SIGN,1,"Office of the Regional Executive Director (ORED)",Regional,Regional,created
+seed.pacdo.2@denr.gov.ph,DTMISTest123!,PACDO,2,"Public Affairs and Communication Development Office (PACDO)",Regional,Regional,created
+seed.pamo.admin.357@denr.gov.ph,DTMISTest123!,PAMO_ADMIN,357,"PASU - Mt. Matutum Protected Landscape - PAMO Admin",PAMO_ADMIN,"South Cotabato",created
+seed.pamo.unit.358@denr.gov.ph,DTMISTest123!,PAMO_UNIT,358,"PA RESOURCES MANAGEMENT AND PROTECTED UNIT",PAMO_UNIT,"South Cotabato",created
+seed.pamo.unit.359@denr.gov.ph,DTMISTest123!,PAMO_UNIT,359,"PA SOCIO - ECONOMIC MANAGEMENT UNIT",PAMO_UNIT,"South Cotabato",created
+seed.pamo.unit.360@denr.gov.ph,DTMISTest123!,PAMO_UNIT,360,"PA POLICY, PLANNING AND KNOWLEDGE MANAGEMENT UNIT",PAMO_UNIT,"South Cotabato",created
+seed.pasu.officer.356@denr.gov.ph,DTMISTest123!,PASU_OFFICER,356,"PASU - Mt. Matutum Protected Landscape - PASU",PASU_OFFICER,"South Cotabato",created
+seed.penro.admin.record.208@denr.gov.ph,DTMISTest123!,PENRO_ADMIN_RECORD,208,"PENRO SOUTH COTABATO - Admin Records",PENRO_ADMIN_RECORD,"South Cotabato",created
+seed.penro.division.222@denr.gov.ph,DTMISTest123!,PENRO_DIVISION,222,"Technical Services Division",PENRO_DIVISION,"South Cotabato",created
+seed.penro.division.223@denr.gov.ph,DTMISTest123!,PENRO_DIVISION,223,"Management Services Division",PENRO_DIVISION,"South Cotabato",created
+seed.penro.officer.215@denr.gov.ph,DTMISTest123!,PENRO_OFFICER,215,"PENRO SOUTH COTABATO - Officer",PENRO_OFFICER,"South Cotabato",created
+seed.penro.section.239@denr.gov.ph,DTMISTest123!,PENRO_SECTION,239,"Conservation & Development Section",PENRO_SECTION,"South Cotabato",created
+seed.penro.section.240@denr.gov.ph,DTMISTest123!,PENRO_SECTION,240,"Regulation & Permitting Section",PENRO_SECTION,"South Cotabato",created
+seed.penro.section.241@denr.gov.ph,DTMISTest123!,PENRO_SECTION,241,"Monitoring & Enforcement Section",PENRO_SECTION,"South Cotabato",created
+seed.penro.section.242@denr.gov.ph,DTMISTest123!,PENRO_SECTION,242,"Admin & Finance Section",PENRO_SECTION,"South Cotabato",created
+seed.penro.section.243@denr.gov.ph,DTMISTest123!,PENRO_SECTION,243,"Planning Section",PENRO_SECTION,"South Cotabato",created
+seed.penro.section.320@denr.gov.ph,DTMISTest123!,PENRO_SECTION,320,"Mt. Matutum Protected Landscape (MMPL)",PENRO_SECTION,"South Cotabato",created
+seed.penro.section.321@denr.gov.ph,DTMISTest123!,PENRO_SECTION,321,"Allah Valley Protected Landscape (AVPL)",PENRO_SECTION,"South Cotabato",created
+seed.penro.section.322@denr.gov.ph,DTMISTest123!,PENRO_SECTION,322,"Accounting Unit",PENRO_SECTION,"South Cotabato",created
+seed.penro.section.323@denr.gov.ph,DTMISTest123!,PENRO_SECTION,323,"Budgeting Unit",PENRO_SECTION,"South Cotabato",created
+seed.penro.section.324@denr.gov.ph,DTMISTest123!,PENRO_SECTION,324,"Human Resources Unit",PENRO_SECTION,"South Cotabato",created
+seed.penro.section.325@denr.gov.ph,DTMISTest123!,PENRO_SECTION,325,"General Services Unit",PENRO_SECTION,"South Cotabato",created
+seed.penro.section.326@denr.gov.ph,DTMISTest123!,PENRO_SECTION,326,"Records Unit",PENRO_SECTION,"South Cotabato",created
+seed.penro.section.327@denr.gov.ph,DTMISTest123!,PENRO_SECTION,327,"ICT Unit",PENRO_SECTION,"South Cotabato",created
+seed.penro.section.328@denr.gov.ph,DTMISTest123!,PENRO_SECTION,328,"Cashiering Unit",PENRO_SECTION,"South Cotabato",created
+seed.penro.section.unit.237@denr.gov.ph,DTMISTest123!,PENRO_SECTION_UNIT,237,"Mt. Matutum Protected Landscape (MMPL)",PENRO_UNIT,"South Cotabato",created
+seed.penro.section.unit.238@denr.gov.ph,DTMISTest123!,PENRO_SECTION_UNIT,238,"Allah Valley Protected Landscape (AVPL)",PENRO_UNIT,"South Cotabato",created
+seed.penro.section.unit.244@denr.gov.ph,DTMISTest123!,PENRO_SECTION_UNIT,244,"ICT Unit",PENRO_UNIT,"South Cotabato",created
+seed.penro.section.unit.245@denr.gov.ph,DTMISTest123!,PENRO_SECTION_UNIT,245,"Cashiering Unit",PENRO_UNIT,"South Cotabato",created
+seed.penro.section.unit.300@denr.gov.ph,DTMISTest123!,PENRO_SECTION_UNIT,300,"Accounting Unit",PENRO_UNIT,"South Cotabato",created
+seed.penro.section.unit.301@denr.gov.ph,DTMISTest123!,PENRO_SECTION_UNIT,301,"Budgeting Unit",PENRO_UNIT,"South Cotabato",created
+seed.penro.section.unit.302@denr.gov.ph,DTMISTest123!,PENRO_SECTION_UNIT,302,"Human Resources Unit",PENRO_UNIT,"South Cotabato",created
+seed.penro.section.unit.303@denr.gov.ph,DTMISTest123!,PENRO_SECTION_UNIT,303,"General Services Unit",PENRO_UNIT,"South Cotabato",created
+seed.penro.section.unit.304@denr.gov.ph,DTMISTest123!,PENRO_SECTION_UNIT,304,"Records Unit",PENRO_UNIT,"South Cotabato",created
+seed.section.staff.16@denr.gov.ph,DTMISTest123!,SECTION_STAFF,16,"Forest Utilization",Section,Regional,created
+seed.section.staff.17@denr.gov.ph,DTMISTest123!,SECTION_STAFF,17,"Wildlife Resource Permitting",Section,Regional,created
+seed.section.staff.18@denr.gov.ph,DTMISTest123!,SECTION_STAFF,18,"Water Resources Utilization",Section,Regional,created
+seed.section.staff.19@denr.gov.ph,DTMISTest123!,SECTION_STAFF,19,"Patents and Deeds",Section,Regional,created
+seed.section.staff.20@denr.gov.ph,DTMISTest123!,SECTION_STAFF,20,"Surveys & Control",Section,Regional,created
+seed.section.staff.21@denr.gov.ph,DTMISTest123!,SECTION_STAFF,21,"Land Evaluation Surveys",Section,Regional,created
+seed.section.staff.22@denr.gov.ph,DTMISTest123!,SECTION_STAFF,22,"Agretacion Surveys & Corrections",Section,Regional,created
+seed.section.staff.23@denr.gov.ph,DTMISTest123!,SECTION_STAFF,23,"Original & Other Surveys",Section,Regional,created
+seed.section.staff.24@denr.gov.ph,DTMISTest123!,SECTION_STAFF,24,"Land Records",Section,Regional,created
+seed.section.staff.25@denr.gov.ph,DTMISTest123!,SECTION_STAFF,25,"PA Management & Biodiversity Conservation",Section,Regional,created
+seed.section.staff.26@denr.gov.ph,DTMISTest123!,SECTION_STAFF,26,"Production Forest Management",Section,Regional,created
+seed.section.staff.27@denr.gov.ph,DTMISTest123!,SECTION_STAFF,27,"Coastal Resources & Foreshore Management",Section,Regional,created
+seed.section.staff.28@denr.gov.ph,DTMISTest123!,SECTION_STAFF,28,"Surveillance & Intelligence",Section,Regional,created
+seed.section.staff.29@denr.gov.ph,DTMISTest123!,SECTION_STAFF,29,"Compliance, Monitoring & Investigation",Section,Regional,created
+seed.section.staff.30@denr.gov.ph,DTMISTest123!,SECTION_STAFF,30,"Planning & Programming",Section,Regional,created
+seed.section.staff.31@denr.gov.ph,DTMISTest123!,SECTION_STAFF,31,"Monitoring & Evaluation",Section,Regional,created
+seed.section.staff.32@denr.gov.ph,DTMISTest123!,SECTION_STAFF,32,"Regional ICT Unit",Section,Regional,created
+seed.section.staff.33@denr.gov.ph,DTMISTest123!,SECTION_STAFF,33,Personnel,Section,Regional,created
+seed.section.staff.34@denr.gov.ph,DTMISTest123!,SECTION_STAFF,34,"HRDM (Human Resource Development Management)",Section,Regional,created
+seed.section.staff.35@denr.gov.ph,DTMISTest123!,SECTION_STAFF,35,Procurement,Section,Regional,created
+seed.section.staff.36@denr.gov.ph,DTMISTest123!,SECTION_STAFF,36,"General Services",Section,Regional,created
+seed.section.staff.37@denr.gov.ph,DTMISTest123!,SECTION_STAFF,37,Records,Section,Regional,created
+seed.section.staff.38@denr.gov.ph,DTMISTest123!,SECTION_STAFF,38,Cash,Section,Regional,created
+seed.section.staff.39@denr.gov.ph,DTMISTest123!,SECTION_STAFF,39,Accounting,Section,Regional,created
+seed.section.staff.40@denr.gov.ph,DTMISTest123!,SECTION_STAFF,40,Budget,Section,Regional,created

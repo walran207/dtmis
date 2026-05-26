@@ -2,6 +2,11 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/_role_helpers.php';
+require_once dirname(__DIR__, 2) . '/config/notification-mail.php';
+
+if (function_exists('app_touch_session_heartbeat')) {
+    app_touch_session_heartbeat();
+}
 
 $fullName = trim(((string)($_SESSION['first_name'] ?? '')) . ' ' . ((string)($_SESSION['last_name'] ?? '')));
 if ($fullName === '') {
@@ -14,7 +19,7 @@ if ($initials === '') {
     $initials = (string)($initialsFallback ?? 'AU');
 }
 
-$pageTitle = (string)($pageTitle ?? 'Role Page | DENR Region XII eDATS');
+$pageTitle = (string)($pageTitle ?? 'Role Page | DENR Region XII DTMIS');
 $activeMenu = (string)($activeMenu ?? 'dashboard');
 $welcomeLoaderMessage = trim((string)($_SESSION['welcome_loader_message'] ?? ''));
 if ($welcomeLoaderMessage === '') {
@@ -26,7 +31,7 @@ if ($showWelcomeLoader) {
     unset($_SESSION['show_welcome_loader'], $_SESSION['welcome_loader_message']);
 }
 $footerYear = '2026';
-$footerVersion = 'eDATS v2.0.0';
+$footerVersion = 'DTMIS v2.0.0';
 $brandTitle = 'DENR XII';
 $brandSubtitle = (string)($brandSubtitle ?? 'Role Portal');
 $pageHeading = (string)($pageHeading ?? 'Workspace');
@@ -47,6 +52,7 @@ $defaultCss = array_merge(
     [
         app_url('assets/css/dashboard.css'),
         app_url('assets/css/dark-overrides.css'),
+        app_url('assets/css/support-modals.css'),
     ]
 );
 $roleCssRelativePath = $roleFolder . '/assets/css/dashboard.css';
@@ -117,6 +123,11 @@ if (is_array($liveFlowTrackerSteps ?? null)) {
 $tableTitle = (string)($tableTitle ?? 'Queue');
 $tableColumns = is_array($tableColumns ?? null) ? $tableColumns : ['Tracking ID', 'Subject', 'Status', 'Action'];
 $tableRows = is_array($tableRows ?? null) ? $tableRows : [];
+$currentScriptName = strtolower((string)basename((string)($_SERVER['SCRIPT_NAME'] ?? '')));
+$showQueueIndicator = role_page_uses_queue_indicator($activeMenu, $currentScriptName);
+if ($showQueueIndicator) {
+    $tableColumns = role_table_with_indicator_column($tableColumns);
+}
 $pageActions = is_array($pageActions ?? null) ? $pageActions : ['View', 'Receive', 'Forward'];
 $stickyActions = is_array($stickyActions ?? null) ? $stickyActions : [];
 $routeOffices = is_array($routeOffices ?? null) ? $routeOffices : [];
@@ -134,6 +145,7 @@ $notificationSoundUrl = app_url('assets/audio/notif-sound.wav');
 $officeId = (int)($_SESSION['office_id'] ?? 0);
 $roleKeyRaw = app_normalize_role_key($roleName);
 $roleKey = app_role_behavior_key($roleName);
+$regionalOredCanSign = $roleKeyRaw === 'ORED_SIGN';
 $isCenroAdminRecordContext = $roleKeyRaw === 'CENRO_ADMIN_RECORD';
 $isPenroAdminRecordContext = $roleKeyRaw === 'PENRO_ADMIN_RECORD';
 $offlinePolicy = app_offline_policy_for_role($roleName);
@@ -160,7 +172,6 @@ if ($activeMenu === 'dashboard' && $roleKey !== 'SUPER_ADMIN') {
 
     $kpiCards = [
         ['label' => 'Pending Received', 'value' => '0', 'icon' => 'blue'],
-        ['label' => 'Pending Approval', 'value' => '0', 'icon' => 'orange'],
     ];
     if (in_array($roleKeyRaw, ['CENRO_ADMIN_RECORD', 'PENRO_ADMIN_RECORD', 'PAMO_ADMIN'], true)) {
         $kpiCards[] = ['label' => 'Intake Drafts', 'value' => '0', 'icon' => 'violet'];
@@ -292,12 +303,12 @@ $statCardNavigationTargets = $normalizedStatCardNavigationTargets;
 $qrStampWorkspaceDiskPath = dirname(__DIR__, 2) . '/roles/' . $roleFolder . '/pages/qr-stamp.php';
 $showQrStampDocumentTool = is_file($qrStampWorkspaceDiskPath);
 $qrStampWorkspacePath = $showQrStampDocumentTool ? app_url($roleFolder . '/qr-stamp.php') : '';
-$hasActionStampWorkspace = in_array($roleKeyRaw, ['RECORDS_UNIT', 'CENRO_ADMIN_RECORD', 'PENRO_ADMIN_RECORD', 'PAMO_ADMIN'], true)
+$hasActionStampWorkspace = in_array($roleKeyRaw, ['RECORDS_UNIT'], true)
     && is_file(dirname(__DIR__, 2) . '/roles/' . $roleFolder . '/pages/action-stamp.php');
 $actionStampWorkspacePath = $hasActionStampWorkspace
     ? app_url($roleFolder . '/action-stamp.php')
     : '';
-$digitalSignatureWorkspacePath = $roleKey === 'ORED' ? app_url($roleFolder . '/digital-signature.php') : '';
+$digitalSignatureWorkspacePath = $regionalOredCanSign ? app_url($roleFolder . '/digital-signature.php') : '';
 $isIntakePage = in_array($activeMenu, ['create_intake', 'create_external_intake'], true);
 $useDefaultIntakeKpiCards = (bool)($useDefaultIntakeKpiCards ?? true);
 $forceDocumentToolsOnTrackingTable = (bool)($forceDocumentToolsOnTrackingTable ?? in_array($activeMenu, ['search', 'global_search'], true));
@@ -348,6 +359,12 @@ foreach ($statusFilterOptionsInput as $option) {
     if ($optionLabel === '') {
         continue;
     }
+    if ($optionValue === 'completed' && strcasecmp($optionLabel, 'Released') === 0) {
+        $optionValue = 'released';
+    }
+    if ($optionValue === 'approved' && strcasecmp($optionLabel, 'Approved') === 0) {
+        $optionLabel = 'Approved / Signed';
+    }
     $statusFilterOptions[] = [
         'value' => $optionValue,
         'label' => $optionLabel,
@@ -370,6 +387,9 @@ $customSectionInclude = (isset($customSectionInclude) && is_string($customSectio
 $intakeAllowsExternal = in_array($roleKey, ['RECORDS_UNIT', 'SECTION_STAFF'], true) || $activeMenu === 'create_external_intake';
 $showIntakeForwardToField = (bool)($showIntakeForwardToField ?? false);
 $showIntakeActionRequiredField = (bool)($showIntakeActionRequiredField ?? false);
+$activeDateFilterRange = function_exists('dashboard_effective_date_range')
+    ? dashboard_effective_date_range()
+    : [];
 
 if ($isIntakePage) {
     // Standard cards will be populated after metrics fetch.
@@ -403,6 +423,7 @@ $intakeLockedDestinationOffice = null;
 $intakeLockedDestinationId = 0;
 $initialLiveScope = 'queue';
 $initialLiveActions = [];
+$initialLiveLimit = 50;
 
 if (isset($dashboardLivePath) && is_string($dashboardLivePath) && trim($dashboardLivePath) !== '') {
     $queryString = (string)(parse_url($dashboardLivePath, PHP_URL_QUERY) ?? '');
@@ -413,6 +434,8 @@ if (isset($dashboardLivePath) && is_string($dashboardLivePath) && trim($dashboar
         if ($parsedScope !== '') {
             $initialLiveScope = $parsedScope;
         }
+        $parsedLimit = (int)($queryParts['limit'] ?? 50);
+        $initialLiveLimit = max(5, min($parsedLimit, 100));
         $parsedActionsRaw = trim((string)($queryParts['actions'] ?? ''));
         if ($parsedActionsRaw !== '') {
             foreach (explode(',', $parsedActionsRaw) as $segment) {
@@ -435,7 +458,7 @@ try {
 if ($pdo instanceof PDO && $officeId > 0) {
     try {
         $officeContextStmt = $pdo->prepare(
-            'SELECT
+            'SELECT TOP (1)
                 o.id,
                 o.name,
                 o.level,
@@ -444,8 +467,7 @@ if ($pdo instanceof PDO && $officeId > 0) {
                 parent.level AS parent_level
              FROM offices o
              LEFT JOIN offices parent ON parent.id = o.parent_office_id
-             WHERE o.id = :office_id
-             LIMIT 1'
+             WHERE o.id = :office_id'
         );
         $officeContextStmt->execute(['office_id' => $officeId]);
         $officeContext = $officeContextStmt->fetch() ?: [];
@@ -467,56 +489,59 @@ if ($pdo instanceof PDO && $officeId > 0) {
         if (empty($routeOffices)) {
             $routeOffices = dashboard_fetch_route_offices($pdo, $officeId);
         }
-        $sessionUserId = (int)($_SESSION['user_id'] ?? 0);
+            $sessionUserId = (int)($_SESSION['user_id'] ?? 0);
         switch ($initialLiveScope) {
             case 'origin':
-                $liveQueueRows = dashboard_fetch_origin_tracker_rows($pdo, $officeId, 50);
+                $liveQueueRows = dashboard_fetch_origin_tracker_rows($pdo, $officeId, $initialLiveLimit);
+                break;
+            case 'archive':
+                $liveQueueRows = dashboard_fetch_archive_rows($pdo, $officeId, $initialLiveLimit);
                 break;
             case 'pending_receive':
-                $liveQueueRows = dashboard_fetch_pending_receive_rows($pdo, $officeId, 50);
+                $liveQueueRows = dashboard_fetch_pending_receive_rows($pdo, $officeId, $initialLiveLimit, false, false, $sessionUserId, $roleKeyRaw);
                 break;
             case 'pending_receive_action':
-                $liveQueueRows = dashboard_fetch_pending_receive_rows($pdo, $officeId, 50, true);
+                $liveQueueRows = dashboard_fetch_pending_receive_rows($pdo, $officeId, $initialLiveLimit, true, false, $sessionUserId, $roleKeyRaw);
                 break;
             case 'pending_receive_penro':
-                $liveQueueRows = dashboard_fetch_pending_receive_rows($pdo, $officeId, 50, true);
+                $liveQueueRows = dashboard_fetch_pending_receive_rows($pdo, $officeId, $initialLiveLimit, true, false, $sessionUserId, $roleKeyRaw);
                 break;
             case 'for_cenro_action':
-                $liveQueueRows = dashboard_fetch_for_cenro_action_rows($pdo, $officeId, 50);
+                $liveQueueRows = dashboard_fetch_for_cenro_action_rows($pdo, $officeId, $initialLiveLimit);
                 break;
             case 'office_action':
-                $liveQueueRows = dashboard_fetch_office_action_rows($pdo, $officeId, 50);
+                $liveQueueRows = dashboard_fetch_office_action_rows($pdo, $officeId, $initialLiveLimit);
                 break;
             case 'returned_regional':
-                $liveQueueRows = dashboard_fetch_returned_from_regional_rows($pdo, $officeId, 50);
+                $liveQueueRows = dashboard_fetch_returned_from_regional_rows($pdo, $officeId, $initialLiveLimit);
                 break;
             case 'outbox':
-                $liveQueueRows = dashboard_fetch_outbox_rows($pdo, $officeId, 50);
+                $liveQueueRows = dashboard_fetch_outbox_rows($pdo, $officeId, $initialLiveLimit);
                 break;
             case 'approved':
             case 'acted':
                 $actionTypes = !empty($initialLiveActions) ? $initialLiveActions : ['Approved', 'Signed'];
                 $liveQueueRows = $sessionUserId > 0
-                    ? dashboard_fetch_actor_tracker_rows($pdo, $sessionUserId, $actionTypes, 50)
+                    ? dashboard_fetch_actor_tracker_rows($pdo, $sessionUserId, $actionTypes, $initialLiveLimit)
                     : [];
                 break;
             case 'division_staff':
                 $actionTypes = !empty($initialLiveActions) ? $initialLiveActions : ['Approved', 'Forwarded', 'Returned', 'Rerouted'];
-                $liveQueueRows = dashboard_fetch_division_staff_tracker_rows($pdo, $officeId, $actionTypes, 50);
+                $liveQueueRows = dashboard_fetch_division_staff_tracker_rows($pdo, $officeId, $actionTypes, $initialLiveLimit);
                 break;
             case 'ard_division':
                 $actionTypes = !empty($initialLiveActions) ? $initialLiveActions : ['Approved', 'Forwarded', 'Returned', 'Rerouted'];
-                $liveQueueRows = dashboard_fetch_ard_division_tracker_rows($pdo, $officeId, $actionTypes, 50);
+                $liveQueueRows = dashboard_fetch_ard_division_tracker_rows($pdo, $officeId, $actionTypes, $initialLiveLimit);
                 break;
             default:
-                $liveQueueRows = dashboard_fetch_queue_rows($pdo, $officeId, 50);
+                $liveQueueRows = dashboard_fetch_queue_rows($pdo, $officeId, $initialLiveLimit);
                 break;
         }
         $liveMetrics = dashboard_fetch_role_metrics($pdo, $officeId);
         $activityCounters = dashboard_fetch_activity_counters($pdo, $officeId, 30);
         $artaDistribution = dashboard_fetch_arta_distribution($pdo, $officeId);
         $workflowTrend = dashboard_fetch_workflow_trend($pdo, $officeId, 7);
-        $dbNotifications = dashboard_fetch_notifications($pdo, $officeId, 12, $roleName);
+        $dbNotifications = dashboard_fetch_notifications($pdo, $officeId, 12, $roleName, $sessionUserId);
         $notifications = is_array($dbNotifications) ? $dbNotifications : [];
 
         if ($isIntakePage && $useDefaultIntakeKpiCards) {
@@ -551,9 +576,20 @@ if (!empty($liveQueueRows)) {
 if (!empty($routeOffices) && !in_array($roleKey, ['DIVISION_CHIEF', 'ORED'], true)) {
     $routeOffices = array_values(array_filter(
         $routeOffices,
-        static function (array $office): bool {
+        static function (array $office) use ($roleKey): bool {
             $level = strtoupper(trim((string)($office['level'] ?? '')));
-            return $level !== 'SECTION';
+            if (!in_array($level, ['SECTION', 'UNIT'], true)) {
+                return true;
+            }
+
+            if (in_array($roleKey, ['ARD_TS', 'ARD_MS'], true)) {
+                $officeKey = strtoupper(trim((string)($office['name'] ?? '')));
+                $officeKey = preg_replace('/[^A-Z0-9]+/', '', $officeKey) ?? '';
+                return $officeKey === 'RBCORIVERBASINCONTROLOFFICE'
+                    || $officeKey === 'RIVERBASINCONTROLOFFICE';
+            }
+
+            return false;
         }
     ));
 }
@@ -585,7 +621,7 @@ if ($isCenroAdminRecordContext) {
             $candidateRoleId = workflow_infer_office_role_id($pdo, $candidateId);
             $candidateRoleName = '';
             if ($candidateRoleId !== null) {
-                $candidateRoleStmt = $pdo->prepare('SELECT name FROM roles WHERE id = :id LIMIT 1');
+                $candidateRoleStmt = $pdo->prepare('SELECT TOP (1) name FROM roles WHERE id = :id');
                 $candidateRoleStmt->execute(['id' => $candidateRoleId]);
                 $candidateRoleName = app_normalize_role_key((string)($candidateRoleStmt->fetchColumn() ?: ''));
             }
@@ -822,7 +858,7 @@ if ($isCenroAdminRecordContext) {
             $candidateRoleId = workflow_infer_office_role_id($pdo, $candidateId);
             $candidateRoleName = '';
             if ($candidateRoleId !== null) {
-                $candidateRoleStmt = $pdo->prepare('SELECT name FROM roles WHERE id = :id LIMIT 1');
+                $candidateRoleStmt = $pdo->prepare('SELECT TOP (1) name FROM roles WHERE id = :id');
                 $candidateRoleStmt->execute(['id' => $candidateRoleId]);
                 $candidateRoleName = app_normalize_role_key((string)($candidateRoleStmt->fetchColumn() ?: ''));
             }
@@ -997,7 +1033,7 @@ if ($isCenroAdminRecordContext) {
             $candidateRoleId = workflow_infer_office_role_id($pdo, $candidateId);
             $candidateRoleName = '';
             if ($candidateRoleId !== null) {
-                $candidateRoleStmt = $pdo->prepare('SELECT name FROM roles WHERE id = :id LIMIT 1');
+                $candidateRoleStmt = $pdo->prepare('SELECT TOP (1) name FROM roles WHERE id = :id');
                 $candidateRoleStmt->execute(['id' => $candidateRoleId]);
                 $candidateRoleName = app_normalize_role_key((string)($candidateRoleStmt->fetchColumn() ?: ''));
             }
@@ -1411,6 +1447,24 @@ if ($isCenroAdminRecordContext) {
     }
 } elseif (in_array($roleKey, ['RECORDS_UNIT', 'ORED', 'DIVISION_CHIEF', 'SECTION_STAFF', 'ARD_TS', 'ARD_MS'], true)) {
     if ($roleKey === 'ORED') {
+        if (in_array($roleKeyRaw, ['ORED', 'ORED_SIGN'], true)) {
+            $sameOfficeExists = false;
+            foreach ($routeOffices as $office) {
+                if ((int)($office['id'] ?? 0) === $officeId) {
+                    $sameOfficeExists = true;
+                    break;
+                }
+            }
+            if (!$sameOfficeExists && $officeId > 0 && !empty($officeContext)) {
+                $routeOffices[] = [
+                    'id' => $officeId,
+                    'name' => (string)($officeContext['name'] ?? 'ORED'),
+                    'level' => (string)($officeContext['level'] ?? ''),
+                    'parent_office_id' => (int)($officeContext['parent_office_id'] ?? 0),
+                    'route_label' => $roleKeyRaw === 'ORED_SIGN' ? 'ORED Review' : 'ORED Sign',
+                ];
+            }
+        }
         foreach ($routeOffices as $office) {
             $level = strtoupper(trim((string)($office['level'] ?? '')));
             $name = strtoupper((string)($office['name'] ?? ''));
@@ -1472,6 +1526,23 @@ if ($isCenroAdminRecordContext) {
                         'id' => (int)($divisionOffice['id'] ?? 0),
                         'name' => (string)($divisionOffice['name'] ?? ''),
                         'level' => (string)($divisionOffice['level'] ?? ''),
+                    ];
+                }
+
+                $rbcoStmt = $pdo->prepare(
+                    "SELECT TOP (1) id, name, level, parent_office_id
+                     FROM offices
+                     WHERE UPPER(name) IN ('RBCO (RIVER BASIN CONTROL OFFICE)', 'RIVER BASIN CONTROL OFFICE')
+                     ORDER BY id ASC"
+                );
+                $rbcoStmt->execute();
+                $rbcoOffice = $rbcoStmt->fetch();
+                if ($rbcoOffice) {
+                    $routeFallbackOffices[] = [
+                        'id' => (int)($rbcoOffice['id'] ?? 0),
+                        'name' => (string)($rbcoOffice['name'] ?? ''),
+                        'level' => (string)($rbcoOffice['level'] ?? ''),
+                        'parent_office_id' => (int)($rbcoOffice['parent_office_id'] ?? 0),
                     ];
                 }
             }
@@ -1758,6 +1829,51 @@ if ($hasMetaRows && !empty($liveQueueMetaByTracking)) {
     }
 }
 
+if ($showQueueIndicator) {
+    $indicatorColumnIndex = role_table_indicator_column_index($tableColumns);
+    if ($indicatorColumnIndex >= 0) {
+        $expectedColumnCount = count($tableColumns);
+        foreach ($tableRows as $rowIndex => $tableRow) {
+            $rowMeta = [];
+            $cells = [];
+            $hasWrappedValue = false;
+
+            if (is_array($tableRow) && array_key_exists('value', $tableRow) && is_array($tableRow['value'])) {
+                $hasWrappedValue = true;
+                $cells = array_values($tableRow['value']);
+                $rowMeta = is_array($tableRow['meta'] ?? null) ? $tableRow['meta'] : [];
+            } elseif (is_array($tableRow)) {
+                $cells = array_values($tableRow);
+            } else {
+                $cells = [(string)$tableRow];
+            }
+
+            if (count($cells) >= $expectedColumnCount) {
+                continue;
+            }
+
+            $trackingId = strtoupper(trim((string)($rowMeta['tracking_id'] ?? ($cells[0] ?? ''))));
+            $sourceRow = ($trackingId !== '' && isset($liveQueueMetaByTracking[$trackingId]) && is_array($liveQueueMetaByTracking[$trackingId]))
+                ? $liveQueueMetaByTracking[$trackingId]
+                : null;
+            $indicatorLabel = is_array($sourceRow)
+                ? role_queue_intake_indicator_label($sourceRow)
+                : role_fallback_indicator_label($rowMeta);
+
+            array_splice($cells, $indicatorColumnIndex, 0, [$indicatorLabel]);
+
+            if ($hasWrappedValue) {
+                $tableRows[$rowIndex]['value'] = $cells;
+                if (!isset($tableRows[$rowIndex]['meta']['indicator_label'])) {
+                    $tableRows[$rowIndex]['meta']['indicator_label'] = $indicatorLabel;
+                }
+            } else {
+                $tableRows[$rowIndex] = $cells;
+            }
+        }
+    }
+}
+
 $returnedTotal = 0;
 foreach ($liveQueueRows as $queueRow) {
     $status = strtolower(trim((string)($queueRow['status'] ?? '')));
@@ -1766,10 +1882,15 @@ foreach ($liveQueueRows as $queueRow) {
     }
 }
 $queueCounters = role_queue_status_counters($liveQueueRows, $officeId);
+$preferScopedQueueCountersForDisplay = ($activeMenu ?? '') !== 'dashboard';
+$queueCountersForDisplay = $preferScopedQueueCountersForDisplay ? $queueCounters : [];
+$returnedTotalForDisplay = $preferScopedQueueCountersForDisplay
+    ? $returnedTotal
+    : (int)($liveMetrics['returned_total'] ?? $returnedTotal);
 
 if (!empty($liveMetrics)) {
     foreach ($kpiCards as $index => $card) {
-        $mappedValue = role_metric_value_for_label((string)($card['label'] ?? ''), $liveMetrics, $activityCounters, $returnedTotal, $queueCounters);
+        $mappedValue = role_metric_value_for_label((string)($card['label'] ?? ''), $liveMetrics, $activityCounters, $returnedTotalForDisplay, $queueCountersForDisplay);
         if ($mappedValue !== null) {
             $kpiCards[$index]['value'] = (string)$mappedValue;
         }
@@ -1781,7 +1902,7 @@ if (!empty($liveMetrics)) {
         }
         $rowValues = [];
         foreach ($panel['rows'] as $rowIndex => $row) {
-            $mappedValue = role_metric_value_for_label((string)($row['label'] ?? ''), $liveMetrics, $activityCounters, $returnedTotal, $queueCounters);
+            $mappedValue = role_metric_value_for_label((string)($row['label'] ?? ''), $liveMetrics, $activityCounters, $returnedTotalForDisplay, $queueCountersForDisplay);
             if ($mappedValue !== null) {
                 $panels[$panelIndex]['rows'][$rowIndex]['value'] = (string)$mappedValue;
                 $rowValues[] = $mappedValue;

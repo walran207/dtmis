@@ -16,7 +16,7 @@ if (empty($_SESSION['user_id'])) {
 }
 $roleName = 'PASU_OFFICER';
 $initialsFallback = 'OR';
-$pageTitle = 'PAMO Summary Reports | DENR Region XII eDATS';
+$pageTitle = 'PAMO Summary Reports | DENR Region XII DTMIS';
 $activeMenu = 'cenro_summary_reports';
 $brandSubtitle = 'PASU Portal';
 $pageHeading = 'PAMO Summary Reports';
@@ -32,8 +32,7 @@ try {
         $officeStmt = $pdo->prepare(
             'SELECT id, parent_office_id, level
              FROM offices
-             WHERE id = :office_id
-             LIMIT 1'
+             WHERE id = :office_id'
         );
         $officeStmt->execute(['office_id' => $officeId]);
         $officeContext = $officeStmt->fetch(PDO::FETCH_ASSOC) ?: [];
@@ -92,36 +91,8 @@ $healthRiskWidth = (string)(int)round(($unitsWithRisk / $healthBase) * 100) . '%
 $healthStableWidth = (string)(int)round(($stableUnits / $healthBase) * 100) . '%';
 $healthPressureWidth = (string)(int)round(($highPressureUnits / $healthBase) * 100) . '%';
 
-$kpiCards = [
-    ['label' => 'Units Reporting', 'icon' => 'blue', 'value' => (string)$totalUnits],
-    ['label' => 'PAMO Backlog', 'icon' => 'orange', 'value' => (string)$regionalPending],
-    ['label' => 'SLA Risk Cases', 'icon' => 'violet', 'value' => (string)$regionalRisk, 'pill' => 'ARTA'],
-    ['label' => 'Closed Transactions', 'icon' => 'green', 'value' => (string)$regionalCompleted],
-];
-
-$panels = [
-    [
-        'title' => 'PAMO Workload Signals',
-        'rows' => [
-            ['label' => 'Backlog Cases', 'width' => $workloadPendingWidth, 'value' => (string)$regionalPending],
-            ['label' => 'SLA Risk Cases', 'width' => $workloadRiskWidth, 'value' => (string)$regionalRisk],
-            ['label' => 'Closed Transactions', 'width' => $workloadClosedWidth, 'value' => (string)$regionalCompleted],
-        ],
-    ],
-    [
-        'title' => 'Office Health Signals',
-        'rows' => [
-            ['label' => 'Units Reporting', 'width' => $healthUnitsWidth, 'value' => (string)$totalUnits],
-            ['label' => 'Units with Risk', 'width' => $healthRiskWidth, 'value' => (string)$unitsWithRisk],
-            ['label' => 'Stable Units', 'width' => $healthStableWidth, 'value' => (string)$stableUnits],
-            ['label' => 'High Pressure Units', 'width' => $healthPressureWidth, 'value' => (string)$highPressureUnits],
-        ],
-    ],
-    [
-        'title' => 'Report Focus',
-        'chips' => ['PAMO aggregation', 'ARTA-driven risk view', 'Office-level comparison', 'CSV-ready rows'],
-    ],
-];
+$kpiCards = [];
+$panels = [];
 
 $tableTitle = 'PAMO Office Summary';
 $tableColumns = ['Office / Unit', 'Pending', 'Due Soon', 'Overdue', 'Completed', 'Export'];

@@ -9,19 +9,27 @@ $profileName = (string)($fullName ?? 'Authorized User');
 $profileRole = (string)($roleName ?? 'Authorized User');
 $profileOfficeTag = (string)($profileOfficeTag ?? '');
 $profileParentOfficeTag = (string)($profileParentOfficeTag ?? '');
+$profileRoleKey = app_normalize_role_key((string)($_SESSION['role_name'] ?? ''));
+$isOredSigningAccount = $profileRoleKey === 'ORED_SIGN';
 
 $menuItems = [
     ['key' => 'dashboard', 'label' => 'Executive Dashboard', 'href' => 'dashboard.php', 'icon' => 'dashboard'],
     ['key' => 'rd_action_desk', 'label' => 'RD Action Desk', 'href' => 'rd-action-desk.php', 'icon' => 'signature'],
-    ['key' => 'digital_signature', 'label' => 'Digital Signature', 'href' => 'digital-signature.php', 'icon' => 'signature'],
-    ['key' => 'path_diversion_override', 'label' => 'Path Diversion / Override', 'href' => 'path-diversion-override.php', 'icon' => 'override'],
     ['key' => 'regional_reports', 'label' => 'Regional Summary Reports', 'href' => 'regional-summary-reports.php', 'icon' => 'report'],
     ['key' => 'audit_logs', 'label' => 'Audit Logs', 'href' => 'audit-logs.php', 'icon' => 'audit'],
     ['key' => 'global_search', 'label' => 'Global Search', 'href' => 'search-documents.php', 'icon' => 'search'],
+    ['key' => 'profile_settings', 'label' => 'Profile Settings', 'href' => 'profile-settings.php', 'icon' => 'dashboard'],
 ];
 
-if (!function_exists('edats_sidebar_icon')) {
-    function edats_sidebar_icon(string $icon): string
+if ($isOredSigningAccount) {
+    array_splice($menuItems, 2, 0, [
+        ['key' => 'digital_signature', 'label' => 'Digital Signature', 'href' => 'digital-signature.php', 'icon' => 'signature'],
+        ['key' => 'path_diversion_override', 'label' => 'Path Diversion / Override', 'href' => 'path-diversion-override.php', 'icon' => 'override'],
+    ]);
+}
+
+if (!function_exists('DTMIS_sidebar_icon')) {
+    function DTMIS_sidebar_icon(string $icon): string
     {
         $icons = [
             'dashboard' => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect></svg>',
@@ -69,7 +77,7 @@ if (!function_exists('edats_sidebar_icon')) {
                     $itemClass = $activeMenuKey === $itemKey ? 'menu-link is-active' : 'menu-link';
                     ?>
                     <a href="<?php echo $esc((string)($item['href'] ?? '#')); ?>" class="<?php echo $itemClass; ?>" aria-label="<?php echo $esc((string)($item['label'] ?? 'Menu')); ?>" title="<?php echo $esc((string)($item['label'] ?? 'Menu')); ?>">
-                        <span class="menu-icon" aria-hidden="true"><?php echo edats_sidebar_icon((string)($item['icon'] ?? 'dashboard')); ?></span>
+                        <span class="menu-icon" aria-hidden="true"><?php echo DTMIS_sidebar_icon((string)($item['icon'] ?? 'dashboard')); ?></span>
                         <span class="menu-text"><?php echo $esc((string)($item['label'] ?? 'Untitled')); ?></span>
                     </a>
                 <?php endforeach; ?>
@@ -99,4 +107,3 @@ if (!function_exists('edats_sidebar_icon')) {
             </div>
         </aside>
     </div>
-

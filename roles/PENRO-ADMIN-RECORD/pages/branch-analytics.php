@@ -33,6 +33,7 @@ if (!function_exists('pacdo_branch_level_prefix')) {
 }
 
 $officeId = (int)($_SESSION['office_id'] ?? 0);
+$userId = (int)($_SESSION['user_id'] ?? 0);
 $roleName = 'PENRO_ADMIN_RECORD';
 $initialsFallback = 'PC';
 
@@ -66,7 +67,7 @@ $routeOffices = [];
 try {
     $pdo = getDatabaseConnection();
     $activityCounters = dashboard_fetch_activity_counters($pdo, $officeId, 30);
-    $dbNotifications = dashboard_fetch_notifications($pdo, $officeId, 12, $roleName);
+    $dbNotifications = dashboard_fetch_notifications($pdo, $officeId, 12, $roleName, $userId);
     if (!empty($dbNotifications)) {
         $notifications = $dbNotifications;
     }
@@ -83,7 +84,7 @@ try {
                 ELSE 4
             END,
             name ASC
-         LIMIT 200"
+         OFFSET 0 ROWS FETCH NEXT 200 ROWS ONLY"
     );
     $branchOffices = $officesStmt ? ($officesStmt->fetchAll() ?: []) : [];
 
@@ -203,7 +204,7 @@ $topRiskLoad = $summary['branch_count'] > 0
     ? ((int)($topRiskRow[2] ?? 0) + (int)($topRiskRow[3] ?? 0))
     : 0;
 
-$pageTitle = 'Branch Analytics | DENR Region XII eDATS';
+$pageTitle = 'Branch Analytics | DENR Region XII DTMIS';
 $activeMenu = 'penro_admin_record_analytics';
 $brandSubtitle = 'PENRO Admin Record Portal';
 $pageHeading = 'Branch Analytics';
@@ -247,6 +248,8 @@ $panels = [
     ],
 ];
 
+$panels = [];
+
 $tableTitle = 'Branch Workload Summary';
 $tableColumns = ['Office / Unit', 'Pending', 'Due Soon / Today', 'Overdue', 'Completed (7d)', 'Compliance'];
 $pageActions = [];
@@ -259,4 +262,3 @@ $dateFilterPlacement = 'table_card';
 $routeOffices = is_array($routeOffices ?? null) ? $routeOffices : [];
 
 require dirname(__DIR__, 3) . '/app/templates/role-page-template.php';
-

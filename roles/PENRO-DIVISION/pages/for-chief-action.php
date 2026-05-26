@@ -96,7 +96,7 @@ foreach ($queueRows as $queueRow) {
     ];
 }
 
-$pageTitle = 'For PENRO Division Action | DENR Region XII eDATS';
+$pageTitle = 'For PENRO Division Action | DENR Region XII DTMIS';
 $activeMenu = 'penro_division_action';
 $brandSubtitle = 'PENRO Division Portal';
 $pageHeading = 'For PENRO Division Action';
@@ -106,7 +106,7 @@ $dashboardLivePath = app_url('actions/dashboard-live.php?scope=pending_receive_a
 $tableTitle = 'For PENRO Division Action Queue';
 $tableColumns = ['Tracking ID', 'Subject', 'Document Type (+ ARTA)', 'Date Created', 'Date Received', 'Time Remaining', 'Status', 'Quick Actions'];
 $pageActions = ['View Tracking Slip', 'Print Package', 'Receive', 'Approve', 'Pending', 'Forward'];
-$stickyActions = ['Receive', 'Approve', 'Forward', 'Send Back to PENRO Officer'];
+$stickyActions = ['Receive', 'Approve', 'Forward'];
 $enableQueueRerouteAction = false;
 $forceHideRerouteQuickAction = true;
 $queueControlsPlacement = 'table_card';
@@ -153,5 +153,8 @@ $panels = [
         'chips' => ['Review ARTA urgency', 'Validate remarks and attachments', 'Approve or return with reason', 'Forward to correct office'],
     ],
 ];
+
+$kpiCards = [];
+$panels = [];
 
 require dirname(__DIR__, 3) . '/app/templates/role-page-template.php';

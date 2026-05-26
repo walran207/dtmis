@@ -47,7 +47,7 @@ foreach ($recentDocuments as $document) {
     ];
 }
 
-$pageTitle = 'Export Center | DENR Region XII eDATS';
+$pageTitle = 'Export Center | DENR Region XII DTMIS';
 $brandSubtitle = 'Super Admin Portal';
 $pageHeading = 'Export Center';
 $pageSubtitle = 'System-wide export workspace for filtered and selected operational records.';
@@ -62,6 +62,7 @@ $dateFilterPlacement = 'table_card';
 $disableLiveDashboardRefresh = true;
 $showQrReceiveScanner = false;
 $enableBulkRowExport = true;
+$serverSideExportPath = app_url('actions/super-admin-export.php');
 $stickyActions = ['Export CSV'];
 $pageActions = ['Select rows', 'Filter data', 'Export CSV'];
 

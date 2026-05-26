@@ -90,7 +90,7 @@ foreach ($queueRows as $queueRow) {
     ];
 }
 
-$pageTitle = 'PAMO Unit Dashboard | DENR Region XII eDATS';
+$pageTitle = 'PAMO Unit Dashboard | DENR Region XII DTMIS';
 $brandSubtitle = 'PAMO Unit Portal';
 $pageHeading = 'PAMO Unit Dashboard';
 $pageSubtitle = 'Day-to-day processing, work notes, and forwarding to PASU.';

@@ -18,8 +18,7 @@ $officeId = (int)($_SESSION['office_id'] ?? 0);
 $roleName = 'CENRO_OFFICER';
 $queueRows = [];
 $routeOffices = [];
-$needSignatureTotal = 0;
-$needApprovalTotal = 0;
+$inQueueTotal = 0;
 $pendingForwardTotal = 0;
 $metrics = [
     'total_scope' => 0,
@@ -53,20 +52,19 @@ try {
     $routeOffices = [];
 }
 
-$needSignatureTotal = (int)($metrics['pending_sign_total'] ?? 0);
-$needApprovalTotal = (int)($metrics['pending_approval_total'] ?? 0);
+$inQueueTotal = max((int)($metrics['pending_total'] ?? 0), count($queueRows));
 $pendingForwardTotal = (int)($metrics['pending_forward_total'] ?? ($metrics['for_endorsement_total'] ?? 0));
 
 $progressBase = max(
-    $needApprovalTotal,
-    $needSignatureTotal,
+    $inQueueTotal,
     $pendingForwardTotal,
+    (int)($metrics['returned_total'] ?? 0),
     1
 );
 
-$pendingApprovalWidth = (string)(int)round(($needApprovalTotal / $progressBase) * 100) . '%';
-$pendingSignWidth = (string)(int)round(($needSignatureTotal / $progressBase) * 100) . '%';
+$inQueueWidth = (string)(int)round(($inQueueTotal / $progressBase) * 100) . '%';
 $pendingForwardWidth = (string)(int)round(($pendingForwardTotal / $progressBase) * 100) . '%';
+$returnedWidth = (string)(int)round((((int)($metrics['returned_total'] ?? 0)) / $progressBase) * 100) . '%';
 
 $tableRows = [];
 foreach ($queueRows as $queueRow) {
@@ -76,7 +74,7 @@ foreach ($queueRows as $queueRow) {
             (string)($queueRow['subject'] ?? '-') . ' [' . (string)($queueRow['status'] ?? 'Pending') . ']',
             (string)($queueRow['document_type'] ?? '-'),
             (string)($queueRow['date_received'] ?? '-'),
-            'View Tracking Slip | Receive | Approve | Sign | Pending | Forward | Print Package',
+            'View Tracking Slip | Receive | Pending | Forward | Send Back to Admin Record | Print Package',
         ],
         'meta' => [
             'document_id' => (string)($queueRow['document_id'] ?? 0),
@@ -93,15 +91,15 @@ foreach ($queueRows as $queueRow) {
     ];
 }
 
-$pageTitle = 'CENRO Officer Dashboard | DENR Region XII eDATS';
+$pageTitle = 'CENRO Officer Dashboard | DENR Region XII DTMIS';
 $brandSubtitle = 'CENRO Officer Portal';
 $pageHeading = 'CENRO Officer Dashboard';
-$pageSubtitle = 'CENRO officer action, approvals, and strict internal routing.';
+$pageSubtitle = 'CENRO officer action and strict internal routing.';
 $activeMenu = 'dashboard';
 $tableTitle = 'CENRO Officer Action Desk (ARTA risk first)';
 $tableColumns = ['Tracking ID', 'Subject', 'Document Type (+ ARTA)', 'Date Received', 'Quick Actions'];
-$pageActions = ['View Tracking Slip', 'Print Package', 'Receive', 'Approve', 'Sign', 'Pending', 'Forward'];
-$stickyActions = ['Receive', 'Approve', 'Sign', 'Pending', 'Forward', 'Print Slip', 'Print Package'];
+$pageActions = ['View Tracking Slip', 'Print Package', 'Receive', 'Pending', 'Forward', 'Send Back to Admin Record'];
+$stickyActions = ['Receive', 'Pending', 'Forward', 'Print Slip', 'Print Package'];
 $queueControlsPlacement = 'table_card';
 $showStatusCategoryFilter = false;
 $dateFilterPlacement = 'table_card';
@@ -120,9 +118,9 @@ $panels = [
     [
         'title' => 'Queue Snapshot',
         'rows' => [
-            ['label' => 'Pending Approval', 'value' => (string)$needApprovalTotal, 'width' => $pendingApprovalWidth],
-            ['label' => 'Pending Sign', 'value' => (string)$needSignatureTotal, 'width' => $pendingSignWidth],
+            ['label' => 'In Queue', 'value' => (string)$inQueueTotal, 'width' => $inQueueWidth],
             ['label' => 'Pending forward', 'value' => (string)$pendingForwardTotal, 'width' => $pendingForwardWidth],
+            ['label' => 'Returned', 'value' => (string)($metrics['returned_total'] ?? 0), 'width' => $returnedWidth],
         ],
     ],
 ];

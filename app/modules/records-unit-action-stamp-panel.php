@@ -252,6 +252,6 @@ $recordsStampFrameUrl = app_url('softcopy-records-unit-stamp.php') . '?' . http_
         };
 
         applyThemeToFrame();
-        document.addEventListener('edats:theme-changed', applyThemeToFrame);
+        document.addEventListener('DTMIS:theme-changed', applyThemeToFrame);
     })();
 </script>

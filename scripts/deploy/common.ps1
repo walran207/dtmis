@@ -284,7 +284,7 @@ function Invoke-SmokeRequest {
     $request.AllowAutoRedirect = $false
     $request.Timeout = $TimeoutSeconds * 1000
     $request.ReadWriteTimeout = $TimeoutSeconds * 1000
-    $request.UserAgent = 'edats-smoke-test'
+    $request.UserAgent = 'DTMIS-smoke-test'
 
     try {
         $response = [System.Net.HttpWebResponse]$request.GetResponse()
@@ -361,7 +361,7 @@ function Join-BaseUrlPath {
 
 function Invoke-SmokeTests {
     param(
-        [string]$BaseUrl = 'http://localhost/edats'
+        [string]$BaseUrl = 'http://localhost/DTMIS'
     )
 
     Write-Section -Title 'smoke-test'
@@ -451,7 +451,7 @@ function Invoke-SmokeTests {
 function Invoke-Predeploy {
     param(
         [string]$ProjectRoot = '',
-        [string]$BaseUrl = 'http://localhost/edats',
+        [string]$BaseUrl = 'http://localhost/DTMIS',
         [switch]$SkipDb,
         [switch]$SkipSmoke
     )

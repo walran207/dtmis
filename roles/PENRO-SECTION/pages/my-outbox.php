@@ -80,7 +80,7 @@ foreach ($actedRows as $row) {
 }
 $roleName = 'PENRO_SECTION';
 $initialsFallback = 'SS';
-$pageTitle = 'My Outbox | DENR Region XII eDATS';
+$pageTitle = 'My Outbox | DENR Region XII DTMIS';
 $activeMenu = 'cenro_unit_outbox';
 $brandSubtitle = 'PENRO Section Portal';
 $pageHeading = 'My Outbox (Live Action Tracker)';

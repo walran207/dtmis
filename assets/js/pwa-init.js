@@ -48,8 +48,8 @@
             return normalized;
         }
 
-        if (typeof window.__EDATS_BASE_PATH === 'string') {
-            return normalizeBasePath(window.__EDATS_BASE_PATH);
+        if (typeof window.__DTMIS_BASE_PATH === 'string') {
+            return normalizeBasePath(window.__DTMIS_BASE_PATH);
         }
 
         var currentPath = String(window.location.pathname || '');
@@ -64,7 +64,7 @@
     var pwaInstallPrompt = null;
     var installPromptRoot = null;
     var statusNoticeRoot = null;
-    var INSTALL_DISMISS_KEY = 'edats_pwa_install_prompt_dismissed';
+    var INSTALL_DISMISS_KEY = 'DTMIS_pwa_install_prompt_dismissed';
 
     function removeInstallPrompt() {
         if (!installPromptRoot) {
@@ -90,7 +90,7 @@
         removeStatusNotice();
 
         statusNoticeRoot = document.createElement('aside');
-        statusNoticeRoot.id = 'edatsPwaStatusNotice';
+        statusNoticeRoot.id = 'DTMISPwaStatusNotice';
         statusNoticeRoot.setAttribute('role', 'status');
         statusNoticeRoot.setAttribute('aria-live', 'polite');
         statusNoticeRoot.style.position = 'fixed';
@@ -154,7 +154,7 @@
         }
 
         installPromptRoot = document.createElement('aside');
-        installPromptRoot.id = 'edatsPwaInstallPrompt';
+        installPromptRoot.id = 'DTMISPwaInstallPrompt';
         installPromptRoot.setAttribute('role', 'status');
         installPromptRoot.setAttribute('aria-live', 'polite');
         installPromptRoot.style.position = 'fixed';
@@ -170,9 +170,9 @@
         installPromptRoot.style.padding = '14px';
         installPromptRoot.style.fontFamily = '"Segoe UI", Arial, sans-serif';
         installPromptRoot.innerHTML = ''
-            + '<p style="margin:0 0 6px;font-size:14px;font-weight:700;">Install eDATS app</p>'
+            + '<p style="margin:0 0 6px;font-size:14px;font-weight:700;">Install DTMIS app</p>'
             + '<p style="margin:0 0 12px;font-size:13px;line-height:1.45;color:#41566b;">'
-            + 'Use eDATS as an app for quicker access and better offline support.'
+            + 'Use DTMIS as an app for quicker access and better offline support.'
             + '</p>'
             + '<div style="display:flex;gap:8px;justify-content:flex-end;">'
             + '  <button type="button" data-install-ignore="1" style="border:1px solid #c8d6e6;background:#f3f7fb;color:#1f4d7a;border-radius:10px;padding:8px 12px;font-size:13px;font-weight:600;cursor:pointer;">Not now</button>'
@@ -191,7 +191,7 @@
 
         if (installNowButton) {
             installNowButton.addEventListener('click', async function () {
-                var result = await window.edatsInstallApp();
+                var result = await window.DTMISInstallApp();
                 if (result && result.outcome === 'accepted') {
                     removeInstallPrompt();
                 }
@@ -201,11 +201,11 @@
         document.body.appendChild(installPromptRoot);
     }
 
-    window.edatsCanInstallApp = function () {
+    window.DTMISCanInstallApp = function () {
         return pwaInstallPrompt !== null;
     };
 
-    window.edatsInstallApp = async function () {
+    window.DTMISInstallApp = async function () {
         if (!pwaInstallPrompt) {
             return { available: false, outcome: 'unavailable' };
         }
@@ -232,13 +232,13 @@
         event.preventDefault();
         pwaInstallPrompt = event;
         showInstallPrompt();
-        window.dispatchEvent(new CustomEvent('edats:pwa-install-ready'));
+        window.dispatchEvent(new CustomEvent('DTMIS:pwa-install-ready'));
     });
 
     window.addEventListener('appinstalled', function () {
         pwaInstallPrompt = null;
         removeInstallPrompt();
-        window.dispatchEvent(new CustomEvent('edats:pwa-installed'));
+        window.dispatchEvent(new CustomEvent('DTMIS:pwa-installed'));
     });
 
     if (!('serviceWorker' in navigator)) {
@@ -256,7 +256,7 @@
         window.addEventListener('load', function () {
             showStatusNotice(
                 'Offline mode unavailable',
-                'Service worker registration is blocked on this connection. Open eDATS using HTTPS or localhost to enable offline support.',
+                'Service worker registration is blocked on this connection. Open DTMIS using HTTPS or localhost to enable offline support.',
                 'warning'
             );
         });
@@ -276,7 +276,7 @@
                     : 'The browser refused to register the offline worker.';
                 showStatusNotice(
                     'Offline mode unavailable',
-                    reason + ' Open eDATS using HTTPS or localhost to enable offline support.',
+                    reason + ' Open DTMIS using HTTPS or localhost to enable offline support.',
                     'error'
                 );
             });

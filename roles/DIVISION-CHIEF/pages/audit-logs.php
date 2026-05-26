@@ -67,6 +67,7 @@ foreach ($actedRows as $row) {
     $tableRows[] = [
         'value' => [
             (string)($row['tracking_id'] ?? '-'),
+            (string)($row['sender'] ?? '-'),
             (string)($row['subject'] ?? '-'),
             (string)($row['document_type'] ?? '-'),
             (string)($row['current_holder'] ?? '-'),
@@ -94,7 +95,7 @@ foreach ($actedRows as $row) {
 
 $roleName = 'Division Chief';
 $initialsFallback = 'DC';
-$pageTitle = 'Audit Logs | DENR Region XII eDATS';
+$pageTitle = 'Audit Logs | DENR Region XII DTMIS';
 $activeMenu = 'audit_logs';
 $brandSubtitle = 'Division Chief Portal';
 $pageHeading = 'Chief Action Tracker (Live)';
@@ -120,8 +121,11 @@ $panels = [
     ],
 ];
 
+$kpiCards = [];
+$panels = [];
+
 $tableTitle = 'Chief Action Live Tracker';
-$tableColumns = ['Tracking ID', 'Subject', 'Document Type (+ ARTA)', 'Current Holder', 'Last Action Time', 'Last Action by Me', 'Status', 'Quick Actions'];
+$tableColumns = ['Tracking ID', 'Sender', 'Subject', 'Document Type (+ ARTA)', 'Current Holder', 'Last Action Time', 'Last Action by Me', 'Status', 'Quick Actions'];
 $pageActions = ['View Tracking Slip', 'Print Package', 'Live Routing Tracker'];
 $stickyActions = [];
 $queueControlsPlacement = 'table_card';

@@ -94,7 +94,7 @@ foreach ($queueRows as $queueRow) {
     ];
 }
 
-$pageTitle = 'PENRO Division Dashboard | DENR Region XII eDATS';
+$pageTitle = 'PENRO Division Dashboard | DENR Region XII DTMIS';
 $brandSubtitle = 'PENRO Division Portal';
 $pageHeading = 'PENRO Division Dashboard';
 $pageSubtitle = 'Section-level review, approvals, and rerouting within PENRO.';

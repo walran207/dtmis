@@ -90,7 +90,7 @@ foreach ($queueRows as $queueRow) {
     ];
 }
 
-$pageTitle = 'Section Staff Dashboard | DENR Region XII eDATS';
+$pageTitle = 'Section Staff Dashboard | DENR Region XII DTMIS';
 $brandSubtitle = 'Section Staff Portal';
 $pageHeading = 'Section Staff Dashboard';
 $pageSubtitle = 'Day-to-day processing, work notes, and forwarding to Chief.';

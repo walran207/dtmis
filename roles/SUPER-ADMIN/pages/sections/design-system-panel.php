@@ -268,7 +268,7 @@ $roleAccentRoles = [
 
 <script>
 (function () {
-    const designApi = window.EDATSDesignSystem;
+    const designApi = window.DTMISDesignSystem;
 
     const fallbackDefaults = {
         appearance: { themeMode: 'system', densityMode: 'comfortable' },
@@ -425,7 +425,7 @@ $roleAccentRoles = [
             return designApi.load();
         }
         try {
-            const raw = localStorage.getItem('edats_super_admin_design_tokens_v2') || localStorage.getItem('edats_super_admin_design_tokens');
+            const raw = localStorage.getItem('DTMIS_super_admin_design_tokens_v2') || localStorage.getItem('DTMIS_super_admin_design_tokens');
             if (!raw) {
                 return clone(fallbackDefaults);
             }
@@ -442,8 +442,8 @@ $roleAccentRoles = [
         const normalized = normalize(settings);
         try {
             const payload = JSON.stringify(normalized);
-            localStorage.setItem('edats_super_admin_design_tokens_v2', payload);
-            localStorage.setItem('edats_super_admin_design_tokens', payload);
+            localStorage.setItem('DTMIS_super_admin_design_tokens_v2', payload);
+            localStorage.setItem('DTMIS_super_admin_design_tokens', payload);
         } catch (error) {
             // Ignore write errors.
         }
@@ -761,7 +761,7 @@ $roleAccentRoles = [
             designApi.applyThemeModePreference(settings);
         } else {
             try {
-                localStorage.setItem('edats_theme', settings.appearance.themeMode);
+                localStorage.setItem('DTMIS_theme', settings.appearance.themeMode);
             } catch (error) {
                 // Ignore storage restrictions.
             }

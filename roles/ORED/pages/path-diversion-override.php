@@ -4,41 +4,15 @@ require_once dirname(__DIR__, 3) . '/config/app.php';
 $roleBasePath = dirname(__DIR__);
 $roleName = 'ORED';
 $initialsFallback = 'OR';
-$pageTitle = 'Path Diversion / Override | DENR Region XII eDATS';
+$pageTitle = 'Path Diversion / Override | DENR Region XII DTMIS';
 $activeMenu = 'path_diversion_override';
 $brandSubtitle = 'ORED Portal';
 $pageHeading = 'Path Diversion / Override';
 $pageSubtitle = 'Executive reroute and override desk for exception-based routing decisions.';
 $searchPlaceholder = 'Search Tracking ID or subject';
 $dashboardLivePath = app_url('actions/dashboard-live.php?scope=outbox');
-$kpiCards = [
-    ['label' => 'Validate Reason', 'icon' => 'orange', 'value' => '0'],
-    ['label' => 'Override Holder', 'icon' => 'violet', 'value' => '0'],
-    ['label' => 'Return for Justification', 'icon' => 'green', 'value' => '0'],
-    ['label' => 'Add Remarks', 'icon' => 'blue', 'value' => '0'],
-];
-$panels = [
-    [
-        'title' => 'Path Diversion / Override Queue Mix',
-        'rows' => [
-            ['label' => 'Pending', 'width' => '45%', 'value' => '0'],
-            ['label' => 'Due Soon / Overdue', 'width' => '30%', 'value' => '0'],
-            ['label' => 'Returned', 'width' => '25%', 'value' => '0'],
-        ],
-    ],
-    [
-        'title' => 'Diversion Control Signals',
-        'rows' => [
-            ['label' => 'Received events', 'width' => '50%', 'value' => '0'],
-            ['label' => 'Forwarded events', 'width' => '30%', 'value' => '0'],
-            ['label' => 'Reroute events', 'width' => '20%', 'value' => '0'],
-        ],
-    ],
-    [
-        'title' => 'Override Review Focus',
-        'chips' => ['Reason validated', 'ARTA impact checked', 'Custody holder verified', 'Override remarks encoded'],
-    ],
-];
+$kpiCards = [];
+$panels = [];
 $tableTitle = 'Reroute / Override';
 $tableColumns = json_decode('["Tracking ID","From","Document Type","Subject","Current Holder","REOUTE TO","Status","Remarks","Date Created","Quick Actions"]', true);
 $tableRows = [];

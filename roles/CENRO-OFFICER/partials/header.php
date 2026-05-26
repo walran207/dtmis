@@ -1,6 +1,6 @@
 <?php
 if (!isset($pageTitle) || trim((string)$pageTitle) === '') {
-    $pageTitle = 'Dashboard | DENR Region XII eDATS';
+    $pageTitle = 'Dashboard | DENR Region XII DTMIS';
 }
 
 if (!isset($extraCss) || !is_array($extraCss)) {
@@ -40,7 +40,7 @@ if (!isset($preloadStyleIncludes) || !is_array($preloadStyleIncludes)) {
     <script>
         (function () {
             try {
-                var storedTheme = localStorage.getItem('edats_theme') || 'system';
+                var storedTheme = localStorage.getItem('DTMIS_theme') || 'system';
                 var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
                 var resolvedTheme = storedTheme === 'dark' || (storedTheme === 'system' && prefersDark) ? 'dark' : 'light';
                 document.documentElement.setAttribute('data-theme', resolvedTheme);

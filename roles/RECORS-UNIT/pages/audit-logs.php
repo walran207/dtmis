@@ -73,6 +73,7 @@ foreach ($actedRows as $row) {
     $tableRows[] = [
         'value' => [
             (string)($row['tracking_id'] ?? '-'),
+            (string)($row['sender'] ?? '-'),
             (string)($row['subject'] ?? '-'),
             (string)($row['document_type'] ?? '-'),
             (string)($row['current_holder'] ?? '-'),
@@ -101,7 +102,7 @@ foreach ($actedRows as $row) {
 
 $roleName = 'RECORDS-UNIT';
 $initialsFallback = 'PA';
-$pageTitle = 'Audit Logs | DENR Region XII eDATS';
+$pageTitle = 'Audit Logs | DENR Region XII DTMIS';
 $activeMenu = 'audit_logs';
 $brandSubtitle = 'RECORDS-UNIT Portal';
 $pageHeading = 'RECORDS-UNIT Audit Logs';
@@ -142,8 +143,11 @@ $panels = [
     ],
 ];
 
+$kpiCards = [];
+$panels = [];
+
 $tableTitle = 'RECORDS-UNIT Action Tracker';
-$tableColumns = ['Tracking ID', 'Subject', 'Document Type (+ ARTA)', 'Current Holder', 'Last Action Time', 'Time Remaining', 'Last Action by Me', 'Status', 'Quick Actions'];
+$tableColumns = ['Tracking ID', 'Sender', 'Subject', 'Document Type (+ ARTA)', 'Current Holder', 'Last Action Time', 'Time Remaining', 'Last Action by Me', 'Status', 'Quick Actions'];
 $pageActions = ['View Tracking Slip', 'Print Package', 'Live Audit Tracker'];
 $stickyActions = ['View Tracking Slip', 'Print Package', 'Search'];
 $queueControlsPlacement = 'table_card';

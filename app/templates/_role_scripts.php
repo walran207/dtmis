@@ -1,12 +1,12 @@
     <script>
         (function () {
-            const SIDEBAR_COLLAPSE_KEY = 'edats_sidebar_collapsed';
-            const SIDEBAR_WIDTH_KEY = 'edats_sidebar_width';
+            const SIDEBAR_COLLAPSE_KEY = 'DTMIS_sidebar_collapsed';
+            const SIDEBAR_WIDTH_KEY = 'DTMIS_sidebar_width';
             const SIDEBAR_DEFAULT_WIDTH = 242;
             const SIDEBAR_MIN_WIDTH = 200;
             const SIDEBAR_MAX_WIDTH = 520;
             const logoutPath = <?= json_encode(app_url('auth/logout.php')) ?>;
-            const profileSettingsPath = <?= json_encode(app_url('auth/forgot-password.php')) ?>;
+            const profileSettingsPath = 'profile-settings.php';
             const trackingSlipPath = <?= json_encode(app_url('tracking-slip.php')) ?>;
             const printPackagePath = <?= json_encode(app_url('print-package.php')) ?>;
             const qrStampWorkspacePath = <?= json_encode($qrStampWorkspacePath) ?>;
@@ -15,27 +15,33 @@
             const documentActionPath = <?= json_encode(app_url('actions/document-action.php')) ?>;
             const documentDetailsPath = <?= json_encode(app_url('actions/document-details.php')) ?>;
             const createDocumentPath = <?= json_encode(app_url('actions/create-document.php')) ?>;
-            const intakeMaxAttachments = 40;
-            const intakeMaxFileSizeBytes = 15728640;
-            const intakeMaxTotalBytes = 251658240;
             const notificationFeedPath = <?= json_encode($notificationFeedUrl) ?>;
             const dashboardLivePath = <?= json_encode((isset($dashboardLivePath) && is_string($dashboardLivePath) && trim($dashboardLivePath) !== '') ? $dashboardLivePath : app_url('actions/dashboard-live.php')) ?>;
+            const sessionHeartbeatPath = <?= json_encode(app_url('actions/session-heartbeat.php')) ?>;
+            const serverSideExportPath = <?= json_encode((isset($serverSideExportPath) && is_string($serverSideExportPath) && trim($serverSideExportPath) !== '') ? $serverSideExportPath : '') ?>;
+            const offlineProbePath = <?= json_encode(app_url('manifest.webmanifest')) ?>;
             const notificationsPagePath = <?= json_encode($notificationsPageUrl) ?>;
             const notificationSoundPath = <?= json_encode($notificationSoundUrl) ?>;
             const csrfToken = <?= json_encode($csrfToken) ?>;
             const offlinePolicy = <?= json_encode($offlinePolicy ?? app_offline_policy_for_role((string)($_SESSION['role_name'] ?? '')), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
             if (offlinePolicy && typeof offlinePolicy === 'object') {
-                window.__EDATS_OFFLINE_POLICY = offlinePolicy;
+                window.__DTMIS_OFFLINE_POLICY = offlinePolicy;
             }
-            window.__EDATS_OFFLINE_SYNC_LOG_URL = <?= json_encode($offlineSyncLogUrl ?? app_url('actions/offline-sync-log.php')) ?>;
+            window.__DTMIS_OFFLINE_SYNC_LOG_URL = <?= json_encode($offlineSyncLogUrl ?? app_url('actions/offline-sync-log.php')) ?>;
             const currentUserId = <?= json_encode((int)($_SESSION['user_id'] ?? 0)) ?>;
             if (Number.isFinite(currentUserId) && currentUserId > 0) {
-                window.__EDATS_CACHE_SCOPE = 'user:' + String(currentUserId);
+                window.__DTMIS_CACHE_SCOPE = 'user:' + String(currentUserId);
             }
             const currentRoleKey = <?= json_encode($roleKey) ?>;
             const currentRoleKeyRaw = <?= json_encode($roleKeyRaw ?? $roleKey) ?>;
+            const activeMenuKey = <?= json_encode($activeMenu ?? 'dashboard') ?>;
+            const preferScopedQueueCountersForLiveStats = String(activeMenuKey || '').trim() !== 'dashboard';
             const isCenroAdminRecordRole = String(currentRoleKeyRaw || '').toUpperCase() === 'CENRO_ADMIN_RECORD';
             const isPamoAdminRole = String(currentRoleKeyRaw || '').toUpperCase() === 'PAMO_ADMIN';
+            const offlineArchivePrefetchLimit = 40;
+            const offlinePrefetchedDocumentUrls = new Set();
+            let offlineArchivePrefetchTimerId = 0;
+            let offlineArchiveAvailabilityRequestId = 0;
             const isPenroAdminRecordRole = String(currentRoleKeyRaw || '').toUpperCase() === 'PENRO_ADMIN_RECORD';
             const isPamoOfficerRole = String(currentRoleKeyRaw || '').toUpperCase() === 'PASU_OFFICER';
             const isPamoUnitRole = String(currentRoleKeyRaw || '').toUpperCase() === 'PAMO_UNIT';
@@ -46,6 +52,12 @@
             const isCenroOfficerRole = String(currentRoleKeyRaw || '').toUpperCase() === 'CENRO_OFFICER';
             const isCenroSectionRole = String(currentRoleKeyRaw || '').toUpperCase() === 'CENRO_SECTION';
             const isCenroUnitRole = String(currentRoleKeyRaw || '').toUpperCase() === 'CENRO_UNIT';
+            const isRegionalOredReviewer = currentRoleKey === 'ORED' && String(currentRoleKeyRaw || '').toUpperCase() === 'ORED';
+            const isRegionalOredSigner = currentRoleKey === 'ORED' && String(currentRoleKeyRaw || '').toUpperCase() === 'ORED_SIGN';
+            const approveActionDisabled = true;
+            const officerDigitalSignDisabled = isCenroOfficerRole || isPenroOfficerRole || isPamoOfficerRole;
+            const regionalOredDigitalSignDisabled = currentRoleKey === 'ORED' && !isRegionalOredSigner;
+            const queueFlowPopoverDisabled = true;
             const isCenroInternalFlowRole = isCenroAdminRecordRole || isCenroOfficerRole || isCenroSectionRole || isCenroUnitRole;
             const isPamoInternalFlowRole = isPamoAdminRole || isPamoOfficerRole || isPamoUnitRole;
             const isPenroInternalFlowRole = isPenroAdminRecordRole || isPenroOfficerRole || isPenroDivisionRole || isPenroSectionRole || isPenroSectionUnitRole;
@@ -75,12 +87,23 @@
             const routeFallbackOffice = <?= json_encode($routeFallbackOffice, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
             const routeFallbackOffices = <?= json_encode($routeFallbackOffices, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
             const statCardNavigationTargets = <?= json_encode($statCardNavigationTargets, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
-            const chartTrendData = <?= json_encode($chartTrendPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
-            const chartPieSeries = <?= json_encode($chartPieSeries ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
-            const chartPieTotal  = <?= (int)($chartPieTotal ?? 0) ?>;
-            const notificationReadKey = 'edats_notif_read_until_' + String(currentUserId > 0 ? currentUserId : 'global');
-            const screenshotAutoCaptureKey = 'edats_screenshot_auto_capture_' + String(currentUserId > 0 ? currentUserId : 'global');
-            const screenshotPreferenceDbName = 'edats_user_preferences';
+            let chartTrendData = <?= json_encode($chartTrendPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+            let chartPieSeries = <?= json_encode($chartPieSeries ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+            let chartPieTotal  = <?= (int)($chartPieTotal ?? 0) ?>;
+            function getDashboardLiveLimit() {
+                try {
+                    const parsedLivePath = new URL(String(dashboardLivePath || ''), window.location.origin);
+                    const requestedLimit = Number.parseInt(parsedLivePath.searchParams.get('limit') || '', 10);
+                    if (Number.isFinite(requestedLimit) && requestedLimit >= 5) {
+                        return Math.min(requestedLimit, 100);
+                    }
+                } catch (error) {
+                }
+                return 80;
+            }
+            const notificationReadKey = 'DTMIS_notif_read_until_' + String(currentUserId > 0 ? currentUserId : 'global');
+            const screenshotAutoCaptureKey = 'DTMIS_screenshot_auto_capture_' + String(currentUserId > 0 ? currentUserId : 'global');
+            const screenshotPreferenceDbName = 'DTMIS_user_preferences';
             const screenshotPreferenceStoreName = 'kv';
             const screenshotDirectoryHandleKey = 'screenshot_directory_handle_v1_' + String(currentUserId > 0 ? currentUserId : 'global');
             const hideCompletedQueueRows = <?= json_encode($hideCompletedQueueRows) ?>;
@@ -111,19 +134,30 @@
             const tablePanel = document.querySelector('.table-panel');
             const tableElement = tablePanel ? tablePanel.querySelector('table') : null;
             const tableBody = tableElement ? tableElement.querySelector('tbody') : null;
+            const tableWrap = tablePanel ? tablePanel.querySelector('.table-wrap') : null;
             const queueLiveStatus = document.getElementById('queueLiveStatus');
             const queueLiveChannelIndicator = document.getElementById('queueLiveChannelIndicator');
             const headerOfflineIndicator = document.getElementById('headerOfflineIndicator');
             const headerOfflineIndicatorText = document.getElementById('headerOfflineIndicatorText');
             const documentTools = document.getElementById('documentTools');
             const documentToolsMeta = document.getElementById('documentToolsMeta');
+            const openCreateIntakeModalBtn = document.getElementById('openCreateIntakeModalBtn');
             const selectedDetailsBtn = document.getElementById('selectedDetailsBtn');
             const selectedViewSlipBtn = document.getElementById('selectedViewSlipBtn');
             const selectedPrintPackageBtn = document.getElementById('selectedPrintPackageBtn');
             const selectedQrStampBtn = document.getElementById('selectedQrStampBtn');
-            const defaultDocumentToolsMetaText = selectedQrStampBtn
-                ? 'Select a document row to view details, tracking slip, print package, or QR stamp.'
-                : 'Select a document row to view details, tracking slip, or print package.';
+            const defaultDocumentToolsMetaText = (function () {
+                if (openCreateIntakeModalBtn && selectedQrStampBtn) {
+                    return 'Use Create Intake or select a document row to view details, tracking slip, print package, or QR stamp.';
+                }
+                if (openCreateIntakeModalBtn) {
+                    return 'Use Create Intake or select a document row to view details, tracking slip, or print package.';
+                }
+                if (selectedQrStampBtn) {
+                    return 'Select a document row to view details, tracking slip, print package, or QR stamp.';
+                }
+                return 'Select a document row to view details, tracking slip, or print package.';
+            })();
             const exportLink = tablePanel ? tablePanel.querySelector('.table-link') : null;
             const bulkSelectAllRows = document.getElementById('bulkSelectAllRows');
             const bulkSelectedCount = document.getElementById('bulkSelectedCount');
@@ -142,6 +176,10 @@
             const dateFilterApplyButton = dateFilterDropdown ? dateFilterDropdown.querySelector('.date-filter-btn') : null;
             const dateFilterFromInput = dateFilterDropdown ? dateFilterDropdown.querySelector('input[name="fromDate"]') : null;
             const dateFilterToInput = dateFilterDropdown ? dateFilterDropdown.querySelector('input[name="toDate"]') : null;
+            const queueTablePagination = document.getElementById('queueTablePagination');
+            const queueTablePaginationMeta = document.getElementById('queueTablePaginationMeta');
+            const queueTablePrevBtn = document.getElementById('queueTablePrevBtn');
+            const queueTableNextBtn = document.getElementById('queueTableNextBtn');
             const routeActionModal = document.getElementById('routeActionModal');
             const routeActionForm = document.getElementById('routeActionForm');
             const routeActionTitle = document.getElementById('routeActionTitle');
@@ -175,8 +213,12 @@
             const editIntakeDocumentId = document.getElementById('editIntakeDocumentId');
             const editIntakeTrackingId = document.getElementById('editIntakeTrackingId');
             const editIntakeSourceType = document.getElementById('editIntakeSourceType');
+            const editIntakeRoutingOffice = document.getElementById('editIntakeRoutingOffice');
+            const editIntakeOriginatingEntity = document.getElementById('editIntakeOriginatingEntity');
             const editIntakeExternalWrap = document.getElementById('editIntakeExternalWrap');
             const editIntakeExternalClient = document.getElementById('editIntakeExternalClient');
+            const editIntakeClientAddressWrap = document.getElementById('editIntakeClientAddressWrap');
+            const editIntakeClientAddress = document.getElementById('editIntakeClientAddress');
             const editIntakeSubject = document.getElementById('editIntakeSubject');
             const editIntakeDocumentType = document.getElementById('editIntakeDocumentType');
             const editIntakeComplexityType = document.getElementById('editIntakeComplexityType');
@@ -203,6 +245,8 @@
             const documentDetailsAttachmentFilterButtons = documentDetailsAttachmentFilterWrap
                 ? Array.from(documentDetailsAttachmentFilterWrap.querySelectorAll('[data-details-attachment-filter]'))
                 : [];
+            const documentDetailsAttachmentSourceFilterWrap = document.getElementById('documentDetailsAttachmentSourceFilterWrap');
+            const documentDetailsAttachmentSourceFilter = document.getElementById('documentDetailsAttachmentSourceFilter');
             const documentDetailsAttachmentSelect = document.getElementById('documentDetailsAttachmentSelect');
             const documentDetailsOpenAttachment = document.getElementById('documentDetailsOpenAttachment');
             const documentDetailsPreviewEmpty = document.getElementById('documentDetailsPreviewEmpty');
@@ -212,20 +256,38 @@
             const welcomeLoader = document.getElementById('welcomeLoader');
             const stickyActionButtons = document.querySelectorAll('.page-sticky-actions button');
             const workflowSplineChart = document.getElementById('workflowSplineChart');
+            const chartPanels = Array.from(document.querySelectorAll('.chart-panel[data-chart-kind]'));
             const intakeForm = document.getElementById('intakeForm');
-            const intakeSourceType = document.getElementById('intakeSourceType');
+            const createIntakeModal = document.getElementById('createIntakeModal');
+            const createIntakeCloseButtons = document.querySelectorAll('[data-create-intake-close="true"]');
+            const intakeSourceTypeInput = document.getElementById('intakeSourceType');
+            const intakeRoutingOfficeInput = document.getElementById('intakeRoutingOffice');
+            const intakeOriginatingEntityInput = document.getElementById('intakeOriginatingEntity');
+            const intakeOriginatingEntityLabel = document.getElementById('intakeOriginatingEntityLabel');
+            const intakeOriginatingEntityHint = document.getElementById('intakeOriginatingEntityHint');
+            const intakeSenderLabel = document.getElementById('intakeSenderLabel');
+            const intakeSenderHint = document.getElementById('intakeSenderHint');
+            const intakeExternalClient = document.getElementById('intakeExternalClient');
+            const intakeClientAddressField = document.getElementById('intakeClientAddressField');
+            const intakeClientAddressLabel = document.getElementById('intakeClientAddressLabel');
+            const intakeClientAddressHint = document.getElementById('intakeClientAddressHint');
+            const intakeClientAddressInput = document.getElementById('intakeClientAddress');
             const intakeDocumentType = document.getElementById('intakeDocumentType');
-            const intakeExternalField = document.querySelector('.intake-external-only');
             const intakeSubmitButton = document.getElementById('intakeSubmit');
             const intakeSubmitForwardButton = document.getElementById('intakeSubmitForward');
             const intakeSaveDraftButton = document.getElementById('intakeSaveDraft');
             const intakeRemarksInput = document.getElementById('intakeRemarks');
             const intakeAttachmentsInput = document.getElementById('intakeAttachments');
             const intakeDestinationOffice = document.getElementById('intakeDestinationOffice');
+            const intakeOtherDocumentTypeField = document.getElementById('intakeOtherDocumentTypeField');
             const customDocumentTypeNameInput = document.getElementById('customDocumentTypeName');
             const intakeComplexityTypeInput = document.getElementById('intakeComplexityType');
             const intakeComplexityDaysInput = document.getElementById('intakeComplexityDays');
+            const intakeColorClassificationInput = document.getElementById('intakeColorClassification');
+            const qrReceiveModal = document.getElementById('qrReceiveModal');
+            const qrReceiveCloseButtons = document.querySelectorAll('[data-qr-receive-close="true"]');
             const qrReceivePanel = document.getElementById('qrReceivePanel');
+            const openQrReceiveScannerBtn = document.getElementById('openQrReceiveScannerBtn');
             const qrReceiveTrackingInput = document.getElementById('qrReceiveTrackingInput');
             const qrReceiveManualBtn = document.getElementById('qrReceiveManualBtn');
             const qrReceiveStartBtn = document.getElementById('qrReceiveStartBtn');
@@ -264,13 +326,25 @@
             let sidebarResizeStartWidth = 0;
             let liveRefreshTimerId = 0;
             let liveRefreshInFlight = false;
+            let liveRefreshPending = false;
+            let sessionHeartbeatTimerId = 0;
+            let sessionHeartbeatInFlight = false;
+            let latestLiveDashboardPayload = null;
+            let chartOverrideStateByKind = {};
+            let chartRequestSerialByKind = {};
             let selectedQueueTrackingId = '';
+            const queueRowsPerPage = 10;
+            const shouldPaginateQueueTable = !/tracking-slip\.php$/i.test(String(window.location.pathname || ''));
+            const queueTableStateStorageKey = 'DTMIS_queue_table_state_v1:' + String(window.location.pathname || '').toLowerCase();
+            let queueCurrentPage = 1;
+            let lastQueueFilterSignature = '';
             let selectedBulkRowKeys = new Set();
             let appDialogResolver = null;
             let documentDetailsAbortController = null;
             let documentDetailsAttachments = [];
             let documentDetailsAllAttachments = [];
             let documentDetailsAttachmentFilter = 'original';
+            let documentDetailsAttachmentSourceFilterValue = 'all';
             let documentDetailsCreatorUserId = 0;
             let html2CanvasLoaderPromise = null;
             let htmlToImageLoaderPromise = null;
@@ -296,10 +370,390 @@
             let queueFlowHoverStageLabel = null;
             let queueFlowHoverStepNodes = [];
             let queueFlowHoverActiveRow = null;
+            let queueFlowSidebarLayout = null;
             let latestLiveQueueRows = [];
             let offlineQueuedQueueRows = [];
             let offlineQueueRefreshRequestId = 0;
             let offlineQueuedRowsSignature = '';
+            let searchableSelectCounter = 0;
+            const searchableSelectRegistry = new Map();
+            let activeSearchableSelect = null;
+
+            function searchableSelectQueryKey(value) {
+                return String(value || '').trim().toLowerCase();
+            }
+
+            function searchableSelectPlaceholder(select) {
+                if (!select) {
+                    return 'Search options...';
+                }
+                const explicitPlaceholder = String(select.dataset && select.dataset.searchPlaceholder ? select.dataset.searchPlaceholder : '').trim();
+                if (explicitPlaceholder !== '') {
+                    return explicitPlaceholder;
+                }
+                if (!select.id) {
+                    select.id = 'searchableSelect' + String(++searchableSelectCounter);
+                }
+                const directLabel = document.querySelector('label[for="' + CSS.escape(select.id) + '"]');
+                const wrappingLabel = select.closest('label');
+                const sourceLabel = directLabel || wrappingLabel;
+                const labelText = sourceLabel
+                    ? String(sourceLabel.textContent || '').replace(/\s+/g, ' ').trim()
+                    : '';
+                return labelText !== '' ? ('Search ' + labelText + '...') : 'Search options...';
+            }
+
+            function searchableSelectCollectOptions(select) {
+                const items = [];
+                Array.from(select.children).forEach(function (childNode) {
+                    if (childNode instanceof HTMLOptionElement) {
+                        items.push({
+                            value: String(childNode.value || ''),
+                            text: String(childNode.textContent || '').replace(/\s+/g, ' ').trim(),
+                            disabled: !!childNode.disabled,
+                            selected: !!childNode.selected,
+                            groupLabel: '',
+                        });
+                        return;
+                    }
+                    if (childNode instanceof HTMLOptGroupElement) {
+                        const groupLabel = String(childNode.label || '').trim();
+                        Array.from(childNode.children).forEach(function (groupOptionNode) {
+                            if (!(groupOptionNode instanceof HTMLOptionElement)) {
+                                return;
+                            }
+                            items.push({
+                                value: String(groupOptionNode.value || ''),
+                                text: String(groupOptionNode.textContent || '').replace(/\s+/g, ' ').trim(),
+                                disabled: !!groupOptionNode.disabled || !!childNode.disabled,
+                                selected: !!groupOptionNode.selected,
+                                groupLabel: groupLabel,
+                            });
+                        });
+                    }
+                });
+                return items;
+            }
+
+            function searchableSelectSelectedText(select) {
+                const selectedOption = select.selectedOptions && select.selectedOptions.length > 0
+                    ? select.selectedOptions[0]
+                    : (select.options && select.selectedIndex >= 0 ? select.options[select.selectedIndex] : null);
+                const fallbackOption = selectedOption || (select.options && select.options.length > 0 ? select.options[0] : null);
+                return fallbackOption
+                    ? String(fallbackOption.textContent || '').replace(/\s+/g, ' ').trim()
+                    : 'Select option';
+            }
+
+            function searchableSelectMatches(item, queryKey) {
+                if (queryKey === '') {
+                    return true;
+                }
+                if (item.value === '') {
+                    return true;
+                }
+                const textKey = searchableSelectQueryKey(item.text);
+                const valueKey = searchableSelectQueryKey(item.value);
+                const groupKey = searchableSelectQueryKey(item.groupLabel);
+                return textKey.indexOf(queryKey) !== -1
+                    || valueKey.indexOf(queryKey) !== -1
+                    || groupKey.indexOf(queryKey) !== -1;
+            }
+
+            function searchableSelectClose(meta, restoreFocus) {
+                if (!meta || !meta.isOpen) {
+                    return;
+                }
+                meta.isOpen = false;
+                meta.wrapper.classList.remove('is-open');
+                meta.panel.hidden = true;
+                meta.input.setAttribute('aria-expanded', 'false');
+                searchableSelectSyncTrigger(meta);
+                if (activeSearchableSelect === meta) {
+                    activeSearchableSelect = null;
+                }
+                if (restoreFocus) {
+                    meta.input.focus();
+                    meta.input.select();
+                }
+            }
+
+            function searchableSelectSyncTrigger(meta) {
+                if (!meta || !meta.select) {
+                    return;
+                }
+                meta.input.disabled = !!meta.select.disabled;
+                meta.wrapper.hidden = !!meta.select.hidden;
+                if (!meta.isOpen) {
+                    meta.input.value = searchableSelectSelectedText(meta.select);
+                }
+            }
+
+            function searchableSelectRenderOptions(meta) {
+                if (!meta) {
+                    return;
+                }
+                const queryKey = searchableSelectQueryKey(meta.input.value);
+                const selectedValue = String(meta.select.value || '');
+                const visibleItems = meta.options.filter(function (item) {
+                    return searchableSelectMatches(item, queryKey);
+                });
+
+                meta.list.innerHTML = '';
+
+                if (visibleItems.length === 0) {
+                    const emptyState = document.createElement('div');
+                    emptyState.className = 'searchable-select-empty';
+                    emptyState.textContent = 'No matching options';
+                    meta.list.appendChild(emptyState);
+                    return;
+                }
+
+                visibleItems.forEach(function (item) {
+                    const optionButton = document.createElement('button');
+                    optionButton.type = 'button';
+                    optionButton.className = 'searchable-select-option';
+                    if (item.value === selectedValue) {
+                        optionButton.classList.add('is-selected');
+                    }
+                    optionButton.disabled = !!item.disabled;
+                    optionButton.dataset.value = item.value;
+
+                    const optionPrimary = document.createElement('span');
+                    optionPrimary.className = 'searchable-select-option-text';
+                    optionPrimary.textContent = item.text;
+                    optionButton.appendChild(optionPrimary);
+
+                    if (item.groupLabel !== '') {
+                        const optionMeta = document.createElement('span');
+                        optionMeta.className = 'searchable-select-option-meta';
+                        optionMeta.textContent = item.groupLabel;
+                        optionButton.appendChild(optionMeta);
+                    }
+
+                    optionButton.addEventListener('click', function () {
+                        if (item.disabled) {
+                            return;
+                        }
+                        meta.select.value = item.value;
+                        meta.select.dispatchEvent(new Event('change', { bubbles: true }));
+                        searchableSelectRefresh(meta.select, false);
+                        searchableSelectClose(meta, true);
+                    });
+
+                    meta.list.appendChild(optionButton);
+                });
+            }
+
+            function searchableSelectOpen(meta) {
+                if (!meta || meta.select.disabled) {
+                    return;
+                }
+                if (activeSearchableSelect && activeSearchableSelect !== meta) {
+                    searchableSelectClose(activeSearchableSelect, false);
+                }
+                activeSearchableSelect = meta;
+                meta.isOpen = true;
+                meta.wrapper.classList.add('is-open');
+                meta.panel.hidden = false;
+                meta.input.setAttribute('aria-expanded', 'true');
+                meta.input.value = '';
+                searchableSelectRenderOptions(meta);
+                requestAnimationFrame(function () {
+                    meta.input.focus();
+                });
+            }
+
+            function searchableSelectToggle(meta) {
+                if (!meta) {
+                    return;
+                }
+                if (meta.isOpen) {
+                    searchableSelectClose(meta, true);
+                    return;
+                }
+                searchableSelectOpen(meta);
+            }
+
+            function searchableSelectRefresh(select, preserveQuery) {
+                const meta = searchableSelectRegistry.get(select);
+                if (!meta) {
+                    return;
+                }
+                meta.options = searchableSelectCollectOptions(select);
+                if (!preserveQuery) {
+                    meta.input.value = '';
+                }
+                searchableSelectSyncTrigger(meta);
+                if (meta.isOpen) {
+                    searchableSelectRenderOptions(meta);
+                }
+            }
+
+            function focusSearchableSelect(select, openPanel) {
+                const meta = searchableSelectRegistry.get(select);
+                if (!meta) {
+                    if (select && typeof select.focus === 'function') {
+                        select.focus();
+                    }
+                    return;
+                }
+                if (openPanel) {
+                    searchableSelectOpen(meta);
+                    return;
+                }
+                meta.trigger.focus();
+            }
+
+            function initSearchableSelect(select) {
+                if (!(select instanceof HTMLSelectElement) || select.multiple || select.size > 1) {
+                    return;
+                }
+                if (String(select.dataset && select.dataset.noSearchableSelect || '') === '1') {
+                    return;
+                }
+
+                if (searchableSelectRegistry.has(select)) {
+                    searchableSelectRefresh(select, true);
+                    return;
+                }
+
+                const wrapper = document.createElement('div');
+                wrapper.className = 'searchable-select';
+
+                const control = document.createElement('div');
+                control.className = 'searchable-select-control';
+
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.className = 'searchable-select-input';
+                input.placeholder = searchableSelectPlaceholder(select);
+                input.autocomplete = 'off';
+                input.spellcheck = false;
+                input.setAttribute('aria-label', input.placeholder);
+                input.setAttribute('aria-expanded', 'false');
+                input.setAttribute('aria-autocomplete', 'list');
+                input.setAttribute('aria-haspopup', 'listbox');
+                input.setAttribute('role', 'combobox');
+
+                const triggerCaret = document.createElement('span');
+                triggerCaret.className = 'searchable-select-trigger-caret';
+                triggerCaret.innerHTML = '&#9662;';
+                control.appendChild(input);
+                control.appendChild(triggerCaret);
+
+                const panel = document.createElement('div');
+                panel.className = 'searchable-select-panel';
+                panel.hidden = true;
+
+                const list = document.createElement('div');
+                list.className = 'searchable-select-list';
+
+                panel.appendChild(list);
+
+                if (select.parentNode) {
+                    select.parentNode.insertBefore(wrapper, select);
+                }
+                wrapper.appendChild(select);
+                wrapper.appendChild(control);
+                wrapper.appendChild(panel);
+                select.classList.add('searchable-select-native');
+                select.setAttribute('tabindex', '-1');
+                select.setAttribute('aria-hidden', 'true');
+
+                const meta = {
+                    select: select,
+                    wrapper: wrapper,
+                    control: control,
+                    trigger: input,
+                    input: input,
+                    panel: panel,
+                    list: list,
+                    options: searchableSelectCollectOptions(select),
+                    isOpen: false,
+                    observer: null,
+                };
+                searchableSelectRegistry.set(select, meta);
+
+                input.addEventListener('click', function () {
+                    if (!meta.isOpen) {
+                        searchableSelectOpen(meta);
+                    }
+                });
+
+                input.addEventListener('focus', function () {
+                    if (!meta.isOpen) {
+                        requestAnimationFrame(function () {
+                            input.select();
+                        });
+                    }
+                });
+
+                input.addEventListener('keydown', function (event) {
+                    if (event.key === 'ArrowDown' || event.key === 'Enter') {
+                        event.preventDefault();
+                        searchableSelectOpen(meta);
+                        return;
+                    }
+                    if (event.key === 'Escape') {
+                        event.preventDefault();
+                        searchableSelectClose(meta, true);
+                    }
+                });
+
+                input.addEventListener('input', function () {
+                    if (!meta.isOpen) {
+                        if (activeSearchableSelect && activeSearchableSelect !== meta) {
+                            searchableSelectClose(activeSearchableSelect, false);
+                        }
+                        meta.isOpen = true;
+                        meta.wrapper.classList.add('is-open');
+                        meta.panel.hidden = false;
+                        meta.input.setAttribute('aria-expanded', 'true');
+                        activeSearchableSelect = meta;
+                    }
+                    searchableSelectRenderOptions(meta);
+                });
+
+                select.addEventListener('change', function () {
+                    searchableSelectRefresh(select, false);
+                });
+
+                meta.observer = new MutationObserver(function () {
+                    searchableSelectRefresh(select, true);
+                });
+                meta.observer.observe(select, {
+                    childList: true,
+                    subtree: true,
+                    attributes: true,
+                    attributeFilter: ['disabled', 'hidden'],
+                });
+
+                searchableSelectSyncTrigger(meta);
+            }
+
+            function initAllSearchableSelects(root) {
+                const scope = root && root.querySelectorAll ? root : document;
+                scope.querySelectorAll('select').forEach(function (selectNode) {
+                    initSearchableSelect(selectNode);
+                });
+            }
+
+            document.addEventListener('click', function (event) {
+                if (!activeSearchableSelect) {
+                    return;
+                }
+                if (activeSearchableSelect.wrapper.contains(event.target)) {
+                    return;
+                }
+                searchableSelectClose(activeSearchableSelect, false);
+            });
+
+            document.addEventListener('keydown', function (event) {
+                if (event.key === 'Escape' && activeSearchableSelect) {
+                    searchableSelectClose(activeSearchableSelect, true);
+                }
+            });
 
             function closeAppDialog(result) {
                 if (!appDialogModal) {
@@ -365,6 +819,107 @@
 
             window.showAlertDialog = showAlertDialog;
             window.showConfirmDialog = showConfirmDialog;
+
+            function parseContentDispositionFilename(headerValue) {
+                const raw = String(headerValue || '').trim();
+                if (raw === '') {
+                    return '';
+                }
+
+                let match = raw.match(/filename\*=UTF-8''([^;]+)/i);
+                if (match && match[1]) {
+                    try {
+                        return decodeURIComponent(String(match[1]).trim());
+                    } catch (error) {
+                        return String(match[1]).trim();
+                    }
+                }
+
+                match = raw.match(/filename=\"([^\"]+)\"/i);
+                if (match && match[1]) {
+                    return String(match[1]).trim();
+                }
+
+                match = raw.match(/filename=([^;]+)/i);
+                if (match && match[1]) {
+                    return String(match[1]).trim().replace(/^["']|["']$/g, '');
+                }
+
+                return '';
+            }
+
+            function downloadBlob(blob, filename) {
+                const safeBlob = blob instanceof Blob
+                    ? blob
+                    : new Blob([String(blob == null ? '' : blob)], { type: 'application/octet-stream' });
+                const safeFilename = String(filename || '').trim() || ('DTMIS-export-' + new Date().toISOString().slice(0, 10) + '.csv');
+                const exportLinkNode = document.createElement('a');
+                exportLinkNode.href = URL.createObjectURL(safeBlob);
+                exportLinkNode.download = safeFilename;
+                document.body.appendChild(exportLinkNode);
+                exportLinkNode.click();
+                document.body.removeChild(exportLinkNode);
+                window.setTimeout(function () {
+                    URL.revokeObjectURL(exportLinkNode.href);
+                }, 1000);
+            }
+
+            async function sendSessionHeartbeat() {
+                if (
+                    sessionHeartbeatInFlight
+                    || !sessionHeartbeatPath
+                    || !currentUserId
+                    || document.hidden
+                    || !navigator.onLine
+                ) {
+                    return;
+                }
+
+                sessionHeartbeatInFlight = true;
+                try {
+                    const formData = new FormData();
+                    formData.set('csrf_token', String(csrfToken || ''));
+
+                    await fetch(sessionHeartbeatPath, {
+                        method: 'POST',
+                        body: formData,
+                        credentials: 'same-origin',
+                        cache: 'no-store',
+                        keepalive: true,
+                        headers: {
+                            'Accept': 'application/json'
+                        }
+                    });
+                } catch (error) {
+                    // Ignore transient heartbeat failures.
+                } finally {
+                    sessionHeartbeatInFlight = false;
+                }
+            }
+
+            function bindSessionHeartbeat() {
+                if (!sessionHeartbeatPath || !currentUserId) {
+                    return;
+                }
+
+                sendSessionHeartbeat();
+                if (sessionHeartbeatTimerId > 0) {
+                    window.clearInterval(sessionHeartbeatTimerId);
+                }
+                sessionHeartbeatTimerId = window.setInterval(function () {
+                    sendSessionHeartbeat();
+                }, 60000);
+
+                document.addEventListener('visibilitychange', function () {
+                    if (!document.hidden) {
+                        sendSessionHeartbeat();
+                    }
+                });
+
+                window.addEventListener('online', function () {
+                    sendSessionHeartbeat();
+                });
+            }
 
             function bindAppDialog() {
                 if (!appDialogModal || !appDialogConfirm) {
@@ -582,7 +1137,7 @@
                     .replace(/^-|-$/g, '')
                     .toLowerCase();
                 const pageKey = pathKey !== '' ? pathKey : 'dashboard';
-                return 'edats-' + pageKey + '-' + stamp + '.png';
+                return 'DTMIS-' + pageKey + '-' + stamp + '.png';
             }
 
             function screenshotDisplayCaptureSupported() {
@@ -757,7 +1312,7 @@
                 }
 
                 html2CanvasLoaderPromise = new Promise(function (resolve, reject) {
-                    const existingScript = document.querySelector('script[data-edats-html2canvas="true"]');
+                    const existingScript = document.querySelector('script[data-DTMIS-html2canvas="true"]');
                     if (existingScript) {
                         existingScript.addEventListener('load', function () {
                             if (typeof window.html2canvas === 'function') {
@@ -776,7 +1331,7 @@
                     script.src = 'https://cdn.jsdelivr.net/npm/html2canvas-pro@1.5.13/dist/html2canvas-pro.min.js';
                     script.async = true;
                     script.defer = true;
-                    script.dataset.edatsHtml2canvas = 'true';
+                    script.dataset.DTMISHtml2canvas = 'true';
                     script.onload = function () {
                         if (typeof window.html2canvas === 'function') {
                             resolve(window.html2canvas);
@@ -805,7 +1360,7 @@
                 }
 
                 htmlToImageLoaderPromise = new Promise(function (resolve, reject) {
-                    const existingScript = document.querySelector('script[data-edats-htmltoimage="true"]');
+                    const existingScript = document.querySelector('script[data-DTMIS-htmltoimage="true"]');
                     if (existingScript) {
                         existingScript.addEventListener('load', function () {
                             if (window.htmlToImage && typeof window.htmlToImage.toBlob === 'function') {
@@ -824,7 +1379,7 @@
                     script.src = 'https://cdn.jsdelivr.net/npm/html-to-image@1.11.13/dist/html-to-image.min.js';
                     script.async = true;
                     script.defer = true;
-                    script.dataset.edatsHtmltoimage = 'true';
+                    script.dataset.DTMISHtmltoimage = 'true';
                     script.onload = function () {
                         if (window.htmlToImage && typeof window.htmlToImage.toBlob === 'function') {
                             resolve(window.htmlToImage);
@@ -1337,9 +1892,97 @@
                 return 'original';
             }
 
+            function humanizeAttachmentRoleLabel(value) {
+                const raw = String(value || '').trim();
+                if (raw !== '') {
+                    if (raw.indexOf('_') !== -1) {
+                        return raw
+                            .toLowerCase()
+                            .split('_')
+                            .filter(function (part) { return String(part || '').trim() !== ''; })
+                            .map(function (part) {
+                                return part.charAt(0).toUpperCase() + part.slice(1);
+                            })
+                            .join(' ');
+                    }
+                    return raw;
+                }
+                return 'Unknown Role';
+            }
+
+            function classifyDocumentAttachmentSource(attachment) {
+                if (!attachment || typeof attachment !== 'object') {
+                    return {
+                        scope_key: 'other',
+                        scope_label: 'Other',
+                        role_label: 'Unknown Role',
+                        option_key: 'other|unknown-role',
+                        option_label: 'Other - Unknown Role',
+                    };
+                }
+
+                const roleKey = normalizeLabelKey(String(
+                    attachment.uploaded_by_role_key || attachment.uploaded_by_role || ''
+                ));
+                const officeLevelKey = normalizeLabelKey(String(attachment.uploaded_by_office_level || ''));
+                let scopeKey = 'other';
+                let scopeLabel = 'Other';
+
+                if (
+                    roleKey === 'ored'
+                    || roleKey === 'ard_ts'
+                    || roleKey === 'ard_ms'
+                    || roleKey === 'division_chief'
+                    || roleKey === 'section_staff'
+                    || roleKey === 'section'
+                    || roleKey === 'records_unit'
+                    || officeLevelKey === 'division'
+                    || officeLevelKey === 'section'
+                ) {
+                    scopeKey = 'regional';
+                    scopeLabel = 'Regional';
+                } else if (roleKey.indexOf('cenro_') === 0 || officeLevelKey.indexOf('cenro_') === 0) {
+                    scopeKey = 'cenro';
+                    scopeLabel = 'CENRO';
+                } else if (roleKey.indexOf('penro_') === 0 || officeLevelKey.indexOf('penro_') === 0) {
+                    scopeKey = 'penro';
+                    scopeLabel = 'PENRO';
+                } else if (
+                    roleKey === 'pamo_admin'
+                    || roleKey === 'pasu_officer'
+                    || roleKey === 'pamo_unit'
+                    || officeLevelKey === 'pamo_admin'
+                    || officeLevelKey === 'pasu_officer'
+                    || officeLevelKey === 'pamo_unit'
+                ) {
+                    scopeKey = 'pamo';
+                    scopeLabel = 'PAMO/PASU';
+                }
+
+                const roleLabel = humanizeAttachmentRoleLabel(
+                    attachment.uploaded_by_role || attachment.uploaded_by_office_level || ''
+                );
+
+                return {
+                    scope_key: scopeKey,
+                    scope_label: scopeLabel,
+                    role_label: roleLabel,
+                    option_key: scopeKey + '|' + normalizeLabelKey(roleLabel),
+                    option_label: scopeLabel + ' - ' + roleLabel,
+                };
+            }
+
             function classifyDocumentAttachmentCategory(attachment) {
                 if (!attachment || typeof attachment !== 'object') {
                     return 'original';
+                }
+
+                const routeAttachmentCategory = normalizeLabelKey(String(attachment.route_attachment_category || ''));
+                if (routeAttachmentCategory === 'prepared_response') {
+                    return 'response';
+                }
+                if (routeAttachmentCategory === 'endorsement' || routeAttachmentCategory === 'endorsement_letter') {
+                    return 'endorsement';
                 }
 
                 const fileNameKey = normalizeLabelKey(String(attachment.file_name || ''));
@@ -1370,7 +2013,10 @@
                     || fileNameKey.indexOf('endorse') !== -1;
                 const isPenroCenroPasuUpload = uploadedByRoleKey === 'penro'
                     || uploadedByRoleKey === 'cenro'
-                    || uploadedByRoleKey === 'pasu';
+                    || uploadedByRoleKey === 'pasu'
+                    || uploadedByRoleKey === 'penro_admin_record'
+                    || uploadedByRoleKey === 'cenro_admin_record'
+                    || uploadedByRoleKey === 'pamo_admin';
                 if (looksEndorsementByName || (isPenroCenroPasuUpload && !isCreatorUpload)) {
                     return 'endorsement';
                 }
@@ -1409,6 +2055,7 @@
                             ? Object.assign({}, attachment)
                             : {};
                         safeAttachment.attachment_category = classifyDocumentAttachmentCategory(safeAttachment);
+                        safeAttachment.attachment_source = classifyDocumentAttachmentSource(safeAttachment);
                         return safeAttachment;
                     })
                     : [];
@@ -1432,9 +2079,67 @@
                 }
                 updateDocumentAttachmentFilterButtons(categoryCounts);
 
-                documentDetailsAttachments = documentDetailsAllAttachments.filter(function (attachment) {
+                const categoryAttachments = documentDetailsAllAttachments.filter(function (attachment) {
                     const category = normalizeDocumentDetailsAttachmentFilter(attachment.attachment_category || 'original');
                     return category === documentDetailsAttachmentFilter;
+                });
+
+                const sourceOptions = [];
+                const sourceOptionMap = {};
+                categoryAttachments.forEach(function (attachment) {
+                    const source = attachment && typeof attachment === 'object' && attachment.attachment_source
+                        ? attachment.attachment_source
+                        : classifyDocumentAttachmentSource(attachment);
+                    const optionKey = String(source.option_key || 'other|unknown-role');
+                    if (sourceOptionMap[optionKey]) {
+                        return;
+                    }
+                    sourceOptionMap[optionKey] = true;
+                    sourceOptions.push({
+                        value: optionKey,
+                        label: String(source.option_label || 'Other - Unknown Role'),
+                    });
+                });
+
+                const shouldShowSourceFilter = documentDetailsAttachmentFilter !== 'original' && sourceOptions.length > 0;
+                if (documentDetailsAttachmentSourceFilterWrap) {
+                    documentDetailsAttachmentSourceFilterWrap.hidden = !shouldShowSourceFilter;
+                }
+                if (documentDetailsAttachmentSourceFilter) {
+                    documentDetailsAttachmentSourceFilter.innerHTML = '';
+                    const allOption = document.createElement('option');
+                    allOption.value = 'all';
+                    allOption.textContent = 'All sources';
+                    documentDetailsAttachmentSourceFilter.appendChild(allOption);
+                    sourceOptions.forEach(function (optionItem) {
+                        const optionNode = document.createElement('option');
+                        optionNode.value = optionItem.value;
+                        optionNode.textContent = optionItem.label;
+                        documentDetailsAttachmentSourceFilter.appendChild(optionNode);
+                    });
+                    const hasRequestedSource = documentDetailsAttachmentSourceFilterValue === 'all'
+                        || sourceOptions.some(function (optionItem) {
+                            return optionItem.value === documentDetailsAttachmentSourceFilterValue;
+                        });
+                    if (!hasRequestedSource) {
+                        documentDetailsAttachmentSourceFilterValue = 'all';
+                    }
+                    documentDetailsAttachmentSourceFilter.value = documentDetailsAttachmentSourceFilterValue;
+                    documentDetailsAttachmentSourceFilter.disabled = !shouldShowSourceFilter || sourceOptions.length < 2;
+                }
+
+                documentDetailsAttachments = categoryAttachments.filter(function (attachment) {
+                    const category = normalizeDocumentDetailsAttachmentFilter(attachment.attachment_category || 'original');
+                    if (category !== documentDetailsAttachmentFilter) {
+                        return false;
+                    }
+                    if (!shouldShowSourceFilter || documentDetailsAttachmentSourceFilterValue === 'all') {
+                        return true;
+                    }
+                    const source = attachment && typeof attachment === 'object' && attachment.attachment_source
+                        ? attachment.attachment_source
+                        : classifyDocumentAttachmentSource(attachment);
+                    return String(source.option_key || '') === documentDetailsAttachmentSourceFilterValue;
                 });
 
                 if (!documentDetailsAttachmentSelect) {
@@ -1500,7 +2205,9 @@
                 appendDocumentDetailItem(documentDetailsFields, 'ARTA Category', doc.arta_category || '-', false);
                 appendDocumentDetailItem(documentDetailsFields, 'Status', doc.status || '-', false);
                 appendDocumentDetailItem(documentDetailsFields, 'Source', doc.source_type || '-', false);
-                appendDocumentDetailItem(documentDetailsFields, 'Originating Office', doc.originating_office || '-', false);
+                appendDocumentDetailItem(documentDetailsFields, 'Sender', doc.sender || '-', false);
+                appendDocumentDetailItem(documentDetailsFields, 'Originating Office / Entity', doc.originating_entity_name || doc.originating_office || '-', false);
+                appendDocumentDetailItem(documentDetailsFields, 'Routing Office', doc.routing_office || doc.originating_office || '-', false);
                 appendDocumentDetailItem(documentDetailsFields, 'Current Office', doc.current_office || '-', false);
                 appendDocumentDetailItem(documentDetailsFields, 'Pending Office', doc.pending_office || '-', false);
                 appendDocumentDetailItem(documentDetailsFields, 'Created By', doc.created_by || '-', false);
@@ -1533,11 +2240,15 @@
                 documentDetailsAllAttachments = [];
                 documentDetailsCreatorUserId = 0;
                 documentDetailsAttachmentFilter = 'original';
+                documentDetailsAttachmentSourceFilterValue = 'all';
                 if (documentDetailsFields) {
                     documentDetailsFields.innerHTML = '';
                 }
                 if (documentDetailsAttachmentFilterWrap) {
                     documentDetailsAttachmentFilterWrap.hidden = true;
+                }
+                if (documentDetailsAttachmentSourceFilterWrap) {
+                    documentDetailsAttachmentSourceFilterWrap.hidden = true;
                 }
                 if (documentDetailsAttachmentFilterButtons.length > 0) {
                     documentDetailsAttachmentFilterButtons.forEach(function (button) {
@@ -1545,6 +2256,11 @@
                         button.disabled = false;
                         button.classList.toggle('is-active', mode === 'original');
                     });
+                }
+                if (documentDetailsAttachmentSourceFilter) {
+                    documentDetailsAttachmentSourceFilter.innerHTML = '<option value="all">All sources</option>';
+                    documentDetailsAttachmentSourceFilter.value = 'all';
+                    documentDetailsAttachmentSourceFilter.disabled = true;
                 }
                 if (documentDetailsAttachmentSelect) {
                     documentDetailsAttachmentSelect.innerHTML = '<option value="">No attachment selected</option>';
@@ -1647,9 +2363,18 @@
                                 return;
                             }
                             documentDetailsAttachmentFilter = requestedFilter;
+                            documentDetailsAttachmentSourceFilterValue = 'all';
                             renderDocumentAttachments(documentDetailsAllAttachments, {
                                 created_by_user_id: documentDetailsCreatorUserId,
                             });
+                        });
+                    });
+                }
+                if (documentDetailsAttachmentSourceFilter) {
+                    documentDetailsAttachmentSourceFilter.addEventListener('change', function () {
+                        documentDetailsAttachmentSourceFilterValue = String(documentDetailsAttachmentSourceFilter.value || 'all');
+                        renderDocumentAttachments(documentDetailsAllAttachments, {
+                            created_by_user_id: documentDetailsCreatorUserId,
                         });
                     });
                 }
@@ -1768,12 +2493,12 @@
 
             function queueStatusIsApproved(status) {
                 const normalized = normalizeLabelKey(status || '');
-                return normalized.indexOf('approved') !== -1
-                    || normalized.indexOf('signed') !== -1
-                    || normalized.indexOf('verified') !== -1
-                    || normalized.indexOf('endorsed') !== -1
-                    || normalized.indexOf('checked') !== -1
-                    || normalized.indexOf('validated') !== -1;
+                return /\bapproved\b/.test(normalized)
+                    || (/\bsigned\b/.test(normalized) && normalized.indexOf('assigned') === -1)
+                    || /\bverified\b/.test(normalized)
+                    || /\bendorsed\b/.test(normalized)
+                    || /\bchecked\b/.test(normalized)
+                    || /\bvalidated\b/.test(normalized);
             }
 
             function queueStatusNeedsApproval(status) {
@@ -2486,7 +3211,7 @@
             }
 
             function ensureQueueFlowHoverPopover() {
-                if (queueFlowHoverPopover || !document.body || liveFlowSteps.length === 0) {
+                if (queueFlowPopoverDisabled || queueFlowHoverPopover || liveFlowSteps.length === 0) {
                     return;
                 }
 
@@ -2545,12 +3270,23 @@
                 popover.appendChild(stage);
                 popover.appendChild(meta);
                 popover.appendChild(track);
-                document.body.appendChild(popover);
+                if (tablePanel && tableWrap && tableWrap.parentElement) {
+                    queueFlowSidebarLayout = tablePanel.querySelector('.queue-table-flow-layout');
+                    if (!queueFlowSidebarLayout) {
+                        queueFlowSidebarLayout = document.createElement('div');
+                        queueFlowSidebarLayout.className = 'queue-table-flow-layout';
+                        tableWrap.parentElement.insertBefore(queueFlowSidebarLayout, tableWrap);
+                        queueFlowSidebarLayout.appendChild(tableWrap);
+                    }
+                    queueFlowSidebarLayout.appendChild(popover);
+                } else if (document.body) {
+                    document.body.appendChild(popover);
+                }
                 queueFlowHoverPopover = popover;
             }
 
             function positionQueueFlowHoverPopover(row, clientX, clientY) {
-                if (!queueFlowHoverPopover || !row) {
+                if (!queueFlowHoverPopover || !row || queueFlowSidebarLayout) {
                     return;
                 }
 
@@ -2581,11 +3317,67 @@
                 queueFlowHoverPopover.style.top = String(Math.round(top)) + 'px';
             }
 
+            function renderQueueFlowHoverSnapshot(snapshot, row, clientX, clientY) {
+                if (!queueFlowHoverPopover || !snapshot) {
+                    return;
+                }
+                if (queueFlowHoverTrackingLabel) {
+                    queueFlowHoverTrackingLabel.textContent = 'Tracking: ' + (snapshot.trackingId !== '' ? snapshot.trackingId : '-');
+                }
+                if (queueFlowHoverCurrentHolderLabel) {
+                    queueFlowHoverCurrentHolderLabel.textContent = 'Current Holder: ' + (snapshot.currentHolderRaw !== '' ? snapshot.currentHolderRaw : '-');
+                }
+                if (queueFlowHoverStatusLabel) {
+                    queueFlowHoverStatusLabel.textContent = 'Status: ' + (snapshot.statusRaw !== '' ? snapshot.statusRaw : 'Pending');
+                }
+                if (queueFlowHoverStageLabel) {
+                    queueFlowHoverStageLabel.textContent = liveFlowHoverStageLabel(snapshot);
+                }
+
+                queueFlowHoverStepNodes.forEach(function (node, index) {
+                    const state = String(snapshot.stepStates[index] || 'pending');
+                    node.classList.toggle('is-completed', state === 'completed');
+                    node.classList.toggle('is-active', state === 'active');
+                    node.classList.toggle('is-pending', state === 'pending');
+                });
+
+                renderLiveFlowSnapshot(snapshot);
+                queueFlowHoverPopover.hidden = false;
+                queueFlowHoverPopover.classList.add('is-visible');
+                if (queueFlowSidebarLayout) {
+                    queueFlowSidebarLayout.classList.add('has-flow-sidebar');
+                } else {
+                    positionQueueFlowHoverPopover(row, clientX, clientY);
+                }
+            }
+
+            function syncQueueFlowSidebarFromSelection() {
+                if (!queueFlowSidebarLayout || !queueFlowHoverPopover) {
+                    return;
+                }
+                const selectedRow = findQueueRowByTrackingId(selectedQueueTrackingId) || findFirstVisibleQueueRow();
+                const snapshot = deriveLiveFlowSnapshot(selectedRow);
+                if (!snapshot) {
+                    queueFlowHoverPopover.classList.remove('is-visible');
+                    queueFlowHoverPopover.hidden = true;
+                    queueFlowSidebarLayout.classList.remove('has-flow-sidebar');
+                    return;
+                }
+                renderQueueFlowHoverSnapshot(snapshot, selectedRow);
+            }
+
             function hideQueueFlowHoverPopover(restoreLiveFlowTracker) {
                 if (queueFlowHoverActiveRow) {
                     queueFlowHoverActiveRow.classList.remove('queue-row-hover-live-flow');
                 }
                 queueFlowHoverActiveRow = null;
+                if (queueFlowSidebarLayout) {
+                    syncQueueFlowSidebarFromSelection();
+                    if (restoreLiveFlowTracker !== false) {
+                        syncLiveFlowTracker();
+                    }
+                    return;
+                }
                 if (queueFlowHoverPopover) {
                     queueFlowHoverPopover.classList.remove('is-visible');
                     queueFlowHoverPopover.hidden = true;
@@ -2621,31 +3413,7 @@
                 }
                 queueFlowHoverActiveRow = row;
                 queueFlowHoverActiveRow.classList.add('queue-row-hover-live-flow');
-
-                if (queueFlowHoverTrackingLabel) {
-                    queueFlowHoverTrackingLabel.textContent = 'Tracking: ' + (snapshot.trackingId !== '' ? snapshot.trackingId : '-');
-                }
-                if (queueFlowHoverCurrentHolderLabel) {
-                    queueFlowHoverCurrentHolderLabel.textContent = 'Current Holder: ' + (snapshot.currentHolderRaw !== '' ? snapshot.currentHolderRaw : '-');
-                }
-                if (queueFlowHoverStatusLabel) {
-                    queueFlowHoverStatusLabel.textContent = 'Status: ' + (snapshot.statusRaw !== '' ? snapshot.statusRaw : 'Pending');
-                }
-                if (queueFlowHoverStageLabel) {
-                    queueFlowHoverStageLabel.textContent = liveFlowHoverStageLabel(snapshot);
-                }
-
-                queueFlowHoverStepNodes.forEach(function (node, index) {
-                    const state = String(snapshot.stepStates[index] || 'pending');
-                    node.classList.toggle('is-completed', state === 'completed');
-                    node.classList.toggle('is-active', state === 'active');
-                    node.classList.toggle('is-pending', state === 'pending');
-                });
-
-                renderLiveFlowSnapshot(snapshot);
-                queueFlowHoverPopover.hidden = false;
-                queueFlowHoverPopover.classList.add('is-visible');
-                positionQueueFlowHoverPopover(row, clientX, clientY);
+                renderQueueFlowHoverSnapshot(snapshot, row, clientX, clientY);
             }
 
             function syncLiveFlowTracker() {
@@ -2654,6 +3422,7 @@
                 }
                 const selectedRow = findQueueRowByTrackingId(selectedQueueTrackingId) || findFirstVisibleQueueRow();
                 renderLiveFlowFromRow(selectedRow);
+                syncQueueFlowSidebarFromSelection();
             }
 
             function syncSelectedDocumentToolsState(preferVisibleRow) {
@@ -2704,11 +3473,18 @@
                     selectedQrStampBtn.disabled = !hasSelection;
                 }
                 if (documentToolsMeta) {
-                    documentToolsMeta.textContent = hasSelection
-                        ? ('Selected: ' + selectedQueueTrackingId)
-                        : defaultDocumentToolsMetaText;
+                    let metaText = defaultDocumentToolsMetaText;
+                    if (hasSelection) {
+                        metaText = 'Selected: ' + selectedQueueTrackingId;
+                        if (showCompletedQueueRowsOnly && selectedRow) {
+                            const offlineReady = String(selectedRow.getAttribute('data-offline-ready') || '') === '1';
+                            metaText += offlineReady ? ' | Offline Ready' : ' | Online Only';
+                        }
+                    }
+                    documentToolsMeta.textContent = metaText;
                 }
                 syncLiveFlowTracker();
+                persistQueueTableState();
             }
 
             function bindSelectedDocumentTools() {
@@ -2808,10 +3584,12 @@
                     syncSelectedDocumentToolsState(false);
                     openDocumentDetailsModal();
                 });
+
+                prefetchArchiveTrackingDocumentsFromTable();
             }
 
             function bindQueueRowFlowHoverPopover() {
-                if (!tableBody || !liveFlowTrackerCard || liveFlowSteps.length === 0) {
+                if (queueFlowPopoverDisabled || !tableBody || !liveFlowTrackerCard || liveFlowSteps.length === 0) {
                     return;
                 }
                 tableBody.addEventListener('mouseover', function (event) {
@@ -2851,6 +3629,9 @@
                 });
 
                 window.addEventListener('scroll', function () {
+                    if (queueFlowSidebarLayout) {
+                        return;
+                    }
                     if (queueFlowHoverPopover && !queueFlowHoverPopover.hidden) {
                         hideQueueFlowHoverPopover(true);
                     }
@@ -2897,7 +3678,7 @@
                 const routedOutFromCurrentOffice = isRoutedOutRowForCurrentOffice(pendingOfficeId, rowCurrentOfficeId);
                 const normalizedStatus = normalizeLabelKey(rowStatus);
                 const isReceived = queueRowHasReceivedState(normalizedStatus, pendingOfficeId, rowCurrentOfficeId);
-                const isApproved = queueStatusIsApproved(normalizedStatus);
+                const isApproved = queueStatusIsApproved(normalizedStatus) || (approveActionDisabled && isReceived);
                 const isTerminal = queueStatusIsTerminal(normalizedStatus);
                 const isReleasedIncoming = normalizedStatus.indexOf('released') !== -1 || normalizedStatus.indexOf('release') !== -1;
                 const canManageIntakeRow = queueRowCanManageIntake({
@@ -2958,6 +3739,8 @@
                 const buttonMap = {
                     'receive': 'RECEIVE',
                     'forward': 'FORWARD',
+                    'send back to admin record': 'FORWARD',
+                    'send back to records-unit': 'FORWARD',
                     'send back to ard': 'FORWARD',
                     'send back to cenro officer': 'FORWARD',
                     'send back to penro officer': 'FORWARD',
@@ -2965,7 +3748,6 @@
                     'reroute': 'REROUTE',
                     'return': 'RETURN',
                     'override': 'OVERRIDE',
-                    'approve': 'APPROVE',
                     'sign': 'SIGN',
                     'complete': 'COMPLETE',
                     'undo sign': 'UNSIGN',
@@ -2976,6 +3758,8 @@
                 const tooltipMap = {
                     'receive': 'Accept custody and acknowledge receipt of this document.',
                     'forward': 'Route this document to the next destination office.',
+                    'send back to admin record': 'Send this document back to the originating Admin Record office.',
+                    'send back to records-unit': 'Send this signed document back to RECORDS-UNIT for release handling.',
                     'send back to ard': 'Forward this document back to your supervising ARD for review.',
                     'send back to cenro officer': 'Send this document back to your parent CENRO Officer for review.',
                     'send back to penro officer': 'Send this document back to your parent PENRO Officer for review.',
@@ -2983,7 +3767,6 @@
                     'reroute': 'Send this document to a different destination office.',
                     'return': 'Return this document for correction or additional input.',
                     'override': 'Apply executive override routing (ORED only).',
-                    'approve': 'Approve this document at your current stage.',
                     'sign': 'Open digital signature workspace for signing and printing.',
                     'complete': 'Mark transaction as released at CENRO Admin Record.',
                     'undo sign': 'Undo your ORED sign and revert the document back to Approved stage.',
@@ -2994,6 +3777,8 @@
                     'delete': 'Delete this intake document.',
                 };
                 const displayLabelMap = {
+                    'send back to admin record': 'Send Back to Admin Record',
+                    'send back to records-unit': 'Send Back to RECORDS-UNIT',
                     'send back to ard': 'Send Back to ARD',
                     'send back to cenro officer': 'Send Back to CENRO Officer',
                     'send back to penro officer': 'Send Back to PENRO Officer',
@@ -3003,12 +3788,19 @@
                 if (!Object.prototype.hasOwnProperty.call(buttonMap, actionKey)) {
                     return null;
                 }
-                const routeMode = (actionKey === 'send back to ard' || actionKey === 'send back to penro officer')
-                    ? 'ard_back'
-                    : (actionKey === 'send back to ored'
-                        ? 'ored_back'
-                        : (actionKey === 'send back to cenro officer' ? 'cenro_officer_back' : ''));
+                const routeMode = actionKey === 'send back to admin record'
+                    ? 'admin_record_back'
+                    : (actionKey === 'send back to records-unit'
+                        ? 'records_unit_back'
+                    : ((actionKey === 'send back to ard' || actionKey === 'send back to penro officer')
+                        ? 'ard_back'
+                        : (actionKey === 'send back to ored'
+                            ? 'ored_back'
+                            : (actionKey === 'send back to cenro officer' ? 'cenro_officer_back' : ''))));
                 if (isCenroOfficerRole && actionKey === 'override') {
+                    return null;
+                }
+                if ((isCenroOfficerRole || isPenroOfficerRole || isPamoOfficerRole) === false && actionKey === 'send back to admin record') {
                     return null;
                 }
                 if ((isCenroSectionRole || isPenroSectionRole || isPenroDivisionRole) && actionKey === 'send back to ard') {
@@ -3029,6 +3821,12 @@
                     }
                 }
                 if (actionKey === 'reroute' && hideRerouteQuickAction) {
+                    return null;
+                }
+                if (actionKey === 'approve' && approveActionDisabled) {
+                    return null;
+                }
+                if ((actionKey === 'sign' || actionKey === 'undo sign') && (officerDigitalSignDisabled || regionalOredDigitalSignDisabled)) {
                     return null;
                 }
                 if (actionKey === 'edit' || actionKey === 'delete') {
@@ -3085,13 +3883,6 @@
                         if (isTerminal && !isReleasedAwaitingOriginReceive) {
                             return null;
                         }
-                    } else if (!isApproved) {
-                        if (isTerminal) {
-                            return null;
-                        }
-                        if (actionKey !== 'approve' && actionKey !== 'return') {
-                            return null;
-                        }
                     } else if (actionKey !== 'forward' && actionKey !== 'return') {
                         return null;
                     }
@@ -3103,10 +3894,6 @@
                         }
                     } else if (isSignedForPhase) {
                         if (actionKey !== 'release') {
-                            return null;
-                        }
-                    } else if (!isApproved) {
-                        if (actionKey !== 'approve') {
                             return null;
                         }
                     } else if (actionKey !== 'forward' && actionKey !== 'release') {
@@ -3123,40 +3910,36 @@
                             if (actionKey !== 'forward' && actionKey !== 'undo sign' && actionKey !== 'return') {
                                 return null;
                             }
+                        } else if (isRegionalOredReviewer) {
+                            if (actionKey !== 'forward' && actionKey !== 'send back to records-unit' && actionKey !== 'return') {
+                                return null;
+                            }
                         } else if (actionKey !== 'forward' && actionKey !== 'undo sign' && actionKey !== 'return') {
                             return null;
                         }
                     } else if (isSignedForPhase && isForwarded) {
-                        if (isCenroOfficerRole || actionKey !== 'override') {
-                            return null;
-                        }
-                    } else if (!isApproved) {
-                        if (isCenroOfficerRole) {
-                            if (actionKey !== 'approve' && actionKey !== 'return') {
-                                return null;
-                            }
-                        } else if (actionKey !== 'approve' && actionKey !== 'return') {
+                        if (isCenroOfficerRole || isRegionalOredReviewer || actionKey !== 'override') {
                             return null;
                         }
                     } else if (!isForwarded) {
-                        if (isCenroOfficerRole) {
-                            if (actionKey !== 'sign' && actionKey !== 'forward' && actionKey !== 'reroute' && actionKey !== 'return') {
+                        if (isCenroOfficerRole || officerDigitalSignDisabled) {
+                            if (actionKey !== 'sign' && actionKey !== 'forward' && actionKey !== 'send back to admin record' && actionKey !== 'reroute' && actionKey !== 'return') {
+                                return null;
+                            }
+                        } else if (isRegionalOredReviewer) {
+                            if (actionKey !== 'forward' && actionKey !== 'return') {
                                 return null;
                             }
                         } else if (actionKey !== 'sign' && actionKey !== 'forward' && actionKey !== 'return') {
                             return null;
                         }
-                    } else if (isCenroOfficerRole || actionKey !== 'override') {
+                    } else if (isCenroOfficerRole || isRegionalOredReviewer || actionKey !== 'override') {
                         return null;
                     }
                 }
                 if ((currentRoleKey === 'DIVISION_CHIEF' || isArdRole) && !bypassRoleStageForReroute) {
                     if (!isReceived) {
                         if (actionKey !== 'receive') {
-                            return null;
-                        }
-                    } else if (!isApproved) {
-                        if (actionKey !== 'approve') {
                             return null;
                         }
                     } else if (currentRoleKey === 'DIVISION_CHIEF' && !isCenroSectionRole && actionKey !== 'forward' && actionKey !== 'send back to ard' && actionKey !== 'send back to penro officer') {
@@ -3170,10 +3953,6 @@
                 if (currentRoleKey === 'SECTION_STAFF') {
                     if (!isReceived) {
                         if (actionKey !== 'receive') {
-                            return null;
-                        }
-                    } else if (!isApproved) {
-                        if (actionKey !== 'approve') {
                             return null;
                         }
                     } else if (actionKey !== 'forward') {
@@ -3197,7 +3976,7 @@
                 ) {
                     return null;
                 }
-                if (actionKey === 'forward' || actionKey === 'send back to ard' || actionKey === 'send back to cenro officer' || actionKey === 'send back to penro officer' || actionKey === 'send back to ored') {
+                if (actionKey === 'forward' || actionKey === 'send back to admin record' || actionKey === 'send back to records-unit' || actionKey === 'send back to ard' || actionKey === 'send back to cenro officer' || actionKey === 'send back to penro officer' || actionKey === 'send back to ored') {
                     if (
                         (routedOutFromCurrentOffice || queueStatusIsForwarded(normalizedStatus))
                         && !(currentRoleKey === 'ORED' && !isCenroOfficerRole)
@@ -3207,7 +3986,7 @@
                     if (isTerminal && !(currentRoleKey === 'ORED' && isSignedCompleted)) {
                         return null;
                     }
-                    if (isPenroAdminRecordRole && !penroIntakeDirectForward && !canManageIntakeRow && !queueStatusIsApproved(normalizedStatus)) {
+                    if (isPenroAdminRecordRole && !penroIntakeDirectForward && !canManageIntakeRow && !isReceived) {
                         return null;
                     }
                     if (
@@ -3220,15 +3999,6 @@
                     ) {
                         return null;
                     }
-                }
-                if (actionKey === 'approve' && (isApproved || isTerminal)) {
-                    return null;
-                }
-                if (actionKey === 'approve' && canManageIntakeRow) {
-                    return null;
-                }
-                if (actionKey === 'approve' && !isReceived) {
-                    return null;
                 }
                 if (actionKey === 'undo sign') {
                     if (currentRoleKey !== 'ORED') {
@@ -3424,7 +4194,7 @@
                         return;
                     }
 
-                    if (isIntakePage && indicatorColumnIndex >= 0 && cells[indicatorColumnIndex]) {
+                    if (indicatorColumnIndex >= 0 && cells[indicatorColumnIndex]) {
                         const indicatorLabel = String(cells[indicatorColumnIndex].textContent || '').trim();
                         renderQueueIndicatorCell(cells[indicatorColumnIndex], indicatorLabel);
                     }
@@ -3544,6 +4314,45 @@
                             }
                             return true;
                         });
+                    const rowIsReceivedForOfficerReturn = queueRowHasReceivedState(rowStatus, rowPendingOfficeId, rowCurrentOfficeId);
+                    const rowIsTerminalForOfficerReturn = queueStatusIsTerminal(normalizedRowStatus);
+                    const rowIsForwardedForOfficerReturn = queueStatusIsForwarded(normalizedRowStatus) || routedOutFromCurrentOffice;
+                    if (
+                        (isCenroOfficerRole || isPenroOfficerRole || isPamoOfficerRole)
+                        && rowIsReceivedForOfficerReturn
+                        && !rowIsTerminalForOfficerReturn
+                        && !rowIsForwardedForOfficerReturn
+                        && actionKeys.indexOf('send back to admin record') === -1
+                    ) {
+                        const forwardIndex = actionKeys.indexOf('forward');
+                        const returnIndex = actionKeys.indexOf('return');
+                        if (forwardIndex !== -1 && returnIndex !== -1 && returnIndex > forwardIndex) {
+                            actionKeys.splice(returnIndex, 0, 'send back to admin record');
+                        } else if (forwardIndex !== -1) {
+                            actionKeys.splice(forwardIndex + 1, 0, 'send back to admin record');
+                        } else {
+                            actionKeys.push('send back to admin record');
+                        }
+                    }
+                    if (
+                        currentRoleKey === 'ORED'
+                        && isRegionalOredReviewer
+                        && rowIsReceivedForOfficerReturn
+                        && (queueStatusIsSignedCompleted(normalizedRowStatus) || rowHasSignedAction)
+                        && !rowIsTerminalForOfficerReturn
+                        && !rowIsForwardedForOfficerReturn
+                        && actionKeys.indexOf('send back to records-unit') === -1
+                    ) {
+                        const forwardIndex = actionKeys.indexOf('forward');
+                        const returnIndex = actionKeys.indexOf('return');
+                        if (forwardIndex !== -1 && returnIndex !== -1 && returnIndex > forwardIndex) {
+                            actionKeys.splice(returnIndex, 0, 'send back to records-unit');
+                        } else if (forwardIndex !== -1) {
+                            actionKeys.splice(forwardIndex + 1, 0, 'send back to records-unit');
+                        } else {
+                            actionKeys.push('send back to records-unit');
+                        }
+                    }
                     if (canManageIntakeRow) {
                         if (actionKeys.indexOf('edit') === -1) {
                             actionKeys.push('edit');
@@ -3678,16 +4487,66 @@
             }
 
             function preparedResponseSourceLabel() {
-                if (isPenroDivisionRole || isPenroSectionRole || isPenroSectionUnitRole) {
-                    return 'PENRO Division/Section';
+                if (isPenroDivisionRole) {
+                    return 'your PENRO Division or its Section';
                 }
-                if (isPamoOfficerRole || isPamoUnitRole) {
-                    return 'PASU/Unit';
+                if (isPenroSectionRole || isPenroSectionUnitRole) {
+                    return 'your PENRO Section or its Unit';
                 }
-                if (isCenroSectionRole || isCenroUnitRole) {
-                    return 'CENRO Section/Unit';
+                if (isPamoOfficerRole) {
+                    return 'your PASU Office or its Unit';
                 }
-                return 'Division/Section';
+                if (isPamoUnitRole) {
+                    return 'your PAMO Unit';
+                }
+                if (isCenroSectionRole) {
+                    return 'your CENRO Section or its Unit';
+                }
+                if (isCenroUnitRole) {
+                    return 'your CENRO Unit';
+                }
+                if (currentRoleKey === 'DIVISION_CHIEF') {
+                    return 'your Division or its Section';
+                }
+                if (currentRoleKey === 'SECTION_STAFF') {
+                    return 'your Section';
+                }
+                return 'your Division/Section';
+            }
+
+            function currentRouteAttachmentOfficeId() {
+                const contextOfficeId = routeContextOfficeId(activeRouteContext);
+                if (Number.isFinite(contextOfficeId) && contextOfficeId > 0) {
+                    return contextOfficeId;
+                }
+                return Number.isFinite(currentOfficeId) && currentOfficeId > 0 ? currentOfficeId : 0;
+            }
+
+            function attachmentBelongsToCurrentRouteOffice(attachment) {
+                const uploadedByOfficeId = Number(attachment && attachment.uploaded_by_office_id ? attachment.uploaded_by_office_id : 0);
+                const officeId = currentRouteAttachmentOfficeId();
+                return Number.isFinite(uploadedByOfficeId)
+                    && uploadedByOfficeId > 0
+                    && Number.isFinite(officeId)
+                    && officeId > 0
+                    && uploadedByOfficeId === officeId;
+            }
+
+            function attachmentBelongsToCurrentRouteOfficeChain(attachment) {
+                const uploadedByOfficeId = Number(attachment && attachment.uploaded_by_office_id ? attachment.uploaded_by_office_id : 0);
+                const uploadedByParentOfficeId = Number(attachment && attachment.uploaded_by_office_parent_id ? attachment.uploaded_by_office_parent_id : 0);
+                const officeId = currentRouteAttachmentOfficeId();
+                const isSameOffice = Number.isFinite(uploadedByOfficeId)
+                    && uploadedByOfficeId > 0
+                    && Number.isFinite(officeId)
+                    && officeId > 0
+                    && uploadedByOfficeId === officeId;
+                const isDirectChildOffice = Number.isFinite(uploadedByParentOfficeId)
+                    && uploadedByParentOfficeId > 0
+                    && Number.isFinite(officeId)
+                    && officeId > 0
+                    && uploadedByParentOfficeId === officeId;
+                return isSameOffice || isDirectChildOffice;
             }
 
             function allowsPreparedResponseAttachment(context, option) {
@@ -3709,9 +4568,6 @@
                 }
                 if (isCenroUnitRole) {
                     return true;
-                }
-                if (isPamoOfficerRole) {
-                    return routeDestinationOptionIsPamoAdmin(destinationOption);
                 }
                 if (isPamoUnitRole) {
                     return routeDestinationOptionIsPamoOfficer(destinationOption);
@@ -3741,28 +4597,66 @@
                 return officeNameMatchesRecordsUnit(optionLabel);
             }
 
-            function allowsEndorsementLetterAttachment(context, option) {
+            function routeDestinationOptionIsRegional(option) {
+                const optionLevel = routeDestinationOptionLevel(option);
+                const optionLabel = String(option && option.textContent ? option.textContent : '').toUpperCase();
+                return optionLevel === 'REGIONAL'
+                    || routeDestinationOptionIsRecordsUnit(option)
+                    || optionLabel.indexOf('[REGIONAL]') !== -1
+                    || optionLabel.indexOf('REGIONAL') !== -1;
+            }
+
+            function routeEndorsementTargetLabel(option) {
+                const rawLabel = String(option && option.textContent ? option.textContent : '').trim();
+                if (rawLabel === '') {
+                    return 'destination office';
+                }
+                return rawLabel.replace(/\s*\[[^\]]+\]\s*$/, '').trim() || 'destination office';
+            }
+
+            function routeEndorsementRequirementRule(context, option) {
                 const action = String(context && context.action ? context.action : '').toUpperCase();
-                if (action !== 'FORWARD') {
-                    return false;
+                if (!option) {
+                    return { allowed: false, required: false, targetLabel: '' };
                 }
 
-                if (isCenroAdminRecordRole && routeDestinationOptionIsRecordsUnit(option)) {
-                    return true;
-                }
-                if (isPenroAdminRecordRole && routeDestinationOptionIsRecordsUnit(option)) {
-                    return true;
+                if (action === 'FORWARD') {
+                    if (isCenroAdminRecordRole && routeDestinationOptionIsPenro(option)) {
+                        return {
+                            allowed: true,
+                            required: false,
+                            targetLabel: routeEndorsementTargetLabel(option),
+                        };
+                    }
+                    if ((isCenroAdminRecordRole || isPenroAdminRecordRole) && routeDestinationOptionIsRecordsUnit(option)) {
+                        return {
+                            allowed: true,
+                            required: false,
+                            targetLabel: 'PACDO/RECORDS-UNIT',
+                        };
+                    }
+                    return { allowed: false, required: false, targetLabel: '' };
                 }
 
-                return false;
+                if (action === 'RELEASE' && isCenroAdminRecordRole && resolveRouteReleaseMode(context) === 'send_to_office') {
+                    if (routeDestinationOptionIsPenro(option) || routeDestinationOptionIsRegional(option)) {
+                        return {
+                            allowed: true,
+                            required: false,
+                            targetLabel: routeEndorsementTargetLabel(option),
+                        };
+                    }
+                }
+
+                return { allowed: false, required: false, targetLabel: '' };
+            }
+
+            function allowsEndorsementLetterAttachment(context, option) {
+                return routeEndorsementRequirementRule(context, option).allowed === true;
             }
 
             function endorsementLetterRequired(context, option) {
-                const action = String(context && context.action ? context.action : '').toUpperCase();
-                if (action !== 'FORWARD') {
-                    return false;
-                }
-                return (isPenroAdminRecordRole || isCenroAdminRecordRole) && routeDestinationOptionIsRecordsUnit(option);
+                return routeEndorsementRequirementRule(context, option).required === true;
             }
 
             function routeAttachmentRequirement(context, option) {
@@ -3781,12 +4675,12 @@
                 }
 
                 if (routeExistingPreparedResponseLoading) {
-                    routeAttachmentMeta.textContent = 'Checking existing prepared response attachments. Upload is required if none is found from ' + preparedResponseSourceLabel() + '.';
+                    routeAttachmentMeta.textContent = 'Checking existing prepared response attachments from ' + preparedResponseSourceLabel() + '. Upload is required if none is found.';
                     return;
                 }
 
                 if (Number.isFinite(routeExistingPreparedResponseCount) && routeExistingPreparedResponseCount > 0) {
-                    routeAttachmentMeta.textContent = 'Optional: prepared response is already uploaded by ' + preparedResponseSourceLabel() + '. Upload another file only when needed.';
+                    routeAttachmentMeta.textContent = 'Optional: a prepared response is already uploaded by ' + preparedResponseSourceLabel() + '. Upload another file only when needed.';
                     return;
                 }
 
@@ -3811,6 +4705,10 @@
                 if (!attachment || typeof attachment !== 'object') {
                     return false;
                 }
+                const category = normalizeLabelKey(String(attachment.route_attachment_category || ''));
+                if (category === 'prepared_response') {
+                    return true;
+                }
                 if (attachment.is_prepared_response === true || Number(attachment.is_prepared_response || 0) === 1) {
                     return true;
                 }
@@ -3828,8 +4726,64 @@
                     || uploadedByRoleKey === 'penro_section_unit';
             }
 
+            function isEndorsementRouteAttachment(attachment) {
+                if (!attachment || typeof attachment !== 'object') {
+                    return false;
+                }
+                const category = normalizeLabelKey(String(attachment.route_attachment_category || ''));
+                if (category === 'endorsement' || category === 'endorsement_letter') {
+                    return true;
+                }
+                const fileNameKey = normalizeLabelKey(String(attachment.file_name || ''));
+                if (fileNameKey.indexOf('endorsement') !== -1 || fileNameKey.indexOf('endorse') !== -1) {
+                    return true;
+                }
+                const uploadedByRoleKey = normalizeLabelKey(String(
+                    attachment.uploaded_by_role_key || attachment.uploaded_by_role || ''
+                ));
+                const uploadedByUserId = Number(attachment.uploaded_by_user_id || 0);
+                const creatorUserId = Number(documentDetailsCreatorUserId || 0);
+                const isCreatorUpload = Number.isFinite(uploadedByUserId)
+                    && uploadedByUserId > 0
+                    && Number.isFinite(creatorUserId)
+                    && creatorUserId > 0
+                    && uploadedByUserId === creatorUserId;
+                if (isCreatorUpload) {
+                    return false;
+                }
+                return uploadedByRoleKey === 'cenro_admin_record'
+                    || uploadedByRoleKey === 'penro_admin_record';
+            }
+
+            function currentRouteAttachmentRequirement() {
+                const selectedIndex = routeDestinationOffice ? routeDestinationOffice.selectedIndex : -1;
+                const selectedOption = routeDestinationOffice && selectedIndex >= 0
+                    ? routeDestinationOffice.options[selectedIndex]
+                    : null;
+                return routeAttachmentRequirement(activeRouteContext, selectedOption);
+            }
+
+            function currentRouteAttachmentLabel() {
+                return currentRouteAttachmentRequirement() === 'endorsement_letter'
+                    ? 'endorsement attachment'
+                    : 'prepared response attachment';
+            }
+
             function filterRouteAttachmentsByPurpose(attachments) {
                 const safeAttachments = Array.isArray(attachments) ? attachments : [];
+                const attachmentRequirement = currentRouteAttachmentRequirement();
+                if (attachmentRequirement === 'prepared_response') {
+                    return safeAttachments.filter(function (attachment) {
+                        return isPreparedResponseRouteAttachment(attachment)
+                            && attachmentBelongsToCurrentRouteOfficeChain(attachment);
+                    });
+                }
+                if (attachmentRequirement === 'endorsement_letter') {
+                    return safeAttachments.filter(function (attachment) {
+                        return isEndorsementRouteAttachment(attachment)
+                            && attachmentBelongsToCurrentRouteOffice(attachment);
+                    });
+                }
                 if (!filterRouteExistingAttachmentsToPreparedResponse) {
                     return safeAttachments;
                 }
@@ -3840,41 +4794,66 @@
                 if (!routeExistingAttachmentsMeta || !routeExistingAttachmentsList) {
                     return;
                 }
-                const safeAttachments = filterRouteAttachmentsByPurpose(attachments);
+                const allAttachments = Array.isArray(attachments) ? attachments : [];
+                const attachmentRequirement = currentRouteAttachmentRequirement();
+                const safeAttachments = filterRouteAttachmentsByPurpose(allAttachments);
                 routeExistingPreparedResponseCount = safeAttachments.length;
-                const attachmentLabel = filterRouteExistingAttachmentsToPreparedResponse
-                    ? 'prepared response attachment'
-                    : 'attachment';
+                const visibleAttachments = attachmentRequirement === 'prepared_response'
+                    ? allAttachments.filter(isPreparedResponseRouteAttachment)
+                    : safeAttachments;
+                const attachmentLabel = attachmentRequirement === 'endorsement_letter'
+                    ? 'endorsement attachment'
+                    : (filterRouteExistingAttachmentsToPreparedResponse || attachmentRequirement === 'prepared_response'
+                        ? 'prepared response attachment'
+                        : 'attachment');
                 routeExistingAttachmentsList.innerHTML = '';
-                if (safeAttachments.length === 0) {
+                if (visibleAttachments.length === 0) {
                     routeExistingAttachmentsMeta.hidden = false;
-                    routeExistingAttachmentsMeta.textContent = filterRouteExistingAttachmentsToPreparedResponse
-                        ? 'No prepared response attachment found yet. Upload is required before forwarding.'
-                        : 'No existing attachment found yet. You can forward without uploading another file.';
+                    routeExistingAttachmentsMeta.textContent = attachmentRequirement === 'endorsement_letter'
+                        ? 'No endorsement attachment from your current office found yet. Upload is optional before forwarding.'
+                        : (filterRouteExistingAttachmentsToPreparedResponse
+                            ? 'No prepared response attachment from ' + preparedResponseSourceLabel() + ' found yet. Upload is required before forwarding.'
+                            : 'No existing attachment found yet. You can forward without uploading another file.');
                     routeExistingAttachmentsList.hidden = true;
                     updatePreparedResponseAttachmentMeta(activeRouteContext);
                     return;
                 }
 
                 routeExistingAttachmentsMeta.hidden = false;
-                routeExistingAttachmentsMeta.textContent = safeAttachments.length === 1
-                    ? '1 existing ' + attachmentLabel + ' found. Uploading another file is optional.'
-                    : String(safeAttachments.length) + ' existing ' + attachmentLabel + 's found. Uploading another file is optional.';
+                if (attachmentRequirement === 'prepared_response') {
+                    if (routeExistingPreparedResponseCount > 0) {
+                        routeExistingAttachmentsMeta.textContent = routeExistingPreparedResponseCount === 1
+                            ? '1 existing prepared response attachment from ' + preparedResponseSourceLabel() + ' found. Uploading another file is optional.'
+                            : String(routeExistingPreparedResponseCount) + ' existing prepared response attachments from ' + preparedResponseSourceLabel() + ' found. Uploading another file is optional.';
+                    } else {
+                        routeExistingAttachmentsMeta.textContent = visibleAttachments.length === 1
+                            ? 'No prepared response attachment from ' + preparedResponseSourceLabel() + ' counts for this route yet. 1 prepared response from another office is listed below for viewing.'
+                            : 'No prepared response attachment from ' + preparedResponseSourceLabel() + ' counts for this route yet. ' + String(visibleAttachments.length) + ' prepared responses from other offices are listed below for viewing.';
+                    }
+                } else {
+                    routeExistingAttachmentsMeta.textContent = safeAttachments.length === 1
+                        ? '1 existing ' + attachmentLabel + ' from your current office found. Uploading another file is optional.'
+                        : String(safeAttachments.length) + ' existing ' + attachmentLabel + 's from your current office found. Uploading another file is optional.';
+                }
 
                 const maxVisible = 10;
-                safeAttachments.slice(0, maxVisible).forEach(function (attachment) {
+                visibleAttachments.slice(0, maxVisible).forEach(function (attachment) {
                     const item = document.createElement('li');
                     const fileName = String(attachment && attachment.file_name ? attachment.file_name : 'Attachment').trim() || 'Attachment';
                     const attachmentId = Number(attachment && attachment.id ? attachment.id : 0);
-                    const canDelete = !!(attachment && attachment.can_delete);
-                    const uploadedBy = String(attachment && attachment.uploaded_by ? attachment.uploaded_by : '').trim();
+                    const canManage = !!(attachment && attachment.can_manage_route_attachment);
+                    const uploadedByOfficeName = String(attachment && attachment.uploaded_by_office_name ? attachment.uploaded_by_office_name : '').trim();
+                    const uploadedByRole = String(attachment && attachment.uploaded_by_role ? attachment.uploaded_by_role : '').trim();
                     const versionNumber = Number(attachment && attachment.version_number ? attachment.version_number : 0);
                     const descriptorParts = [];
                     if (Number.isFinite(versionNumber) && versionNumber > 0) {
                         descriptorParts.push('v' + String(versionNumber));
                     }
-                    if (uploadedBy !== '') {
-                        descriptorParts.push('by ' + uploadedBy);
+                    if (uploadedByRole !== '') {
+                        descriptorParts.push(uploadedByRole);
+                    }
+                    if (uploadedByOfficeName !== '') {
+                        descriptorParts.push(uploadedByOfficeName);
                     }
                     const descriptor = descriptorParts.length > 0 ? (' (' + descriptorParts.join(', ') + ')') : '';
 
@@ -3899,12 +4878,70 @@
                     }
                     contentRow.appendChild(contentText);
 
-                    if (canDelete && Number.isFinite(attachmentId) && attachmentId > 0) {
+                    if (canManage && Number.isFinite(attachmentId) && attachmentId > 0) {
+                        const actionGroup = document.createElement('div');
+                        actionGroup.className = 'route-existing-attachment-actions';
+                        const replacementInput = document.createElement('input');
+                        replacementInput.type = 'file';
+                        replacementInput.hidden = true;
+                        replacementInput.addEventListener('change', function () {
+                            const replacementFile = replacementInput.files && replacementInput.files.length > 0
+                                ? replacementInput.files[0]
+                                : null;
+                            if (!replacementFile) {
+                                return;
+                            }
+                            const activeDocumentId = Number(activeRouteContext && activeRouteContext.documentId ? activeRouteContext.documentId : 0);
+                            if (!Number.isFinite(activeDocumentId) || activeDocumentId <= 0) {
+                                showAlertDialog('Missing document reference for attachment replace.');
+                                replacementInput.value = '';
+                                return;
+                            }
+
+                            replaceButton.disabled = true;
+                            deleteButton.disabled = true;
+                            sendDocumentAction({
+                                action: 'REPLACE_ROUTE_ATTACHMENT',
+                                documentId: activeDocumentId,
+                                attachmentId: attachmentId,
+                                attachmentFiles: [replacementFile],
+                                preconditionVersion: Number(activeRouteContext && activeRouteContext.documentVersion ? activeRouteContext.documentVersion : 0),
+                            }).then(function (result) {
+                                if (result && result.queued_offline) {
+                                    showAlertDialog(result.message || 'Offline mode: action was queued and will sync automatically.');
+                                    return;
+                                }
+
+                                const nextVersion = Number(result && result.current_version ? result.current_version : 0);
+                                if (activeRouteContext && Number.isFinite(nextVersion) && nextVersion > 0) {
+                                    activeRouteContext.documentVersion = nextVersion;
+                                }
+                                loadRouteExistingAttachments(activeRouteContext);
+                                syncRouteAttachmentUi(activeRouteContext);
+                                showAlertDialog(result.message || 'Attachment replaced.');
+                            }).catch(function (error) {
+                                showAlertDialog(error.message || 'Unable to replace attachment.');
+                            }).finally(function () {
+                                replacementInput.value = '';
+                                replaceButton.disabled = false;
+                                deleteButton.disabled = false;
+                            });
+                        });
+
+                        const replaceButton = document.createElement('button');
+                        replaceButton.type = 'button';
+                        replaceButton.className = 'route-existing-attachment-replace';
+                        replaceButton.textContent = 'Replace';
+                        replaceButton.title = 'Replace this ' + attachmentLabel;
+                        replaceButton.addEventListener('click', function () {
+                            replacementInput.click();
+                        });
+
                         const deleteButton = document.createElement('button');
                         deleteButton.type = 'button';
                         deleteButton.className = 'route-existing-attachment-delete';
                         deleteButton.textContent = 'Remove';
-                        deleteButton.title = 'Remove this prepared response attachment';
+                        deleteButton.title = 'Remove this ' + attachmentLabel;
                         deleteButton.addEventListener('click', function () {
                             const activeDocumentId = Number(activeRouteContext && activeRouteContext.documentId ? activeRouteContext.documentId : 0);
                             if (!Number.isFinite(activeDocumentId) || activeDocumentId <= 0) {
@@ -3913,7 +4950,7 @@
                             }
 
                             showConfirmDialog(
-                                'Remove prepared response attachment "' + fileName + '"?',
+                                'Remove ' + attachmentLabel + ' "' + fileName + '"?',
                                 'Confirm Attachment Remove',
                                 'Remove'
                             ).then(function (confirmed) {
@@ -3921,9 +4958,10 @@
                                     return;
                                 }
 
+                                replaceButton.disabled = true;
                                 deleteButton.disabled = true;
                                 sendDocumentAction({
-                                    action: 'DELETE_ATTACHMENT',
+                                    action: 'ROUTE_DELETE_ATTACHMENT',
                                     documentId: activeDocumentId,
                                     attachmentId: attachmentId,
                                     preconditionVersion: Number(activeRouteContext && activeRouteContext.documentVersion ? activeRouteContext.documentVersion : 0),
@@ -3943,20 +4981,24 @@
                                 }).catch(function (error) {
                                     showAlertDialog(error.message || 'Unable to remove attachment.');
                                 }).finally(function () {
+                                    replaceButton.disabled = false;
                                     deleteButton.disabled = false;
                                 });
                             });
                         });
-                        contentRow.appendChild(deleteButton);
+                        actionGroup.appendChild(replacementInput);
+                        actionGroup.appendChild(replaceButton);
+                        actionGroup.appendChild(deleteButton);
+                        contentRow.appendChild(actionGroup);
                     }
 
                     item.appendChild(contentRow);
                     routeExistingAttachmentsList.appendChild(item);
                 });
 
-                if (safeAttachments.length > maxVisible) {
+                if (visibleAttachments.length > maxVisible) {
                     const moreItem = document.createElement('li');
-                    moreItem.textContent = '+' + String(safeAttachments.length - maxVisible) + ' more attachment(s). Open View Details to see all.';
+                    moreItem.textContent = '+' + String(visibleAttachments.length - maxVisible) + ' more attachment(s). Open View Details to see all.';
                     routeExistingAttachmentsList.appendChild(moreItem);
                 }
 
@@ -3985,17 +5027,17 @@
 
                 if (attachmentKind === 'prepared_response') {
                     if (isPenroDivisionRole) {
-                        routeAttachmentLabel.textContent = 'Prepared of Response (Send Back to PENRO Officer)';
+                        routeAttachmentLabel.textContent = 'Prepared Response (Send Back to PENRO Officer)';
                     } else if (isPenroSectionRole || isPenroSectionUnitRole) {
-                        routeAttachmentLabel.textContent = 'Prepared of Response (Forward to PENRO Division)';
+                        routeAttachmentLabel.textContent = 'Prepared Response (Forward to PENRO Division)';
                     } else if (isCenroSectionRole) {
-                        routeAttachmentLabel.textContent = 'Prepared of Response (Send Back to CENRO Officer)';
+                        routeAttachmentLabel.textContent = 'Prepared Response (Send Back to CENRO Officer)';
                     } else if (isCenroUnitRole) {
-                        routeAttachmentLabel.textContent = 'Prepared of Response (Forward to CENRO Section)';
+                        routeAttachmentLabel.textContent = 'Prepared Response (Forward to CENRO Section)';
                     } else if (currentRoleKey === 'DIVISION_CHIEF') {
-                        routeAttachmentLabel.textContent = 'Prepared of Response (Send Back to ARD)';
+                        routeAttachmentLabel.textContent = 'Prepared Response (Send Back to ARD)';
                     } else {
-                        routeAttachmentLabel.textContent = 'Prepared of Response (Send Back to Division Chief)';
+                        routeAttachmentLabel.textContent = 'Prepared Response (Send Back to Division Chief)';
                     }
                     routeExistingPreparedResponseCount = null;
                     routeExistingPreparedResponseLoading = true;
@@ -4007,12 +5049,15 @@
 
                 if (attachmentKind === 'endorsement_letter') {
                     routeAttachmentLabel.textContent = 'Endorsement Letter (Attachment)';
-                    const targetLabel = 'PACDO/RECORDS-UNIT';
+                    const endorsementRule = routeEndorsementRequirementRule(context, selectedOption);
+                    const targetLabel = endorsementRule.targetLabel || 'destination office';
                     const isRequired = endorsementLetterRequired(context, selectedOption);
+                    routeExistingPreparedResponseCount = null;
+                    routeExistingPreparedResponseLoading = true;
                     routeAttachmentMeta.textContent = isRequired
-                        ? 'Required: upload endorsement letter before forwarding to ' + targetLabel + '.'
-                        : 'Optional: upload endorsement letter when needed before forwarding to ' + targetLabel + '.';
-                    resetRouteExistingAttachmentsDisplay();
+                        ? 'Required: upload endorsement letter before routing to ' + targetLabel + ', unless your current office already uploaded one.'
+                        : 'Optional: upload endorsement letter when needed before routing to ' + targetLabel + '.';
+                    loadRouteExistingAttachments(context);
                     routeAttachmentInput.value = '';
                     return attachmentKind;
                 }
@@ -4045,9 +5090,11 @@
 
                 const requestId = ++routeExistingAttachmentsRequestId;
                 routeExistingAttachmentsMeta.hidden = false;
-                routeExistingAttachmentsMeta.textContent = filterRouteExistingAttachmentsToPreparedResponse
-                    ? 'Checking existing prepared response attachments...'
-                    : 'Checking existing attachments...';
+                routeExistingAttachmentsMeta.textContent = currentRouteAttachmentRequirement() === 'endorsement_letter'
+                    ? 'Checking existing endorsement attachments...'
+                    : (filterRouteExistingAttachmentsToPreparedResponse
+                        ? 'Checking existing prepared response attachments...'
+                        : 'Checking existing attachments...');
                 routeExistingAttachmentsList.hidden = true;
                 routeExistingAttachmentsList.innerHTML = '';
 
@@ -4102,7 +5149,6 @@
                     'RETURN': 'Return',
                     'OVERRIDE': 'Override',
                     'RECEIVE': 'Receive',
-                    'APPROVE': 'Approve',
                     'SIGN': 'Sign',
                     'UNSIGN': 'Undo Sign',
                     'PENDING': 'Pending',
@@ -4163,6 +5209,12 @@
                 }
                 if (action === 'FORWARD' && isCenroSectionRole && routeMode === 'cenro_officer_back') {
                     return 'Send Back to CENRO Officer';
+                }
+                if (action === 'FORWARD' && (isCenroOfficerRole || isPenroOfficerRole || isPamoOfficerRole) && routeMode === 'admin_record_back') {
+                    return 'Send Back to Admin Record';
+                }
+                if (action === 'FORWARD' && currentRoleKey === 'ORED' && routeMode === 'records_unit_back') {
+                    return 'Send Back to RECORDS-UNIT';
                 }
                 if (action === 'FORWARD' && currentRoleKey === 'DIVISION_CHIEF' && !isCenroSectionRole && routeMode === 'ard_back') {
                     if (isPenroDivisionRole || isPenroSectionRole) {
@@ -4262,6 +5314,70 @@
                 return '';
             }
 
+            function officeNameMatchesRbco(value) {
+                const key = normalizeOfficePolicyKey(String(value || ''));
+                return key === 'rbcoriverbasincontroloffice'
+                    || key === 'riverbasincontroloffice';
+            }
+
+            function findRouteOfficeById(officeId) {
+                const normalizedOfficeId = Number(officeId || 0);
+                if (!Number.isFinite(normalizedOfficeId) || normalizedOfficeId <= 0) {
+                    return null;
+                }
+
+                const candidateCollections = [];
+                if (Array.isArray(routeOffices)) {
+                    candidateCollections.push(routeOffices);
+                }
+                if (Array.isArray(routeFallbackOffices) && routeFallbackOffices.length > 0) {
+                    candidateCollections.push(routeFallbackOffices);
+                } else if (routeFallbackOffice && typeof routeFallbackOffice === 'object') {
+                    candidateCollections.push([routeFallbackOffice]);
+                }
+
+                for (let collectionIndex = 0; collectionIndex < candidateCollections.length; collectionIndex += 1) {
+                    const collection = candidateCollections[collectionIndex];
+                    const match = collection.find(function (candidate) {
+                        return Number(candidate && candidate.id ? candidate.id : 0) === normalizedOfficeId;
+                    });
+                    if (match) {
+                        return match;
+                    }
+                }
+
+                return null;
+            }
+
+            function officeTrackFromRouteOffice(office) {
+                const officeLevel = String(office && office.level ? office.level : '').toUpperCase();
+                const officeName = String(office && office.name ? office.name : '');
+
+                if (officeLevel === 'DIVISION') {
+                    return divisionTrackFromOfficeName(officeName);
+                }
+
+                if (officeLevel === 'SECTION' || officeLevel === 'UNIT') {
+                    const parentOfficeId = Number(office && office.parent_office_id ? office.parent_office_id : 0);
+                    if (Number.isFinite(parentOfficeId) && parentOfficeId > 0) {
+                        const parentOffice = findRouteOfficeById(parentOfficeId);
+                        if (parentOffice) {
+                            const parentLevel = String(parentOffice && parentOffice.level ? parentOffice.level : '').toUpperCase();
+                            if (parentLevel === 'DIVISION') {
+                                return divisionTrackFromOfficeName(String(parentOffice && parentOffice.name ? parentOffice.name : ''));
+                            }
+
+                            const parentTrack = ardTrackFromOfficeName(String(parentOffice && parentOffice.name ? parentOffice.name : ''));
+                            if (parentTrack !== '') {
+                                return parentTrack;
+                            }
+                        }
+                    }
+                }
+
+                return ardTrackFromOfficeName(officeName);
+            }
+
             function ardTrackFromOfficeName(officeName) {
                 const name = String(officeName || '').toUpperCase();
                 const key = normalizeOfficePolicyKey(name);
@@ -4298,6 +5414,11 @@
                 return queueStatusIsSignedCompleted(normalizedStatus);
             }
 
+            function routeContextHasSignedPhase(context) {
+                return isOredPostSignStatus(context && context.currentStatus ? context.currentStatus : '')
+                    || Boolean(context && context.hasSignedAction);
+            }
+
             function officeNameMatchesRecordsUnit(value) {
                 const normalized = String(value || '').toUpperCase();
                 return normalized.indexOf('PACDO') !== -1
@@ -4305,6 +5426,14 @@
                     || normalized.indexOf('RECORDS_UNIT') !== -1
                     || normalized.indexOf('RECORDS UNIT') !== -1
                     || normalized.indexOf('RECORDSUNIT') !== -1;
+            }
+
+            function isOfficerAdminRecordBackRoute(context) {
+                const action = String(context && context.action ? context.action : '').toUpperCase();
+                const routeMode = normalizeLabelKey(context && context.routeMode ? context.routeMode : '');
+                return action === 'FORWARD'
+                    && routeMode === 'admin_record_back'
+                    && (isCenroOfficerRole || isPenroOfficerRole || isPamoOfficerRole);
             }
 
             function routeDestinationFilterUiPreset(context) {
@@ -4348,6 +5477,9 @@
                     }
                 }
                 if (currentRoleKey === 'ORED' && !isCenroOfficerRole && !isPamoOfficerRole) {
+                    if (isRegionalOredReviewer) {
+                        return 'default';
+                    }
                     const action = String(context && context.action ? context.action : '').toUpperCase();
                     if (action === 'REROUTE') {
                         return 'ored';
@@ -4491,6 +5623,9 @@
 
             function routeSupportsDestinationTypeFilter(context) {
                 const action = String(context && context.action ? context.action : '').toUpperCase();
+                if (isOfficerAdminRecordBackRoute(context)) {
+                    return false;
+                }
                 if (isPamoAdminRole) {
                     return action === 'FORWARD';
                 }
@@ -4514,6 +5649,9 @@
                     return false;
                 }
                 if (currentRoleKey === 'ORED' && !isCenroOfficerRole && !isPamoOfficerRole) {
+                    if (isRegionalOredReviewer) {
+                        return false;
+                    }
                     if (action === 'REROUTE') {
                         return true;
                     }
@@ -4773,12 +5911,37 @@
                 if (action !== 'FORWARD' && action !== 'REROUTE') {
                     return;
                 }
-                const isPostSignStage = isOredPostSignStatus(context && context.currentStatus ? context.currentStatus : '');
+                const isPostSignStage = routeContextHasSignedPhase(context);
+                const routeMode = normalizeLabelKey(context && context.routeMode ? context.routeMode : '');
+                if (isRegionalOredReviewer && routeMode === 'records_unit_back') {
+                    const recordsUnitOption = Array.from(routeDestinationOffice.options).find(function (option) {
+                        return officeNameMatchesRecordsUnit(String(option.textContent || '').toUpperCase());
+                    });
+                    if (recordsUnitOption) {
+                        routeDestinationOffice.value = String(recordsUnitOption.value || '');
+                    }
+                    return;
+                }
+                if (isRegionalOredReviewer && !isPostSignStage) {
+                    const sameOfficeOption = Array.from(routeDestinationOffice.options).find(function (option) {
+                        return String(option.value || '') === String(currentOfficeId || '');
+                    });
+                    if (sameOfficeOption) {
+                        routeDestinationOffice.value = String(sameOfficeOption.value || '');
+                    }
+                    return;
+                }
+                if (!isRegionalOredReviewer && isPostSignStage) {
+                    const sameOfficeOption = Array.from(routeDestinationOffice.options).find(function (option) {
+                        return String(option.value || '') === String(currentOfficeId || '');
+                    });
+                    if (sameOfficeOption) {
+                        routeDestinationOffice.value = String(sameOfficeOption.value || '');
+                    }
+                    return;
+                }
                 const preferredOption = Array.from(routeDestinationOffice.options).find(function (option) {
                     const label = String(option.textContent || '').toUpperCase();
-                    if (action === 'FORWARD' && isPostSignStage) {
-                        return officeNameMatchesRecordsUnit(label);
-                    }
                     if (activeRouteDestinationFilter === 'division') {
                         return label.indexOf('[DIVISION]') !== -1 || label.indexOf('DIVISION') !== -1;
                     }
@@ -5041,7 +6204,11 @@
                 if (action !== 'FORWARD') {
                     return false;
                 }
-                if (isOredPostSignStatus(context && context.currentStatus ? context.currentStatus : '')) {
+                const isPostSignStage = isOredPostSignStatus(context && context.currentStatus ? context.currentStatus : '');
+                if (!isRegionalOredReviewer) {
+                    return false;
+                }
+                if (!isPostSignStage) {
                     return false;
                 }
                 const isArdDestination = optionLevel === 'REGIONAL'
@@ -5081,7 +6248,7 @@
                 const officeName = String(office && office.name ? office.name : '').toUpperCase();
                 const officeLevel = String(office && office.level ? office.level : '').toUpperCase();
                 const currentStatus = normalizeLabelKey(context && context.currentStatus ? context.currentStatus : '');
-                const isOredPostSignStage = isOredPostSignStatus(currentStatus);
+                const isOredPostSignStage = routeContextHasSignedPhase(context);
                 const originOfficeId = Number(context && context.originOfficeId ? context.originOfficeId : 0);
                 const routeMode = normalizeLabelKey(context && context.routeMode ? context.routeMode : '');
                 const officeId = Number(office && office.id ? office.id : 0);
@@ -5122,11 +6289,11 @@
                             && parentOfficeId === policyOfficeId;
                         return isUnitDestination;
                     }
-                    if (isPenroOfficerRole) {
-                        const isPostSignStage = isOredPostSignStatus(currentStatus);
-                        if (isPostSignStage) {
-                            return false;
-                        }
+                if (isPenroOfficerRole) {
+                    const isPostSignStage = isOredPostSignStatus(currentStatus);
+                    if (isPostSignStage) {
+                        return false;
+                    }
                         const parentOfficeId = Number(office && office.parent_office_id ? office.parent_office_id : 0);
                         const isDivisionDestination = (officeLevel === 'PENRO_DIVISION' || officeName.indexOf('DIVISION') !== -1)
                             && Number.isFinite(parentOfficeId)
@@ -5246,6 +6413,31 @@
                     return true;
                 }
 
+                if (releaseUsesForwardPolicy && (isPenroAdminRecordRole || isCenroAdminRecordRole)) {
+                    const isCurrentOffice = Number.isFinite(officeId)
+                        && officeId > 0
+                        && officeId === currentOfficeId;
+                    const isOriginDestination = Number.isFinite(originOfficeId)
+                        && originOfficeId > 0
+                        && Number.isFinite(officeId)
+                        && officeId === originOfficeId
+                        && !isCurrentOffice;
+                    const isRecordsUnitDestination = officeNameMatchesRecordsUnit(officeName);
+                    if (isCenroAdminRecordRole) {
+                        const isPenroDestination = officeLevel === 'PENRO_ADMIN_RECORD'
+                            || officeName.indexOf('PENRO ADMIN') !== -1;
+                        return isOriginDestination || isPenroDestination || isRecordsUnitDestination;
+                    }
+
+                    if (Number.isFinite(originOfficeId) && originOfficeId > 0) {
+                        return isOriginDestination || isRecordsUnitDestination;
+                    }
+
+                    const isCenroDestination = officeLevel === 'CENRO_ADMIN_RECORD'
+                        || officeName.indexOf('CENRO ADMIN') !== -1;
+                    return isOriginDestination || isCenroDestination || isRecordsUnitDestination;
+                }
+
                 if (action !== 'FORWARD' && !releaseUsesForwardPolicy) {
                     return true;
                 }
@@ -5263,6 +6455,7 @@
                 }
                 if (isCenroOfficerRole) {
                     const isPostSignStage = isOredPostSignStatus(currentStatus);
+                    const isAdminRecordBack = routeMode === 'admin_record_back';
                     if (isPostSignStage) {
                         const parentOfficeId = Number(office && office.parent_office_id ? office.parent_office_id : 0);
                         const isAdminRecordChild = (officeLevel === 'CENRO_ADMIN_RECORD' || officeName.indexOf('ADMIN RECORD') !== -1)
@@ -5282,6 +6475,23 @@
                         return isAdminRecordChild;
                     }
                     const parentOfficeId = Number(office && office.parent_office_id ? office.parent_office_id : 0);
+                    const isAdminRecordChild = (officeLevel === 'CENRO_ADMIN_RECORD' || officeName.indexOf('ADMIN RECORD') !== -1)
+                        && Number.isFinite(parentOfficeId)
+                        && parentOfficeId > 0
+                        && (
+                            parentOfficeId === currentOfficeId
+                            || (
+                                Number.isFinite(currentOfficeParentId)
+                                && currentOfficeParentId > 0
+                                && parentOfficeId === currentOfficeParentId
+                            )
+                        );
+                    if (isAdminRecordBack) {
+                        if (Number.isFinite(originOfficeId) && originOfficeId > 0 && Number.isFinite(officeId) && officeId === originOfficeId) {
+                            return true;
+                        }
+                        return isAdminRecordChild;
+                    }
                     const isSectionChild = (officeLevel === 'CENRO_SECTION' || officeName.indexOf('CENRO SECTION') !== -1)
                         && Number.isFinite(parentOfficeId)
                         && parentOfficeId > 0
@@ -5299,14 +6509,9 @@
                     ) {
                         return false;
                     }
-                    const parentOfficeId = Number(office && office.parent_office_id ? office.parent_office_id : 0);
-                    const isOfficerDestination = officeLevel === 'PASU_OFFICER'
-                        && Number.isFinite(parentOfficeId)
-                        && parentOfficeId > 0
-                        && parentOfficeId === currentOfficeParentId;
                     const isCenroDestination = officeLevel === 'CENRO_ADMIN_RECORD' || officeName.indexOf('CENRO ADMIN') !== -1;
                     const isPenroDestination = officeLevel === 'PENRO_ADMIN_RECORD' || officeName.indexOf('PENRO ADMIN') !== -1;
-                    return isOfficerDestination || isCenroDestination || isPenroDestination;
+                    return isCenroDestination || isPenroDestination;
                 }
                 if (isPenroAdminRecordRole) {
                     if (
@@ -5328,8 +6533,18 @@
                 }
                 if (isPenroOfficerRole) {
                     const isPostSignStage = isOredPostSignStatus(currentStatus);
+                    const isAdminRecordBack = routeMode === 'admin_record_back';
                     const parentOfficeId = Number(office && office.parent_office_id ? office.parent_office_id : 0);
                     if (isPostSignStage) {
+                        if (Number.isFinite(originOfficeId) && originOfficeId > 0 && Number.isFinite(officeId) && officeId === originOfficeId) {
+                            return true;
+                        }
+                        return officeLevel === 'PENRO_ADMIN_RECORD'
+                            && Number.isFinite(parentOfficeId)
+                            && parentOfficeId > 0
+                            && parentOfficeId === currentOfficeParentId;
+                    }
+                    if (isAdminRecordBack) {
                         if (Number.isFinite(originOfficeId) && originOfficeId > 0 && Number.isFinite(officeId) && officeId === originOfficeId) {
                             return true;
                         }
@@ -5347,8 +6562,20 @@
                 }
                 if (isPamoOfficerRole) {
                     const isPostSignStage = isOredPostSignStatus(currentStatus);
+                    const isAdminRecordBack = routeMode === 'admin_record_back';
                     const parentOfficeId = Number(office && office.parent_office_id ? office.parent_office_id : 0);
                     if (isPostSignStage) {
+                        if (Number.isFinite(originOfficeId) && originOfficeId > 0 && Number.isFinite(officeId) && officeId === originOfficeId) {
+                            return true;
+                        }
+                        return officeLevel === 'PAMO_ADMIN'
+                            && Number.isFinite(parentOfficeId)
+                            && parentOfficeId > 0
+                            && Number.isFinite(policyParentOfficeId)
+                            && policyParentOfficeId > 0
+                            && parentOfficeId === policyParentOfficeId;
+                    }
+                    if (isAdminRecordBack) {
                         if (Number.isFinite(originOfficeId) && originOfficeId > 0 && Number.isFinite(officeId) && officeId === originOfficeId) {
                             return true;
                         }
@@ -5418,8 +6645,26 @@
                     return officeName.indexOf('ORED') !== -1 || officeName.indexOf('REGIONAL EXECUTIVE') !== -1;
                 }
                 if (currentRoleKey === 'ORED') {
-                    if (isOredPostSignStage) {
-                        return officeNameMatchesRecordsUnit(officeName);
+                    if (isRegionalOredReviewer) {
+                        if (isOredPostSignStage) {
+                            const isArdDestination = officeLevel === 'REGIONAL' && ardTrackFromOfficeName(officeName) !== '';
+                            const isRecordsUnitDestination = officeNameMatchesRecordsUnit(officeName);
+                            if (routeMode === 'records_unit_back') {
+                                return isRecordsUnitDestination;
+                            }
+                            return isArdDestination
+                                || officeLevel === 'DIVISION'
+                                || officeLevel === 'SECTION'
+                                || isRecordsUnitDestination;
+                        }
+                        return Number.isFinite(officeId)
+                            && officeId > 0
+                            && officeId === currentOfficeId;
+                    }
+                    if (!isRegionalOredReviewer && isOredPostSignStage) {
+                        return Number.isFinite(officeId)
+                            && officeId > 0
+                            && officeId === currentOfficeId;
                     }
                     const isArdDestination = officeLevel === 'REGIONAL' && ardTrackFromOfficeName(officeName) !== '';
                     return isArdDestination
@@ -5510,17 +6755,18 @@
                 }
                 if (isArdRole) {
                     const actorTrack = ardTrackFromRoleKey(currentRoleKey);
-                    const officeTrack = divisionTrackFromOfficeName(officeName);
                     const isOredDestination = officeName.indexOf('ORED') !== -1 || officeName.indexOf('REGIONAL EXECUTIVE') !== -1;
+                    const isRbcoDestination = officeNameMatchesRbco(officeName);
                     if (routeMode === 'ored_back') {
                         return isOredDestination;
                     }
                     if (isOredDestination) {
                         return false;
                     }
-                    if (officeLevel !== 'DIVISION' && officeName.indexOf('DIVISION') === -1) {
+                    if (officeLevel !== 'DIVISION' && !isRbcoDestination) {
                         return false;
                     }
+                    const officeTrack = officeTrackFromRouteOffice(office);
                     if (actorTrack === '' || officeTrack === '') {
                         return false;
                     }
@@ -5530,7 +6776,7 @@
                 return true;
             }
 
-            function routeOfficeHidesLevelSuffix(normalizedLevel) {
+            function routeOfficeHidesLevelSuffix(normalizedLevel, office) {
                 return normalizedLevel === 'CENRO_SECTION'
                     || normalizedLevel === 'CENRO_UNIT'
                     || normalizedLevel === 'CENRO_ADMIN_RECORD'
@@ -5540,7 +6786,8 @@
                     || normalizedLevel === 'PAMO_UNIT'
                     || normalizedLevel === 'PENRO_OFFICER'
                     || normalizedLevel === 'PENRO_DIVISION'
-                    || normalizedLevel === 'PENRO_SECTION';
+                    || normalizedLevel === 'PENRO_SECTION'
+                    || officeNameMatchesRbco(office && office.name ? office.name : '');
             }
 
             function appendRouteOfficeOption(office) {
@@ -5560,11 +6807,12 @@
 
                 const level = String(office && office.level ? office.level : '').trim();
                 const normalizedLevel = String(level).toUpperCase();
+                const hideLevelSuffix = routeOfficeHidesLevelSuffix(normalizedLevel, office);
                 const option = document.createElement('option');
                 option.value = String(officeId);
                 option.dataset.officeLevel = normalizedLevel;
-                option.textContent = String(office && office.name ? office.name : ('Office #' + String(officeId)))
-                    + (level === '' || routeOfficeHidesLevelSuffix(normalizedLevel) ? '' : ' [' + level + ']');
+                option.textContent = String(office && office.route_label ? office.route_label : (office && office.name ? office.name : ('Office #' + String(officeId))))
+                    + (level === '' || hideLevelSuffix ? '' : ' [' + level + ']');
                 routeDestinationOffice.appendChild(option);
                 return true;
             }
@@ -5648,6 +6896,86 @@
                         allowed = officeLevel === 'PASU_OFFICER'
                             || officeLevel === 'CENRO_ADMIN_RECORD'
                             || officeLevel === 'PENRO_ADMIN_RECORD';
+                    }
+
+                    if (!allowed) {
+                        return;
+                    }
+                    if (appendRouteOfficeOption(office)) {
+                        forcedCount += 1;
+                    }
+                });
+
+                return forcedCount;
+            }
+
+            function forcePopulateOfficerAdminRecordBackDestinations(context) {
+                if (!routeDestinationOffice || !(isCenroOfficerRole || isPenroOfficerRole || isPamoOfficerRole)) {
+                    return 0;
+                }
+                const action = String(context && context.action ? context.action : '').toUpperCase();
+                const routeMode = normalizeLabelKey(context && context.routeMode ? context.routeMode : '');
+                if (action !== 'FORWARD' || routeMode !== 'admin_record_back') {
+                    return 0;
+                }
+
+                const originOfficeId = Number(context && context.originOfficeId ? context.originOfficeId : 0);
+                const policyOfficeId = routeContextOfficeId(context);
+                const policyParentOfficeId = routeContextParentOfficeId(context);
+                const candidates = [];
+                if (Array.isArray(routeOffices)) {
+                    routeOffices.forEach(function (office) {
+                        candidates.push(office);
+                    });
+                }
+                if (Array.isArray(routeFallbackOffices) && routeFallbackOffices.length > 0) {
+                    routeFallbackOffices.forEach(function (office) {
+                        candidates.push(office);
+                    });
+                } else if (routeFallbackOffice && typeof routeFallbackOffice === 'object') {
+                    candidates.push(routeFallbackOffice);
+                }
+
+                let forcedCount = 0;
+                candidates.forEach(function (office) {
+                    const officeId = Number(office && office.id ? office.id : 0);
+                    const officeLevel = String(office && office.level ? office.level : '').toUpperCase();
+                    const officeName = String(office && office.name ? office.name : '').toUpperCase();
+                    const parentOfficeId = Number(office && office.parent_office_id ? office.parent_office_id : 0);
+                    let allowed = false;
+
+                    if (Number.isFinite(originOfficeId) && originOfficeId > 0 && Number.isFinite(officeId) && officeId > 0 && officeId === originOfficeId) {
+                        allowed = true;
+                    } else if (isCenroOfficerRole) {
+                        const isCenroAdmin = officeLevel === 'CENRO_ADMIN_RECORD'
+                            || (officeLevel === '' && officeName.indexOf('CENRO') !== -1 && officeName.indexOf('ADMIN') !== -1);
+                        const isSameChain = Number.isFinite(parentOfficeId)
+                            && parentOfficeId > 0
+                            && (
+                                (Number.isFinite(policyOfficeId) && policyOfficeId > 0 && parentOfficeId === policyOfficeId)
+                                || (Number.isFinite(policyParentOfficeId) && policyParentOfficeId > 0 && parentOfficeId === policyParentOfficeId)
+                            );
+                        allowed = isCenroAdmin && isSameChain;
+                    } else if (isPenroOfficerRole) {
+                        const isPenroAdmin = officeLevel === 'PENRO_ADMIN_RECORD'
+                            || (officeLevel === '' && officeName.indexOf('PENRO') !== -1 && officeName.indexOf('ADMIN') !== -1);
+                        const isSameChain = Number.isFinite(parentOfficeId)
+                            && parentOfficeId > 0
+                            && (
+                                (Number.isFinite(policyOfficeId) && policyOfficeId > 0 && parentOfficeId === policyOfficeId)
+                                || (Number.isFinite(policyParentOfficeId) && policyParentOfficeId > 0 && parentOfficeId === policyParentOfficeId)
+                            );
+                        allowed = isPenroAdmin && isSameChain;
+                    } else if (isPamoOfficerRole) {
+                        const isPamoAdmin = officeLevel === 'PAMO_ADMIN'
+                            || (officeLevel === '' && officeName.indexOf('PAMO') !== -1 && officeName.indexOf('ADMIN') !== -1);
+                        const isSameChain = Number.isFinite(parentOfficeId)
+                            && parentOfficeId > 0
+                            && (
+                                (Number.isFinite(policyOfficeId) && policyOfficeId > 0 && parentOfficeId === policyOfficeId)
+                                || (Number.isFinite(policyParentOfficeId) && policyParentOfficeId > 0 && parentOfficeId === policyParentOfficeId)
+                            );
+                        allowed = isPamoAdmin && isSameChain;
                     }
 
                     if (!allowed) {
@@ -5928,6 +7256,9 @@
                         }
                     }
                     if (optionCount === 0) {
+                        optionCount = forcePopulateOfficerAdminRecordBackDestinations(context);
+                    }
+                    if (optionCount === 0) {
                         optionCount = forcePopulatePamoRouteDestinations(context);
                     }
                     if (optionCount === 0) {
@@ -5943,9 +7274,21 @@
                     routeDestinationOffice.appendChild(localPlaceholder);
                 }
 
+                const routeContextAction = String(context && context.action ? context.action : '').toUpperCase();
                 const normalizedRouteMode = normalizeLabelKey(context && context.routeMode ? context.routeMode : '');
+                const isOfficerAdminRecordBack = routeContextAction === 'FORWARD'
+                    && normalizedRouteMode === 'admin_record_back'
+                    && (isCenroOfficerRole || isPenroOfficerRole || isPamoOfficerRole);
+                const isOredRecordsUnitBack = routeContextAction === 'FORWARD'
+                    && normalizedRouteMode === 'records_unit_back'
+                    && currentRoleKey === 'ORED'
+                    && isRegionalOredReviewer;
                 if (isCenroSectionRole && context.action === 'FORWARD' && normalizedRouteMode === 'cenro_officer_back') {
                     routeActionTitle.textContent = 'Send Back to CENRO Officer';
+                } else if (isOfficerAdminRecordBack) {
+                    routeActionTitle.textContent = 'Send Back to Admin Record';
+                } else if (isOredRecordsUnitBack) {
+                    routeActionTitle.textContent = 'Send Back to RECORDS-UNIT';
                 } else if (currentRoleKey === 'DIVISION_CHIEF' && !isCenroSectionRole && context.action === 'FORWARD' && normalizedRouteMode === 'ard_back') {
                     if (isPenroDivisionRole || isPenroSectionRole) {
                         routeActionTitle.textContent = 'Send Back to PENRO Officer';
@@ -5957,24 +7300,35 @@
                 } else {
                     routeActionTitle.textContent = actionLabel(context.action) + ' Document';
                 }
-                const routeContextAction = String(context && context.action ? context.action : '').toUpperCase();
                 const rerouteRemarksRequired = routeContextAction === 'REROUTE'
                     && (((currentRoleKey === 'ORED' && !isCenroOfficerRole) || isArdRole || (currentRoleKey === 'DIVISION_CHIEF' && !isCenroSectionRole) || isCenroOfficerRole || isCenroSectionRole || isPamoOfficerRole));
                 const returnRemarksRequired = routeContextAction === 'RETURN';
-                routeActionMeta.textContent = context.trackingId !== ''
-                    ? ('Tracking ID: ' + context.trackingId + (returnRemarksRequired ? ' | Remarks are required for return.' : (rerouteRemarksRequired ? ' | Remarks are required for reroute.' : '')))
-                    : (returnRemarksRequired
-                        ? 'Select destination office and provide required correction remarks.'
-                        : (rerouteRemarksRequired
-                            ? 'Select destination office and provide the reroute reason.'
-                            : 'Select destination office and add optional remarks.'));
+                routeActionMeta.textContent = isOfficerAdminRecordBack
+                    ? (context.trackingId !== ''
+                        ? ('Tracking ID: ' + context.trackingId + ' | Send this document back to the originating Admin Record office. Remarks are optional.')
+                        : 'Send this document back to the originating Admin Record office. Remarks are optional.')
+                    : (isOredRecordsUnitBack
+                        ? (context.trackingId !== ''
+                            ? ('Tracking ID: ' + context.trackingId + ' | Send this signed document back to RECORDS-UNIT. Remarks are optional.')
+                            : 'Send this signed document back to RECORDS-UNIT. Remarks are optional.')
+                    : (context.trackingId !== ''
+                        ? ('Tracking ID: ' + context.trackingId + (returnRemarksRequired ? ' | Remarks are required for return.' : (rerouteRemarksRequired ? ' | Remarks are required for reroute.' : '')))
+                        : (returnRemarksRequired
+                            ? 'Select destination office and provide required correction remarks.'
+                            : (rerouteRemarksRequired
+                                ? 'Select destination office and provide the reroute reason.'
+                                : 'Select destination office and add optional remarks.'))));
                 routeRemarks.value = '';
                 routeRemarks.required = returnRemarksRequired || rerouteRemarksRequired;
-                routeRemarks.placeholder = returnRemarksRequired
-                    ? 'Required: describe specific corrections needed before re-processing.'
-                    : (rerouteRemarksRequired
-                        ? 'Required: describe the reroute reason.'
-                        : 'Optional remarks for activity logs');
+                routeRemarks.placeholder = isOfficerAdminRecordBack
+                    ? 'Optional remarks for the Admin Record office'
+                    : (isOredRecordsUnitBack
+                        ? 'Optional remarks for RECORDS-UNIT'
+                    : (returnRemarksRequired
+                        ? 'Required: describe specific corrections needed before re-processing.'
+                        : (rerouteRemarksRequired
+                            ? 'Required: describe the reroute reason.'
+                            : 'Optional remarks for activity logs')));
                 routeDestinationOffice.value = '';
                 autoSelectFirstRouteDestinationOption(context);
                 if (routeBypassReason) {
@@ -6021,6 +7375,37 @@
 
                     if (returnTargetOption) {
                         routeDestinationOffice.value = String(returnTargetOption.value || '');
+                    }
+                }
+                if ((isPenroAdminRecordRole || isCenroAdminRecordRole) && context.action === 'RELEASE') {
+                    const originOfficeId = Number(context.originOfficeId || 0);
+                    let releaseTargetOption = null;
+
+                    if (Number.isFinite(originOfficeId) && originOfficeId > 0 && originOfficeId !== currentOfficeId) {
+                        releaseTargetOption = Array.from(routeDestinationOffice.options).find(function (option) {
+                            return String(option.value || '') === String(originOfficeId);
+                        }) || null;
+                    }
+
+                    if (!releaseTargetOption) {
+                        releaseTargetOption = Array.from(routeDestinationOffice.options).find(function (option) {
+                            const label = String(option.textContent || '').toUpperCase();
+                            const level = routeDestinationOptionLevel(option);
+                            if (isCenroAdminRecordRole) {
+                                return level === 'PENRO_ADMIN_RECORD' || label.indexOf('PENRO ADMIN') !== -1;
+                            }
+                            return level === 'CENRO_ADMIN_RECORD' || label.indexOf('CENRO ADMIN') !== -1;
+                        }) || null;
+                    }
+
+                    if (!releaseTargetOption) {
+                        releaseTargetOption = Array.from(routeDestinationOffice.options).find(function (option) {
+                            return officeNameMatchesRecordsUnit(String(option.textContent || '').toUpperCase());
+                        }) || null;
+                    }
+
+                    if (releaseTargetOption) {
+                        routeDestinationOffice.value = String(releaseTargetOption.value || '');
                     }
                 }
                 if ((isPenroOfficerRole || isCenroOfficerRole || isPamoOfficerRole) && context.action === 'RETURN') {
@@ -6076,7 +7461,7 @@
                 if (isCenroOfficerRole && context.action === 'FORWARD') {
                     const currentStatus = normalizeLabelKey(context.currentStatus || '');
                     const isPostSignStage = isOredPostSignStatus(currentStatus);
-                    if (isPostSignStage) {
+                    if (normalizedRouteMode === 'admin_record_back' || isPostSignStage) {
                         const originOfficeId = Number(context.originOfficeId || 0);
                         let originOption = null;
                         if (Number.isFinite(originOfficeId) && originOfficeId > 0) {
@@ -6148,7 +7533,7 @@
                 if (isPamoOfficerRole && context.action === 'FORWARD') {
                     const currentStatus = normalizeLabelKey(context.currentStatus || '');
                     const isPostSignStage = isOredPostSignStatus(currentStatus);
-                    if (isPostSignStage) {
+                    if (normalizedRouteMode === 'admin_record_back' || isPostSignStage) {
                         const originOfficeId = Number(context.originOfficeId || 0);
                         let adminOption = null;
                         if (Number.isFinite(originOfficeId) && originOfficeId > 0) {
@@ -6242,6 +7627,23 @@
                 if (currentRoleKey === 'ORED' && context.action === 'FORWARD') {
                     selectPreferredOredForwardDestination(context);
                 }
+                if (isPenroOfficerRole && context.action === 'FORWARD' && normalizedRouteMode === 'admin_record_back') {
+                    const originOfficeId = Number(context.originOfficeId || 0);
+                    let adminRecordOption = null;
+                    if (Number.isFinite(originOfficeId) && originOfficeId > 0) {
+                        adminRecordOption = Array.from(routeDestinationOffice.options).find(function (option) {
+                            return String(option.value || '') === String(originOfficeId);
+                        }) || null;
+                    }
+                    if (!adminRecordOption) {
+                        adminRecordOption = Array.from(routeDestinationOffice.options).find(function (option) {
+                            return routeDestinationOptionIsPenro(option);
+                        }) || null;
+                    }
+                    if (adminRecordOption) {
+                        routeDestinationOffice.value = String(adminRecordOption.value || '');
+                    }
+                }
                 if (isPenroOfficerRole && context.action === 'REROUTE') {
                     selectPreferredPenroOfficerRerouteDestination(context);
                 }
@@ -6323,22 +7725,26 @@
                     autoSelectFirstRouteDestinationOption(context);
                 }
 
-                if (dualReleaseContext) {
-                    syncDualReleaseModalUi(context);
-                } else if (routeActionSubmit) {
-                    routeActionSubmit.textContent = 'Submit';
+                syncDualReleaseModalUi(context);
+                if (!dualReleaseContext && routeActionSubmit) {
+                    routeActionSubmit.textContent = isOfficerAdminRecordBack ? 'Send Back to Admin Record' : 'Submit';
+                }
+
+                if (isOfficerAdminRecordBack && routeDestinationMeta) {
+                    routeDestinationMeta.textContent = 'Admin Record destination is preselected for this send-back route. Remarks are optional.';
                 }
 
                 syncRouteBypassReasonUi(context);
                 syncRouteAttachmentUi(context);
+                initAllSearchableSelects(routeActionModal);
 
                 routeActionModal.hidden = false;
                 routeActionModal.classList.add('is-open');
                 document.body.classList.add('modal-open');
                 if (dualReleaseContext && !routeReleaseRequiresDestination(context) && routeReleaseMode) {
-                    routeReleaseMode.focus();
+                    focusSearchableSelect(routeReleaseMode, false);
                 } else {
-                    routeDestinationOffice.focus();
+                    focusSearchableSelect(routeDestinationOffice, false);
                 }
                 return true;
             }
@@ -6386,6 +7792,12 @@
                 }
                 if (routeAttachmentWrap) {
                     routeAttachmentWrap.hidden = true;
+                }
+                if (routeAttachmentLabel) {
+                    routeAttachmentLabel.textContent = 'Prepared Response (Attachment)';
+                }
+                if (routeAttachmentMeta) {
+                    routeAttachmentMeta.textContent = 'Attach prepared response file(s) when this routing path requires them.';
                 }
                 if (routeAttachmentInput) {
                     routeAttachmentInput.value = '';
@@ -6512,7 +7924,7 @@
                     let destinationOfficeId = parseInt(String(routeDestinationOffice.value || '0'), 10);
                     if (requiresDestination && (!Number.isFinite(destinationOfficeId) || destinationOfficeId <= 0)) {
                         showAlertDialog('Please select a destination office.');
-                        routeDestinationOffice.focus();
+                        focusSearchableSelect(routeDestinationOffice, false);
                         return;
                     }
                     if (!requiresDestination) {
@@ -6597,7 +8009,7 @@
                             ? String(routeNewSubject.value || '').trim()
                             : '';
                         if (nextSubjectValue.length > 255) {
-                            showAlertDialog('New subject is too long. Keep it within 255 characters.');
+                            showAlertDialog('Response is too long. Keep it within 255 characters.');
                             if (submitButton) {
                                 submitButton.disabled = false;
                             }
@@ -6630,26 +8042,30 @@
                             }
                         }
                         if (requiresEndorsementLetter && attachmentFiles.length < 1) {
-                            const endorsementTarget = 'PACDO/RECORDS-UNIT';
-                            showAlertDialog('Endorsement letter attachment is required before forwarding to ' + endorsementTarget + '.');
-                            if (routeAttachmentInput && routeAttachmentWrap && !routeAttachmentWrap.hidden) {
-                                routeAttachmentInput.focus();
+                            if (Number.isFinite(routeExistingPreparedResponseCount) && routeExistingPreparedResponseCount < 1) {
+                                const endorsementRule = routeEndorsementRequirementRule(activeRouteContext, selectedAttachmentOption);
+                                const endorsementTarget = endorsementRule.targetLabel || 'destination office';
+                                const endorsementVerb = routeContextAction === 'RELEASE' ? 'releasing to' : 'forwarding to';
+                                showAlertDialog('Endorsement letter attachment is required before ' + endorsementVerb + ' ' + endorsementTarget + '.');
+                                if (routeAttachmentInput && routeAttachmentWrap && !routeAttachmentWrap.hidden) {
+                                    routeAttachmentInput.focus();
+                                }
+                                if (submitButton) {
+                                    submitButton.disabled = false;
+                                }
+                                if (triggerButton) {
+                                    triggerButton.disabled = false;
+                                }
+                                return;
                             }
-                            if (submitButton) {
-                                submitButton.disabled = false;
-                            }
-                            if (triggerButton) {
-                                triggerButton.disabled = false;
-                            }
-                            return;
                         }
-
                         const routeContextTrackingId = String(activeRouteContext.trackingId || '').trim();
                         sendDocumentAction({
                             action: routeContextAction,
                             documentId: activeRouteContext.documentId,
                             preconditionVersion: Number(activeRouteContext.documentVersion || 0),
                             destinationOfficeId: destinationOfficeId,
+                            routeMode: String(activeRouteContext.routeMode || ''),
                             releaseMode: releaseMode,
                             bypassReason: bypassReasonValue,
                             remarks: remarksForSubmit,
@@ -6663,10 +8079,7 @@
                             }
                             closeRouteActionModal();
                             showAlertDialog(result.message || 'Action completed.').then(function () {
-                                if (redirectToRecordsUnitActionStamp(routeContextAction, routeContextTrackingId)) {
-                                    return;
-                                }
-                                window.location.reload();
+                                finalizeQueueActionSuccess(routeContextAction, routeContextTrackingId);
                             });
                         }).catch(function (error) {
                             closeRouteActionModal();
@@ -6688,9 +8101,30 @@
                     return;
                 }
                 const isExternal = String(editIntakeSourceType.value || '').toUpperCase() === 'EXTERNAL';
-                editIntakeExternalWrap.hidden = !isExternal;
-                editIntakeExternalClient.hidden = !isExternal;
-                editIntakeExternalClient.required = isExternal;
+                const routingOfficeValue = editIntakeRoutingOffice
+                    ? String(editIntakeRoutingOffice.value || currentOfficeName || '').trim()
+                    : String(currentOfficeName || '').trim();
+                editIntakeExternalWrap.hidden = false;
+                editIntakeExternalClient.hidden = false;
+                editIntakeExternalClient.required = true;
+                editIntakeExternalWrap.textContent = isExternal ? 'Client Name' : 'Sender Name';
+                editIntakeExternalClient.placeholder = isExternal ? 'Enter client name' : 'Enter sender name';
+                if (editIntakeOriginatingEntity) {
+                    editIntakeOriginatingEntity.required = true;
+                    editIntakeOriginatingEntity.placeholder = isExternal
+                        ? 'Enter client or external originating entity'
+                        : 'Enter originating office or unit';
+                    if (!isExternal && String(editIntakeOriginatingEntity.value || '').trim() === '') {
+                        editIntakeOriginatingEntity.value = routingOfficeValue;
+                    }
+                }
+                if (editIntakeClientAddressWrap && editIntakeClientAddress) {
+                    editIntakeClientAddressWrap.hidden = false;
+                    editIntakeClientAddress.hidden = false;
+                    editIntakeClientAddress.required = isExternal;
+                    editIntakeClientAddressWrap.textContent = isExternal ? 'Client Address' : 'Office Address';
+                    editIntakeClientAddress.placeholder = isExternal ? 'Enter client address' : 'Enter office address';
+                }
             }
 
             function syncEditIntakeComplexityDefaults(forceDays) {
@@ -6716,8 +8150,18 @@
                     : null;
                 const docCategory = String(selectedOption ? (selectedOption.getAttribute('data-category') || '') : '').trim();
                 const currentCategory = String(editIntakeComplexityType.value || '').trim();
-                if (docCategory !== '' && (forceDays || currentCategory === '')) {
-                    editIntakeComplexityType.value = customTypeDefaultsForCategory(docCategory).category;
+                if (docCategory !== '') {
+                    const resolvedDefaults = customTypeDefaultsForCategory(docCategory);
+                    const currentDaysRaw = String(editIntakeComplexityDays ? (editIntakeComplexityDays.value || '') : '').trim();
+                    const nextCategory = resolvedDefaults.category;
+                    const shouldResetDays = forceDays
+                        || currentDaysRaw === ''
+                        || currentCategory !== nextCategory;
+
+                    editIntakeComplexityType.value = nextCategory;
+                    if (editIntakeComplexityDays && shouldResetDays) {
+                        editIntakeComplexityDays.value = String(resolvedDefaults.days);
+                    }
                 }
                 syncEditIntakeComplexityDefaults(forceDays);
             }
@@ -6980,8 +8424,17 @@
 
                     const sourceRaw = String(doc.source_type_raw || doc.source_type || 'INTERNAL').toUpperCase();
                     editIntakeSourceType.value = sourceRaw.indexOf('EXTERNAL') !== -1 ? 'EXTERNAL' : 'INTERNAL';
+                    if (editIntakeRoutingOffice) {
+                        editIntakeRoutingOffice.value = String(doc.routing_office || doc.originating_office || currentOfficeName || '').trim();
+                    }
+                    if (editIntakeOriginatingEntity) {
+                        editIntakeOriginatingEntity.value = String(doc.originating_entity_name || doc.originating_office || '').trim();
+                    }
                     if (editIntakeExternalClient) {
-                        editIntakeExternalClient.value = String(doc.external_client_name || '').trim();
+                        editIntakeExternalClient.value = String(doc.sender || doc.external_client_name || '').trim();
+                    }
+                    if (editIntakeClientAddress) {
+                        editIntakeClientAddress.value = String(doc.client_address || '').trim();
                     }
                     setEditIntakeSourceVisibility();
 
@@ -7020,6 +8473,7 @@
                     || !editIntakeDocumentId
                     || !editIntakeTrackingId
                     || !editIntakeSourceType
+                    || !editIntakeOriginatingEntity
                     || !editIntakeSubject
                     || !editIntakeDocumentType
                     || !editIntakeComplexityType
@@ -7075,7 +8529,7 @@
                     const documentTypeValue = parseInt(String(editIntakeDocumentType.value || '0'), 10);
                     if (!Number.isFinite(documentTypeValue) || documentTypeValue <= 0) {
                         showAlertDialog('Please select a document type.');
-                        editIntakeDocumentType.focus();
+                        focusSearchableSelect(editIntakeDocumentType, false);
                         return;
                     }
                     const resolvedComplexity = customTypeDefaultsForCategory(editIntakeComplexityType.value).category;
@@ -7089,13 +8543,36 @@
                     }
 
                     const sourceValue = String(editIntakeSourceType.value || 'INTERNAL').toUpperCase();
-                    const externalClientValue = editIntakeExternalClient
+                    const senderValue = editIntakeExternalClient
                         ? String(editIntakeExternalClient.value || '').trim()
                         : '';
-                    if (sourceValue === 'EXTERNAL' && externalClientValue === '') {
-                        showAlertDialog('External client name is required when source is External.');
+                    const originatingEntityValue = editIntakeOriginatingEntity
+                        ? String(editIntakeOriginatingEntity.value || '').trim()
+                        : '';
+                    const clientAddressValue = editIntakeClientAddress
+                        ? String(editIntakeClientAddress.value || '').trim()
+                        : '';
+                    if (senderValue === '') {
+                        showAlertDialog(sourceValue === 'EXTERNAL'
+                            ? 'Client name is required when source is External.'
+                            : 'Sender name is required.'
+                        );
                         if (editIntakeExternalClient) {
                             editIntakeExternalClient.focus();
+                        }
+                        return;
+                    }
+                    if (originatingEntityValue === '') {
+                        showAlertDialog('Originating office / entity is required.');
+                        if (editIntakeOriginatingEntity) {
+                            editIntakeOriginatingEntity.focus();
+                        }
+                        return;
+                    }
+                    if (sourceValue === 'EXTERNAL' && clientAddressValue === '') {
+                        showAlertDialog('Client address is required when source is External.');
+                        if (editIntakeClientAddress) {
+                            editIntakeClientAddress.focus();
                         }
                         return;
                     }
@@ -7116,6 +8593,8 @@
                         formData.set('action', 'EDIT');
                         formData.set('document_id', String(documentId));
                         formData.set('source_type', sourceValue);
+                        formData.set('sender', senderValue);
+                        formData.set('originating_entity_name', originatingEntityValue);
                         formData.set('subject', subjectValue);
                         formData.set('document_type_id', String(documentTypeValue));
                         formData.set('intake_complexity_type', resolvedComplexity);
@@ -7124,9 +8603,8 @@
                         if (Number.isFinite(editIntakeDocumentVersion) && editIntakeDocumentVersion > 0) {
                             formData.set('precondition_version', String(Math.max(1, parseInt(String(editIntakeDocumentVersion), 10) || 1)));
                         }
-                        if (sourceValue === 'EXTERNAL') {
-                            formData.set('external_client_name', externalClientValue);
-                        }
+                        formData.set('external_client_name', sourceValue === 'EXTERNAL' ? senderValue : '');
+                        formData.set('client_address', clientAddressValue);
                         if (editIntakeAttachments && editIntakeAttachments.files) {
                             Array.from(editIntakeAttachments.files).forEach(function (file) {
                                 formData.append('attachment_files[]', file);
@@ -7210,6 +8688,9 @@
                     if (payload.destinationOfficeId && payload.destinationOfficeId > 0) {
                         formData.set('destination_office_id', String(payload.destinationOfficeId));
                     }
+                    if (payload.routeMode) {
+                        formData.set('route_mode', String(payload.routeMode));
+                    }
                     if (payload.releaseMode) {
                         formData.set('release_mode', String(payload.releaseMode));
                     }
@@ -7247,6 +8728,9 @@
                     }
                     if (payload.destinationOfficeId && payload.destinationOfficeId > 0) {
                         body.set('destination_office_id', String(payload.destinationOfficeId));
+                    }
+                    if (payload.routeMode) {
+                        body.set('route_mode', String(payload.routeMode));
                     }
                     if (payload.releaseMode) {
                         body.set('release_mode', String(payload.releaseMode));
@@ -7291,6 +8775,28 @@
                         return json;
                     });
                 });
+            }
+
+            function requestLiveDashboardRefresh() {
+                if (!liveDashboardRefreshEnabled || !dashboardLivePath) {
+                    return false;
+                }
+                if (liveRefreshInFlight) {
+                    liveRefreshPending = true;
+                    return true;
+                }
+                pollLiveDashboardData();
+                return true;
+            }
+
+            function finalizeQueueActionSuccess(action, trackingId) {
+                if (redirectToRecordsUnitActionStamp(action, trackingId)) {
+                    return;
+                }
+                if (requestLiveDashboardRefresh()) {
+                    return;
+                }
+                window.location.reload();
             }
 
             function qrSetStatus(message, isError) {
@@ -7607,10 +9113,48 @@
                 }
             }
 
+            function closeQrReceiveModal() {
+                if (!qrReceiveModal) {
+                    return;
+                }
+                stopQrScanner();
+                qrReceiveModal.classList.remove('is-open');
+                qrReceiveModal.hidden = true;
+                document.body.classList.remove('modal-open');
+            }
+
+            function openQrReceiveModal() {
+                if (!qrReceiveModal || !qrReceivePanel) {
+                    return;
+                }
+                qrReceiveModal.hidden = false;
+                qrReceiveModal.classList.add('is-open');
+                document.body.classList.add('modal-open');
+                if (qrReceiveTrackingInput) {
+                    qrReceiveTrackingInput.focus();
+                }
+                if (qrReceiveStartBtn && !qrReceiveStartBtn.disabled) {
+                    qrReceiveStartBtn.click();
+                }
+            }
+
             function bindQrReceivePanel() {
                 if (!qrReceivePanel) {
                     return;
                 }
+
+                if (openQrReceiveScannerBtn) {
+                    openQrReceiveScannerBtn.addEventListener('click', function () {
+                        openQrReceiveModal();
+                    });
+                }
+
+                qrReceiveCloseButtons.forEach(function (button) {
+                    button.addEventListener('click', function (event) {
+                        event.preventDefault();
+                        closeQrReceiveModal();
+                    });
+                });
 
                 if (qrReceiveManualBtn && qrReceiveTrackingInput) {
                     qrReceiveManualBtn.addEventListener('click', function () {
@@ -7642,6 +9186,12 @@
 
                 window.addEventListener('beforeunload', function () {
                     stopQrScanner();
+                });
+
+                document.addEventListener('keydown', function (event) {
+                    if (event.key === 'Escape' && qrReceiveModal && !qrReceiveModal.hidden) {
+                        closeQrReceiveModal();
+                    }
                 });
             }
 
@@ -7743,24 +9293,25 @@
                     }
 
                     if (
-                        action === 'APPROVE'
+                        action === 'SIGN'
                         && currentRoleKey === 'ORED'
-                        && !queueRowHasReceivedState(currentStatus, pendingOfficeId, rowCurrentOfficeId)
+                        && regionalOredDigitalSignDisabled
                     ) {
-                        showAlertDialog(executiveRoleLabel + ' must click Receive first before Approve.');
+                        showAlertDialog('Digital signing is available only for the ORED signing account.');
                         return;
                     }
                     if (
                         action === 'SIGN'
                         && currentRoleKey === 'ORED'
-                        && !queueStatusIsApproved(currentStatus)
+                        && !queueRowHasReceivedState(currentStatus, pendingOfficeId, rowCurrentOfficeId)
                     ) {
-                        showAlertDialog(executiveRoleLabel + ' must click Approve first before Sign.');
+                        showAlertDialog(executiveRoleLabel + ' must click Receive first before Sign.');
                         return;
                     }
                     if (
                         action === 'UNSIGN'
                         && (currentRoleKey === 'ORED' || isPenroOfficerRole)
+                        && (currentRoleKey !== 'ORED' || !regionalOredDigitalSignDisabled)
                         && !queueStatusIsSignedCompleted(currentStatus)
                         && !hasSignedAction
                     ) {
@@ -7770,6 +9321,7 @@
                     if (
                         action === 'UNSIGN'
                         && (currentRoleKey === 'ORED' || isPenroOfficerRole)
+                        && (currentRoleKey !== 'ORED' || !regionalOredDigitalSignDisabled)
                         && queueStatusIsForwarded(currentStatus)
                     ) {
                         showAlertDialog('Undo Sign is available only before forwarding.');
@@ -7778,10 +9330,18 @@
                     if (
                         action === 'FORWARD'
                         && currentRoleKey === 'ORED'
-                        && !queueStatusIsApproved(currentStatus)
+                        && !queueRowHasReceivedState(currentStatus, pendingOfficeId, rowCurrentOfficeId)
                         && !(queueStatusIsSignedCompleted(currentStatus) || hasSignedAction)
                     ) {
-                        showAlertDialog(executiveRoleLabel + ' must click Approve first before Forward.');
+                        showAlertDialog(executiveRoleLabel + ' must click Receive first before Forward.');
+                        return;
+                    }
+                    if (
+                        action === 'OVERRIDE'
+                        && currentRoleKey === 'ORED'
+                        && regionalOredDigitalSignDisabled
+                    ) {
+                        showAlertDialog('Override is available only for the ORED signing account.');
                         return;
                     }
                     if (
@@ -7815,60 +9375,25 @@
                         && isPenroAdminRecordRole
                         && !penroCreatorDraftDirectForward
                         && !canManageIntakeRow
-                        && !queueStatusIsApproved(currentStatus)
-                    ) {
-                        showAlertDialog('PENRO Admin Record must click Approve first before Forward.');
-                        return;
-                    }
-                    if (
-                        action === 'APPROVE'
-                        && isPenroAdminRecordRole
                         && !queueRowHasReceivedState(currentStatus, pendingOfficeId, rowCurrentOfficeId)
                     ) {
-                        showAlertDialog('PENRO Admin Record must click Receive first before Approve.');
-                        return;
-                    }
-                    if (
-                        action === 'APPROVE'
-                        && (currentRoleKey === 'DIVISION_CHIEF' || isArdRole)
-                        && !queueRowHasReceivedState(currentStatus, pendingOfficeId, rowCurrentOfficeId)
-                    ) {
-                        showAlertDialog((isArdRole ? 'ARD' : 'Division Chief') + ' must click Receive first before Approve.');
+                        showAlertDialog('PENRO Admin Record must click Receive first before Forward.');
                         return;
                     }
                     if (
                         action === 'FORWARD'
                         && (currentRoleKey === 'DIVISION_CHIEF' || isArdRole)
-                        && !queueStatusIsApproved(currentStatus)
+                        && !queueRowHasReceivedState(currentStatus, pendingOfficeId, rowCurrentOfficeId)
                     ) {
-                        showAlertDialog((isArdRole ? 'ARD' : 'Division Chief') + ' must click Approve first before Forward.');
+                        showAlertDialog((isArdRole ? 'ARD' : 'Division Chief') + ' must click Receive first before Forward.');
                         return;
                     }
                     if (
                         action === 'FORWARD'
                         && currentRoleKey === 'SECTION_STAFF'
-                        && !queueStatusIsApproved(currentStatus)
-                    ) {
-                        showAlertDialog('Section Staff must click Approve first before Forward.');
-                        return;
-                    }
-                    if (
-                        action === 'APPROVE'
-                        && currentRoleKey === 'SECTION_STAFF'
                         && !queueRowHasReceivedState(currentStatus, pendingOfficeId, rowCurrentOfficeId)
                     ) {
-                        showAlertDialog('Section Staff must click Receive first before Approve.');
-                        return;
-                    }
-                    if (
-                        action === 'APPROVE'
-                        && currentRoleKey === 'RECORDS_UNIT'
-                        && !isCenroAdminRecordRole
-                        && !isPenroAdminRecordRole
-                        && !isPamoAdminRole
-                        && !queueRowHasReceivedState(currentStatus, pendingOfficeId, rowCurrentOfficeId)
-                    ) {
-                        showAlertDialog('RECORDS-UNIT must click Receive first before Approve.');
+                        showAlertDialog('Section Staff must click Receive first before Forward.');
                         return;
                     }
                     if (
@@ -7885,9 +9410,9 @@
                             origin_office_id: originOfficeId,
                             has_return_action: hasReturnAction ? 1 : 0,
                         })
-                        && !queueStatusIsApproved(currentStatus)
+                        && !queueRowHasReceivedState(currentStatus, pendingOfficeId, rowCurrentOfficeId)
                     ) {
-                        showAlertDialog('RECORDS-UNIT must click Approve first before Forward.');
+                        showAlertDialog('RECORDS-UNIT must click Receive first before Forward.');
                         return;
                     }
                     if (
@@ -8050,10 +9575,7 @@
                                         return;
                                     }
                                     showAlertDialog(result.message || 'Action completed.').then(function () {
-                                        if (redirectToRecordsUnitActionStamp(action, trackingId)) {
-                                            return;
-                                        }
-                                        window.location.reload();
+                                        finalizeQueueActionSuccess(action, trackingId);
                                     });
                                 }).catch(function (error) {
                                     showAlertDialog(error.message || 'Unable to complete action.');
@@ -8070,6 +9592,7 @@
                             documentVersion: Number.isFinite(documentVersion) && documentVersion > 0 ? documentVersion : 0,
                             trackingId: trackingId,
                             hasSectionReceive: hasSectionReceive,
+                            hasSignedAction: hasSignedAction,
                             currentStatus: currentStatus,
                             currentOfficeId: Number.isFinite(rowCurrentOfficeId) && rowCurrentOfficeId > 0 ? rowCurrentOfficeId : 0,
                             currentOfficeParentId: Number.isFinite(currentOfficeParentId) && currentOfficeParentId > 0 ? currentOfficeParentId : 0,
@@ -8167,6 +9690,126 @@
                     return null;
                 }
                 return parsed;
+            }
+
+            function normalizeDateInputString(value) {
+                const raw = String(value || '').trim();
+                const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+                return match ? match[1] : '';
+            }
+
+            function normalizeDateFilterInputsInPlace() {
+                if (!dateFilterFromInput || !dateFilterToInput) {
+                    return;
+                }
+                const fromDate = normalizeDateInputString(dateFilterFromInput.value);
+                const toDate = normalizeDateInputString(dateFilterToInput.value);
+                if (fromDate === '' || toDate === '') {
+                    return;
+                }
+                const fromTimestamp = parseDateInputValue(fromDate, false);
+                const toTimestamp = parseDateInputValue(toDate, true);
+                if (fromTimestamp === null || toTimestamp === null) {
+                    return;
+                }
+                if (fromTimestamp <= toTimestamp) {
+                    return;
+                }
+                dateFilterFromInput.value = toDate;
+                dateFilterToInput.value = fromDate;
+            }
+
+            function getActiveDateFilterRange() {
+                normalizeDateFilterInputsInPlace();
+                return {
+                    fromDate: normalizeDateInputString(dateFilterFromInput ? dateFilterFromInput.value : ''),
+                    toDate: normalizeDateInputString(dateFilterToInput ? dateFilterToInput.value : ''),
+                };
+            }
+
+            function appendDateRangeToUrlObject(urlObject, range) {
+                if (!(urlObject instanceof URL)) {
+                    return;
+                }
+                const dateRange = range && typeof range === 'object' ? range : getActiveDateFilterRange();
+                const fromDate = normalizeDateInputString(dateRange.fromDate || '');
+                const toDate = normalizeDateInputString(dateRange.toDate || '');
+
+                if (fromDate !== '') {
+                    urlObject.searchParams.set('fromDate', fromDate);
+                } else {
+                    urlObject.searchParams.delete('fromDate');
+                }
+
+                if (toDate !== '') {
+                    urlObject.searchParams.set('toDate', toDate);
+                } else {
+                    urlObject.searchParams.delete('toDate');
+                }
+            }
+
+            function syncDateFilterQueryState() {
+                try {
+                    const currentUrl = new URL(window.location.href);
+                    appendDateRangeToUrlObject(currentUrl, getActiveDateFilterRange());
+                    window.history.replaceState({}, '', currentUrl.toString());
+                } catch (error) {
+                    // Ignore URL update failures on unsupported contexts.
+                }
+            }
+
+            function applyDateFilterFromQuery() {
+                let parsedUrl = null;
+                try {
+                    parsedUrl = new URL(window.location.href);
+                } catch (error) {
+                    parsedUrl = null;
+                }
+                if (!parsedUrl) {
+                    return;
+                }
+
+                const fromDate = normalizeDateInputString(parsedUrl.searchParams.get('fromDate') || '');
+                const toDate = normalizeDateInputString(parsedUrl.searchParams.get('toDate') || '');
+                if (dateFilterFromInput && fromDate !== '') {
+                    dateFilterFromInput.value = fromDate;
+                }
+                if (dateFilterToInput && toDate !== '') {
+                    dateFilterToInput.value = toDate;
+                }
+            }
+
+            function normalizeRangeObject(range) {
+                const source = range && typeof range === 'object' ? range : {};
+                return {
+                    fromDate: normalizeDateInputString(source.fromDate || source.from_input || ''),
+                    toDate: normalizeDateInputString(source.toDate || source.to_input || ''),
+                };
+            }
+
+            function dateRangeEquals(leftRange, rightRange) {
+                const left = normalizeRangeObject(leftRange);
+                const right = normalizeRangeObject(rightRange);
+                return left.fromDate === right.fromDate && left.toDate === right.toDate;
+            }
+
+            function dateRangeIsEmpty(range) {
+                const normalized = normalizeRangeObject(range);
+                return normalized.fromDate === '' && normalized.toDate === '';
+            }
+
+            function formatDateRangeCaption(range, fallbackLabel) {
+                const normalized = normalizeRangeObject(range);
+                if (dateRangeIsEmpty(normalized)) {
+                    return String(fallbackLabel || 'All dates');
+                }
+                if (normalized.fromDate !== '' && normalized.toDate !== '') {
+                    return normalized.fromDate + ' to ' + normalized.toDate;
+                }
+                if (normalized.fromDate !== '') {
+                    return 'From ' + normalized.fromDate;
+                }
+                return 'Until ' + normalized.toDate;
             }
 
             function normalizeLabelKey(value) {
@@ -8497,7 +10140,7 @@
                 if (latestLiveQueueRows.length === 0) {
                     latestLiveQueueRows = captureLiveQueueRowsFromTable();
                 }
-                if (!window.edatsOfflineOutbox || typeof window.edatsOfflineOutbox.listOperations !== 'function') {
+                if (!window.DTMISOfflineOutbox || typeof window.DTMISOfflineOutbox.listOperations !== 'function') {
                     const shouldRerender = offlineQueuedQueueRows.length > 0 || offlineQueuedRowsSignature !== '';
                     offlineQueuedQueueRows = [];
                     offlineQueuedRowsSignature = '';
@@ -8509,7 +10152,7 @@
 
                 const requestId = ++offlineQueueRefreshRequestId;
                 try {
-                    const operations = await window.edatsOfflineOutbox.listOperations({ includeSynced: false });
+                    const operations = await window.DTMISOfflineOutbox.listOperations({ includeSynced: false });
                     if (requestId !== offlineQueueRefreshRequestId) {
                         return;
                     }
@@ -8658,7 +10301,7 @@
                     return statusHasReceived;
                 }
                 if (normalizedFilter === 'approved') {
-                    return statusIsPendingForward;
+                    return statusHasApproved;
                 }
                 if (normalizedFilter === 'sign') {
                     return statusHasSignedCompleted;
@@ -8691,7 +10334,7 @@
                     return statusHasOverdue;
                 }
                 if (normalizedFilter === 'completed') {
-                    return statusHasSignedCompleted || statusHasReleased || statusHasApproved;
+                    return statusHasSignedCompleted || statusHasReleased;
                 }
                 if (normalizedFilter === 'ongoing_docs') {
                     if (offlineQueued) {
@@ -9042,9 +10685,12 @@
                 }
                 const metrics = payload.metrics && typeof payload.metrics === 'object' ? payload.metrics : {};
                 const activityCounters = payload.activity_counters && typeof payload.activity_counters === 'object' ? payload.activity_counters : {};
-                const returnedTotal = Number(payload.returned_total || 0);
+                const returnedTotal = preferScopedQueueCountersForLiveStats
+                    ? Number(payload.returned_total || 0)
+                    : Number(metrics.returned_total || payload.returned_total || 0);
                 const payloadQueueRows = Array.isArray(payload.queue_rows) ? payload.queue_rows : [];
                 const queueCounters = buildQueueCounters(payloadQueueRows);
+                const queueCountersForDisplay = preferScopedQueueCountersForLiveStats ? queueCounters : {};
                 const actorActionCounters = buildActorActionCounters(payloadQueueRows);
 
                 const cards = Array.from(document.querySelectorAll('.stat-card'));
@@ -9059,7 +10705,7 @@
                     if (!labelNode || !valueNode) {
                         return;
                     }
-                    const mappedValue = liveMetricValueForLabel(labelNode.textContent || '', metrics, activityCounters, returnedTotal, queueCounters, actorActionCounters);
+                    const mappedValue = liveMetricValueForLabel(labelNode.textContent || '', metrics, activityCounters, returnedTotal, queueCountersForDisplay, actorActionCounters);
                     if (mappedValue === null) {
                         return;
                     }
@@ -9076,7 +10722,7 @@
                     if (!labelNode || !valueNode || !barNode) {
                         return;
                     }
-                    const mappedValue = liveMetricValueForLabel(labelNode.textContent || '', metrics, activityCounters, returnedTotal, queueCounters, actorActionCounters);
+                    const mappedValue = liveMetricValueForLabel(labelNode.textContent || '', metrics, activityCounters, returnedTotal, queueCountersForDisplay, actorActionCounters);
                     if (mappedValue === null) {
                         return;
                     }
@@ -9089,6 +10735,454 @@
                     item.valueNode.textContent = String(item.numeric);
                     item.barNode.style.width = String(Math.round((item.numeric / maxValue) * 100)) + '%';
                 });
+            }
+
+            function findChartPanel(chartKind) {
+                return chartPanels.find(function (panel) {
+                    return String(panel.getAttribute('data-chart-kind') || '').trim() === String(chartKind || '').trim();
+                }) || null;
+            }
+
+            function getChartPanelFilterElements(chartPanel) {
+                if (!chartPanel) {
+                    return null;
+                }
+                const filterWrap = chartPanel.querySelector('.chart-date-filter');
+                if (!filterWrap) {
+                    return null;
+                }
+                return {
+                    panel: chartPanel,
+                    kind: String(chartPanel.getAttribute('data-chart-kind') || '').trim(),
+                    wrap: filterWrap,
+                    toggle: filterWrap.querySelector('.chart-date-filter-toggle'),
+                    dropdown: filterWrap.querySelector('.chart-date-filter-dropdown'),
+                    fromInput: filterWrap.querySelector('input[name="fromDate"]'),
+                    toInput: filterWrap.querySelector('input[name="toDate"]'),
+                    applyButton: filterWrap.querySelector('[data-chart-date-apply]'),
+                    resetButton: filterWrap.querySelector('[data-chart-date-reset]'),
+                    caption: chartPanel.querySelector('[data-chart-filter-caption]'),
+                };
+            }
+
+            function setChartDateDropdownOpen(elements, isOpen) {
+                if (!elements || !elements.dropdown || !elements.toggle) {
+                    return;
+                }
+                elements.dropdown.classList.toggle('is-open', !!isOpen);
+                elements.toggle.setAttribute('aria-expanded', String(!!isOpen));
+            }
+
+            function setChartPanelBusy(chartKind, isBusy) {
+                const chartPanel = findChartPanel(chartKind);
+                if (!chartPanel) {
+                    return;
+                }
+                chartPanel.classList.toggle('is-chart-loading', !!isBusy);
+            }
+
+            function syncChartFilterCaption(chartKind) {
+                const chartPanel = findChartPanel(chartKind);
+                const elements = getChartPanelFilterElements(chartPanel);
+                if (!elements || !elements.caption) {
+                    return;
+                }
+                const pageRange = getActiveDateFilterRange();
+                const overrideState = chartOverrideStateByKind[chartKind] && chartOverrideStateByKind[chartKind].active
+                    ? normalizeRangeObject(chartOverrideStateByKind[chartKind].range)
+                    : null;
+                if (!overrideState || dateRangeEquals(overrideState, pageRange)) {
+                    elements.caption.textContent = formatDateRangeCaption(pageRange, 'Page range');
+                    return;
+                }
+                elements.caption.textContent = formatDateRangeCaption(overrideState, 'Custom range');
+            }
+
+            function syncChartFilterInputsFromRange(chartKind, range) {
+                const chartPanel = findChartPanel(chartKind);
+                const elements = getChartPanelFilterElements(chartPanel);
+                if (!elements) {
+                    return;
+                }
+                const normalized = normalizeRangeObject(range);
+                if (elements.fromInput) {
+                    elements.fromInput.value = normalized.fromDate;
+                }
+                if (elements.toInput) {
+                    elements.toInput.value = normalized.toDate;
+                }
+            }
+
+            function getChartPanelSelectedRange(chartKind) {
+                const chartPanel = findChartPanel(chartKind);
+                const elements = getChartPanelFilterElements(chartPanel);
+                if (!elements) {
+                    return getActiveDateFilterRange();
+                }
+                const range = {
+                    fromDate: normalizeDateInputString(elements.fromInput ? elements.fromInput.value : ''),
+                    toDate: normalizeDateInputString(elements.toInput ? elements.toInput.value : ''),
+                };
+                if (range.fromDate !== '' && range.toDate !== '') {
+                    const fromTimestamp = parseDateInputValue(range.fromDate, false);
+                    const toTimestamp = parseDateInputValue(range.toDate, true);
+                    if (fromTimestamp !== null && toTimestamp !== null && fromTimestamp > toTimestamp) {
+                        const swapFrom = range.toDate;
+                        const swapTo = range.fromDate;
+                        range.fromDate = swapFrom;
+                        range.toDate = swapTo;
+                        if (elements.fromInput) {
+                            elements.fromInput.value = swapFrom;
+                        }
+                        if (elements.toInput) {
+                            elements.toInput.value = swapTo;
+                        }
+                    }
+                }
+                return range;
+            }
+
+            function buildChartDashboardRequestUrl(range) {
+                const fallbackJoiner = String(dashboardLivePath || '').indexOf('?') !== -1 ? '&' : '?';
+                const normalizedRange = normalizeRangeObject(range);
+                try {
+                    const requestUrl = new URL(String(dashboardLivePath || ''), window.location.origin);
+                    appendDateRangeToUrlObject(requestUrl, normalizedRange);
+                    requestUrl.searchParams.set('limit', String(getDashboardLiveLimit()));
+                    requestUrl.searchParams.set('t', String(Date.now()));
+                    return requestUrl.toString();
+                } catch (error) {
+                    let requestUrl = String(dashboardLivePath || '') + fallbackJoiner + 'limit=' + encodeURIComponent(String(getDashboardLiveLimit())) + '&t=' + String(Date.now());
+                    if (normalizedRange.fromDate) {
+                        requestUrl += '&fromDate=' + encodeURIComponent(normalizedRange.fromDate);
+                    }
+                    if (normalizedRange.toDate) {
+                        requestUrl += '&toDate=' + encodeURIComponent(normalizedRange.toDate);
+                    }
+                    return requestUrl;
+                }
+            }
+
+            function updateSingleChartFromPayload(chartKind, payload) {
+                if (!payload || typeof payload !== 'object') {
+                    return;
+                }
+                if (chartKind === 'arta_mix') {
+                    updateArtaPieChart(payload.arta_distribution);
+                    return;
+                }
+                if (chartKind === 'queue_status') {
+                    updateQueueStatusBarChart(payload.metrics);
+                    return;
+                }
+                if (chartKind === 'workflow_trend') {
+                    updateWorkflowTrendChart(payload.workflow_trend);
+                }
+            }
+
+            function fetchChartPayloadForRange(chartKind, range) {
+                const requestSerial = (Number(chartRequestSerialByKind[chartKind] || 0) + 1);
+                chartRequestSerialByKind[chartKind] = requestSerial;
+                const normalizedRange = normalizeRangeObject(range);
+                setChartPanelBusy(chartKind, true);
+                return fetchWithLocalhostFallback(buildChartDashboardRequestUrl(normalizedRange), {
+                    method: 'GET',
+                    credentials: 'same-origin',
+                    cache: 'no-store',
+                    headers: { 'Accept': 'application/json' },
+                }).then(function (networkResult) {
+                    const response = networkResult && networkResult.response ? networkResult.response : null;
+                    if (!response || !response.ok) {
+                        throw new Error('Unable to load chart data right now.');
+                    }
+                    return response.json();
+                }).then(function (payload) {
+                    if (!payload || payload.ok !== true) {
+                        throw new Error(payload && payload.message ? String(payload.message) : 'Unable to load chart data right now.');
+                    }
+                    if (requestSerial !== Number(chartRequestSerialByKind[chartKind] || 0)) {
+                        return payload;
+                    }
+                    updateSingleChartFromPayload(chartKind, payload);
+                    return payload;
+                }).finally(function () {
+                    setChartPanelBusy(chartKind, false);
+                });
+            }
+
+            function applyChartDateRange(chartKind, range, options) {
+                const normalizedRange = normalizeRangeObject(range);
+                const pageRange = getActiveDateFilterRange();
+                const usePageRange = dateRangeEquals(normalizedRange, pageRange);
+                const chartPanel = findChartPanel(chartKind);
+                const elements = getChartPanelFilterElements(chartPanel);
+                const config = options && typeof options === 'object' ? options : {};
+
+                if (!usePageRange) {
+                    chartOverrideStateByKind[chartKind] = {
+                        active: true,
+                        range: normalizedRange,
+                    };
+                } else {
+                    delete chartOverrideStateByKind[chartKind];
+                }
+
+                syncChartFilterCaption(chartKind);
+                if (elements) {
+                    setChartDateDropdownOpen(elements, false);
+                }
+
+                if (usePageRange && latestLiveDashboardPayload && !config.forceFetch) {
+                    updateSingleChartFromPayload(chartKind, latestLiveDashboardPayload);
+                    return Promise.resolve(latestLiveDashboardPayload);
+                }
+
+                return fetchChartPayloadForRange(chartKind, usePageRange ? pageRange : normalizedRange).catch(function (error) {
+                    if (elements) {
+                        setChartDateDropdownOpen(elements, false);
+                    }
+                    const fallbackMessage = error && error.message ? String(error.message) : 'Unable to load chart data right now.';
+                    showAlertDialog(fallbackMessage);
+                    return null;
+                });
+            }
+
+            function refreshChartOverrides() {
+                const overrideKinds = Object.keys(chartOverrideStateByKind).filter(function (chartKind) {
+                    return chartOverrideStateByKind[chartKind] && chartOverrideStateByKind[chartKind].active;
+                });
+                overrideKinds.forEach(function (chartKind) {
+                    fetchChartPayloadForRange(chartKind, chartOverrideStateByKind[chartKind].range).catch(function () {
+                        // Keep the current chart view if the refresh fails.
+                    });
+                });
+            }
+
+            function syncChartControlsToPageRange() {
+                const pageRange = getActiveDateFilterRange();
+                chartPanels.forEach(function (chartPanel) {
+                    const chartKind = String(chartPanel.getAttribute('data-chart-kind') || '').trim();
+                    if (chartKind === '') {
+                        return;
+                    }
+                    if (chartOverrideStateByKind[chartKind] && chartOverrideStateByKind[chartKind].active) {
+                        if (dateRangeEquals(chartOverrideStateByKind[chartKind].range, pageRange)) {
+                            delete chartOverrideStateByKind[chartKind];
+                        } else {
+                            syncChartFilterCaption(chartKind);
+                            return;
+                        }
+                    }
+                    if (chartOverrideStateByKind[chartKind] && chartOverrideStateByKind[chartKind].active) {
+                        syncChartFilterCaption(chartKind);
+                        return;
+                    }
+                    syncChartFilterInputsFromRange(chartKind, pageRange);
+                    syncChartFilterCaption(chartKind);
+                });
+            }
+
+            function updateArtaPieChart(distributionPayload) {
+                const chartPanel = document.querySelector('.chart-panel[data-chart-kind="arta_mix"]');
+                if (!chartPanel) {
+                    return;
+                }
+
+                const distribution = distributionPayload && typeof distributionPayload === 'object' ? distributionPayload : {};
+                const nextSeries = [
+                    { label: 'Simple', value: Math.max(0, Number(distribution.simple || 0)), color: '#f5bf3a' },
+                    { label: 'Complex', value: Math.max(0, Number(distribution.complex || 0)), color: '#e4649c' },
+                    { label: 'Highly Technical', value: Math.max(0, Number(distribution.highly_technical || 0)), color: '#6f63e8' },
+                    { label: 'Uncategorized', value: Math.max(0, Number(distribution.uncategorized || 0)), color: '#8fa5bc' },
+                ];
+                const nextTotal = nextSeries.reduce(function (sum, item) {
+                    return sum + Math.max(0, Number(item.value || 0));
+                }, 0);
+
+                chartPieSeries = nextSeries;
+                chartPieTotal = nextTotal;
+
+                const pieWrap = chartPanel.querySelector('.chart-pie-wrap');
+                if (!pieWrap) {
+                    return;
+                }
+
+                let donut = pieWrap.querySelector('.chart-donut');
+                let emptyState = pieWrap.querySelector('.chart-empty');
+                const legendList = pieWrap.querySelector('.chart-legend-list');
+
+                if (nextTotal > 0) {
+                    let angleStart = 0;
+                    const gradientStops = [];
+                    nextSeries.forEach(function (item) {
+                        const value = Math.max(0, Number(item.value || 0));
+                        if (value <= 0) {
+                            return;
+                        }
+                        const slice = (value / nextTotal) * 360;
+                        const angleEnd = angleStart + slice;
+                        gradientStops.push(String(item.color || '#8fa5bc') + ' ' + String(angleStart.toFixed(2)) + 'deg ' + String(angleEnd.toFixed(2)) + 'deg');
+                        angleStart = angleEnd;
+                    });
+
+                    if (!donut) {
+                        donut = document.createElement('div');
+                        donut.className = 'chart-donut';
+                        donut.innerHTML = '<div class="chart-donut-hole"><strong>0</strong><span>Docs</span></div>';
+                        pieWrap.insertBefore(donut, legendList || pieWrap.firstChild);
+                    }
+                    donut.style.background = 'conic-gradient(' + gradientStops.join(', ') + ')';
+                    const totalNode = donut.querySelector('.chart-donut-hole strong');
+                    if (totalNode) {
+                        totalNode.textContent = String(nextTotal);
+                    }
+                    if (emptyState && emptyState.parentNode) {
+                        emptyState.parentNode.removeChild(emptyState);
+                    }
+                } else {
+                    if (donut && donut.parentNode) {
+                        donut.parentNode.removeChild(donut);
+                    }
+                    donut = null;
+                    if (!emptyState) {
+                        emptyState = document.createElement('div');
+                        emptyState.className = 'chart-empty';
+                        emptyState.textContent = 'No ARTA data yet.';
+                        pieWrap.insertBefore(emptyState, legendList || pieWrap.firstChild);
+                    }
+                }
+
+                if (legendList) {
+                    legendList.innerHTML = nextSeries.map(function (item) {
+                        return '<div class="chart-legend-item">'
+                            + '<span class="legend-dot" style="background: ' + String(item.color || '#8fa5bc') + ';"></span>'
+                            + '<span>' + String(item.label || '') + '</span>'
+                            + '<strong>' + String(Math.max(0, Number(item.value || 0))) + '</strong>'
+                            + '</div>';
+                    }).join('');
+                }
+            }
+
+            function updateQueueStatusBarChart(metricsPayload) {
+                const chartPanel = document.querySelector('.chart-panel[data-chart-kind="queue_status"]');
+                if (!chartPanel) {
+                    return;
+                }
+
+                const metrics = metricsPayload && typeof metricsPayload === 'object' ? metricsPayload : {};
+                const dueSoonCombined = Math.max(0, Number(metrics.due_today_total || 0)) + Math.max(0, Number(metrics.due_soon_total || 0));
+                const series = [
+                    { label: 'Pending', value: Math.max(0, Number(metrics.pending_total || 0)), color: '#2f7de1' },
+                    { label: 'Due Soon', value: dueSoonCombined, color: '#23a68f' },
+                    { label: 'Overdue', value: Math.max(0, Number(metrics.overdue_total || 0)), color: '#d34747' },
+                    { label: 'Completed', value: Math.max(0, Number(metrics.completed_week || 0)), color: '#1a9b5f' },
+                ];
+                const maxValue = Math.max(1, ...series.map(function (item) {
+                    return Math.max(0, Number(item.value || 0));
+                }));
+                const barWrap = chartPanel.querySelector('.chart-bar-wrap');
+                if (!barWrap) {
+                    return;
+                }
+
+                barWrap.innerHTML = series.map(function (item) {
+                    const height = Math.round((Math.max(0, Number(item.value || 0)) / maxValue) * 100);
+                    return '<div class="chart-bar-col">'
+                        + '<div class="chart-bar-rail"><span class="chart-bar-fill" style="--bar-val: ' + String(height) + '%; background: ' + String(item.color || '#2f7de1') + ';"></span></div>'
+                        + '<strong>' + String(Math.max(0, Number(item.value || 0))) + '</strong>'
+                        + '<span>' + String(item.label || '') + '</span>'
+                        + '</div>';
+                }).join('');
+            }
+
+            function updateWorkflowTrendChart(trendPayload) {
+                const chartPanel = document.querySelector('.chart-panel[data-chart-kind="workflow_trend"]');
+                if (!chartPanel) {
+                    return;
+                }
+
+                const payload = trendPayload && typeof trendPayload === 'object' ? trendPayload : {};
+                const labels = Array.isArray(payload.labels) ? payload.labels.slice() : [];
+                const nextTrendData = {
+                    labels: labels,
+                    series: [
+                        {
+                            key: 'received',
+                            label: 'Received',
+                            color: '#2f7de1',
+                            values: Array.isArray(payload.received) ? payload.received.slice() : [],
+                        },
+                        {
+                            key: 'forwarded',
+                            label: 'Forwarded / Routed',
+                            color: '#1ea48a',
+                            values: Array.isArray(payload.forwarded) ? payload.forwarded.slice() : [],
+                        },
+                        {
+                            key: 'completed',
+                            label: 'Approved / Signed',
+                            color: '#7b5ad9',
+                            values: Array.isArray(payload.completed) ? payload.completed.slice() : [],
+                        },
+                    ],
+                };
+
+                chartTrendData = nextTrendData;
+
+                const axisRow = chartPanel.querySelector('.chart-axis-row');
+                if (axisRow) {
+                    axisRow.style.gridTemplateColumns = 'repeat(' + String(Math.max(labels.length, 1)) + ', minmax(0, 1fr))';
+                    axisRow.innerHTML = labels.map(function (label) {
+                        return '<span>' + String(label || '') + '</span>';
+                    }).join('');
+                }
+
+                const splineWrap = chartPanel.querySelector('.chart-spline-wrap');
+                if (splineWrap) {
+                    let hasPoints = false;
+                    nextTrendData.series.forEach(function (series) {
+                        if (!Array.isArray(series.values)) {
+                            return;
+                        }
+                        series.values.forEach(function (value) {
+                            if (Math.max(0, Number(value || 0)) > 0) {
+                                hasPoints = true;
+                            }
+                        });
+                    });
+
+                    let emptyState = splineWrap.querySelector('.chart-empty-overlay');
+                    if (hasPoints) {
+                        if (emptyState && emptyState.parentNode) {
+                            emptyState.parentNode.removeChild(emptyState);
+                        }
+                    } else if (!emptyState) {
+                        emptyState = document.createElement('div');
+                        emptyState.className = 'chart-empty chart-empty-overlay';
+                        emptyState.textContent = 'No trend data yet.';
+                        splineWrap.appendChild(emptyState);
+                    }
+                }
+
+                renderWorkflowSplineChart();
+            }
+
+            function updateLiveCharts(payload) {
+                if (!payload || typeof payload !== 'object') {
+                    return;
+                }
+
+                latestLiveDashboardPayload = payload;
+
+                if (!(chartOverrideStateByKind.arta_mix && chartOverrideStateByKind.arta_mix.active)) {
+                    updateArtaPieChart(payload.arta_distribution);
+                }
+                if (!(chartOverrideStateByKind.queue_status && chartOverrideStateByKind.queue_status.active)) {
+                    updateQueueStatusBarChart(payload.metrics);
+                }
+                if (!(chartOverrideStateByKind.workflow_trend && chartOverrideStateByKind.workflow_trend.active)) {
+                    updateWorkflowTrendChart(payload.workflow_trend);
+                }
             }
 
             function queueRowCanManageIntake(queueRow) {
@@ -9216,7 +11310,7 @@
                 }
                 const hasSignedAction = Number(queueRow.has_signed_action || 0) > 0;
                 const isReceived = queueRowHasReceivedState(status, pendingOfficeId, rowCurrentOfficeId);
-                const isApproved = queueStatusIsApproved(status);
+                const isApproved = queueStatusIsApproved(status) || (approveActionDisabled && isReceived);
                 const isSignedCompleted = queueStatusIsSignedCompleted(status);
                 const isSignedForPhase = isSignedCompleted || hasSignedAction;
                 const isForwarded = queueStatusIsForwarded(status);
@@ -9228,8 +11322,6 @@
                             actions.push('Receive');
                         } else if (isSignedForPhase) {
                             actions.push('Release');
-                        } else if (!isApproved) {
-                            actions.push('Approve');
                         } else {
                             actions.push('Forward');
                             actions.push('Release');
@@ -9243,9 +11335,6 @@
                         actions.push('Receive');
                     } else if (hasSignedAction) {
                         actions.push('Release');
-                    } else if (!isApproved) {
-                        actions.push('Approve');
-                        actions.push('Return');
                     } else {
                         actions.push('Forward');
                         actions.push('Return');
@@ -9262,25 +11351,32 @@
                         }
                     } else if (isSignedForPhase && !isForwarded) {
                         // After signing, ORED can still undo sign before forwarding.
-                        actions.push('Undo Sign');
+                        if (!regionalOredDigitalSignDisabled) {
+                            actions.push('Undo Sign');
+                        }
                         actions.push('Forward');
+                        if (isRegionalOredReviewer) {
+                            actions.push('Send Back to RECORDS-UNIT');
+                        }
                         actions.push('Return');
                     } else if (isSignedForPhase && isForwarded) {
-                        if (!isCenroOfficerRole) {
+                        if (!isCenroOfficerRole && !regionalOredDigitalSignDisabled) {
                             actions.push('Override');
                         }
-                    } else if (!isApproved) {
-                        actions.push('Approve');
-                        actions.push('Return');
                     } else if (!isForwarded) {
-                        actions.push('Sign');
+                        if (!officerDigitalSignDisabled && !regionalOredDigitalSignDisabled) {
+                            actions.push('Sign');
+                        }
                         actions.push('Forward');
+                        if (isCenroOfficerRole || isPenroOfficerRole || isPamoOfficerRole) {
+                            actions.push('Send Back to Admin Record');
+                        }
                         if (isCenroOfficerRole && enableQueueRerouteAction) {
                             actions.push('Reroute');
                         }
                         actions.push('Return');
                     } else {
-                        if (!isCenroOfficerRole) {
+                        if (!isCenroOfficerRole && !regionalOredDigitalSignDisabled) {
                             actions.push('Override');
                         }
                     }
@@ -9294,8 +11390,6 @@
                         if (queueRowAllowsReceive(status, pendingOfficeId, rowCurrentOfficeId)) {
                             actions.push('Receive');
                         }
-                    } else if (!isApproved) {
-                        actions.push('Approve');
                     } else {
                         actions.push('Forward');
                         if (isCenroSectionRole && enableQueueRerouteAction) {
@@ -9319,8 +11413,6 @@
                         if (queueRowAllowsReceive(status, pendingOfficeId, rowCurrentOfficeId)) {
                             actions.push('Receive');
                         }
-                    } else if (!isApproved) {
-                        actions.push('Approve');
                     } else {
                         actions.push('Forward');
                         actions.push('Send Back to ORED');
@@ -9335,8 +11427,6 @@
                         if (queueRowAllowsReceive(status, pendingOfficeId, rowCurrentOfficeId)) {
                             actions.push('Receive');
                         }
-                    } else if (!isApproved) {
-                        actions.push('Approve');
                     } else {
                         actions.push('Forward');
                     }
@@ -9348,17 +11438,14 @@
                 if (queueRowAllowsReceive(status, pendingOfficeId, rowCurrentOfficeId)) {
                     actions.push('Receive');
                 }
-                if (
-                    isReceived
-                    && (currentRoleKey === 'RECORDS_UNIT' || currentRoleKey === 'ORED' || currentRoleKey === 'DIVISION_CHIEF' || isPenroAdminRecordRole || isArdRole)
-                ) {
-                    actions.push('Approve');
-                }
-                if (currentRoleKey === 'ORED') {
+                if (currentRoleKey === 'ORED' && !regionalOredDigitalSignDisabled) {
                     actions.push('Sign');
                 }
                 if (!isCenroAdminRecordRole || isReceived) {
                     actions.push('Forward');
+                }
+                if ((isCenroOfficerRole || isPamoOfficerRole) && isReceived && !isTerminal && !isForwarded) {
+                    actions.push('Send Back to Admin Record');
                 }
                 if (isPenroAdminRecordRole && isReceived && !isTerminal && !isForwarded) {
                     actions.push('Return');
@@ -9368,7 +11455,7 @@
                 if (currentRoleKey === 'RECORDS_UNIT') {
                     actions.push('Release');
                 }
-                if (currentRoleKey === 'ORED' && !isCenroOfficerRole) {
+                if (currentRoleKey === 'ORED' && !isCenroOfficerRole && !regionalOredDigitalSignDisabled) {
                     actions.push('Override');
                 }
                 if (!hideRerouteQuickAction) {
@@ -9527,6 +11614,9 @@
                 ) {
                     return String(queueRow.date_received || '-');
                 }
+                if (columnKey.indexOf('sender') !== -1) {
+                    return String(queueRow.sender || '-');
+                }
                 if (columnKey.indexOf('date created') !== -1 || columnKey.indexOf('created date') !== -1 || columnKey.indexOf('created at') !== -1) {
                     return String(queueRow.date_created || '-');
                 }
@@ -9543,6 +11633,168 @@
                     return queueDefaultActionText(queueRow);
                 }
                 return '-';
+            }
+
+            function queueOfflineDocumentPrefetch(url) {
+                const requestUrl = String(url || '').trim();
+                if (
+                    requestUrl === ''
+                    || !showCompletedQueueRowsOnly
+                    || !navigator.onLine
+                    || typeof window.fetch !== 'function'
+                    || offlinePrefetchedDocumentUrls.has(requestUrl)
+                ) {
+                    return;
+                }
+
+                offlinePrefetchedDocumentUrls.add(requestUrl);
+                window.fetch(requestUrl, {
+                    credentials: 'same-origin',
+                    headers: {
+                        'Accept': 'text/html',
+                        'X-DTMIS-Prefetch': '1',
+                    },
+                }).catch(function () {
+                    offlinePrefetchedDocumentUrls.delete(requestUrl);
+                });
+            }
+
+            function archiveTrackingDocumentUrls(trackingId) {
+                const normalizedTrackingId = String(trackingId || '').trim();
+                if (normalizedTrackingId === '') {
+                    return [];
+                }
+                const encodedTrackingId = encodeURIComponent(normalizedTrackingId);
+                return [
+                    trackingSlipPath + '?tracking_id=' + encodedTrackingId,
+                    trackingSlipPath + '?tracking_id=' + encodedTrackingId + '&autoprint=1',
+                    printPackagePath + '?tracking_id=' + encodedTrackingId + '&autoprint=1',
+                ];
+            }
+
+            function prefetchArchiveTrackingDocuments(queueRows) {
+                if (!showCompletedQueueRowsOnly || !Array.isArray(queueRows) || queueRows.length === 0) {
+                    return;
+                }
+
+                queueRows.slice(0, offlineArchivePrefetchLimit).forEach(function (queueRow) {
+                    const trackingId = String(queueRow && queueRow.tracking_id ? queueRow.tracking_id : '').trim();
+                    if (trackingId === '') {
+                        return;
+                    }
+
+                    archiveTrackingDocumentUrls(trackingId).forEach(queueOfflineDocumentPrefetch);
+                });
+            }
+
+            function prefetchArchiveTrackingDocumentsFromTable() {
+                if (!showCompletedQueueRowsOnly || !tableBody) {
+                    return;
+                }
+
+                const queueRows = Array.from(tableBody.querySelectorAll('tr[data-tracking-id]'))
+                    .slice(0, offlineArchivePrefetchLimit)
+                    .map(function (row) {
+                        return {
+                            tracking_id: String(row.getAttribute('data-tracking-id') || '').trim(),
+                        };
+                    })
+                    .filter(function (row) {
+                        return row.tracking_id !== '';
+                    });
+
+                prefetchArchiveTrackingDocuments(queueRows);
+            }
+
+            function scheduleArchivePrefetchFromTable() {
+                if (!showCompletedQueueRowsOnly) {
+                    return;
+                }
+                if (offlineArchivePrefetchTimerId) {
+                    window.clearTimeout(offlineArchivePrefetchTimerId);
+                }
+                offlineArchivePrefetchTimerId = window.setTimeout(function () {
+                    offlineArchivePrefetchTimerId = 0;
+                    prefetchArchiveTrackingDocumentsFromTable();
+                }, 180);
+            }
+
+            async function offlineArchiveTrackingReady(trackingId) {
+                if (
+                    !showCompletedQueueRowsOnly
+                    || String(trackingId || '').trim() === ''
+                    || typeof window.caches === 'undefined'
+                    || typeof window.caches.match !== 'function'
+                ) {
+                    return false;
+                }
+
+                const urls = archiveTrackingDocumentUrls(trackingId);
+                if (urls.length === 0) {
+                    return false;
+                }
+
+                for (let index = 0; index < urls.length; index += 1) {
+                    const match = await window.caches.match(urls[index]);
+                    if (!match) {
+                        return false;
+                    }
+                }
+
+                return true;
+            }
+
+            function applyArchiveOfflineReadyUi(row, isReady) {
+                if (!row) {
+                    return;
+                }
+
+                row.setAttribute('data-offline-ready', isReady ? '1' : '0');
+                row.classList.toggle('queue-row-offline-ready', !!isReady);
+
+                const firstCell = row.querySelector('td');
+                if (!firstCell) {
+                    return;
+                }
+
+                let chip = firstCell.querySelector('.offline-ready-chip');
+                if (isReady) {
+                    if (!chip) {
+                        chip = document.createElement('span');
+                        chip.className = 'offline-ready-chip';
+                        chip.textContent = 'Offline Ready';
+                        firstCell.appendChild(chip);
+                    }
+                } else if (chip) {
+                    chip.remove();
+                }
+            }
+
+            async function refreshArchiveOfflineAvailabilityIndicators() {
+                if (!showCompletedQueueRowsOnly || !tableBody) {
+                    return;
+                }
+
+                const requestId = ++offlineArchiveAvailabilityRequestId;
+                const rows = Array.from(tableBody.querySelectorAll('tr[data-tracking-id]'))
+                    .filter(function (row) {
+                        return row.style.display !== 'none';
+                    })
+                    .slice(0, offlineArchivePrefetchLimit);
+
+                for (let index = 0; index < rows.length; index += 1) {
+                    const row = rows[index];
+                    const trackingId = String(row.getAttribute('data-tracking-id') || '').trim();
+                    const isReady = await offlineArchiveTrackingReady(trackingId);
+                    if (requestId !== offlineArchiveAvailabilityRequestId) {
+                        return;
+                    }
+                    applyArchiveOfflineReadyUi(row, isReady);
+                }
+
+                if (requestId === offlineArchiveAvailabilityRequestId) {
+                    syncSelectedDocumentToolsState(false);
+                }
             }
 
             function renderLiveQueueTable(queueRows) {
@@ -9808,7 +12060,7 @@
                 const options = requestOptions && typeof requestOptions === 'object' ? requestOptions : {};
                 const markNetworkUnavailable = function (error) {
                     if (error && typeof error === 'object') {
-                        error.__edatsNetworkUnavailable = true;
+                        error.__DTMISNetworkUnavailable = true;
                     }
                     return error;
                 };
@@ -9859,35 +12111,113 @@
                 return Math.max(0, pending + syncing + failed + blocked);
             }
 
+            let headerConnectivityMode = navigator.onLine ? 'online' : 'offline';
+            let headerConnectivityProbeToken = 0;
+
+            function setHeaderConnectivityMode(mode, stateOverride) {
+                const normalizedMode = normalizeLabelKey(mode || 'online');
+                if (normalizedMode === 'local' || normalizedMode === 'localhost') {
+                    headerConnectivityMode = 'local';
+                } else if (normalizedMode === 'offline' || normalizedMode === 'cache') {
+                    headerConnectivityMode = 'offline';
+                } else {
+                    headerConnectivityMode = 'online';
+                }
+                renderHeaderOfflineIndicator(stateOverride);
+            }
+
+            async function refreshHeaderConnectivityMode(stateOverride) {
+                const probeToken = headerConnectivityProbeToken + 1;
+                headerConnectivityProbeToken = probeToken;
+                try {
+                    const probeUrl = new URL(String(offlineProbePath || window.location.pathname || '/'), window.location.origin);
+                    probeUrl.searchParams.set('offline_probe', String(Date.now()));
+                    const result = await fetchWithLocalhostFallback(probeUrl.toString(), {
+                        method: 'GET',
+                        cache: 'no-store',
+                        credentials: 'same-origin',
+                        headers: {
+                            'Accept': 'application/json,text/plain,*/*',
+                            'X-DTMIS-Probe': '1',
+                        },
+                    });
+                    if (probeToken !== headerConnectivityProbeToken) {
+                        return;
+                    }
+
+                    const response = result && result.response ? result.response : null;
+                    const viaLocalhost = !!(result && result.viaLocalhost);
+                    const localReachable = !!(response && response.ok);
+                    if (localReachable && viaLocalhost) {
+                        setHeaderConnectivityMode('local', stateOverride);
+                        return;
+                    }
+
+                    if (localReachable) {
+                        if (!navigator.onLine && isLoopbackHostname(window.location.hostname)) {
+                            setHeaderConnectivityMode('local', stateOverride);
+                            return;
+                        }
+                        setHeaderConnectivityMode('online', stateOverride);
+                        return;
+                    }
+
+                    setHeaderConnectivityMode('offline', stateOverride);
+                } catch (error) {
+                    if (probeToken !== headerConnectivityProbeToken) {
+                        return;
+                    }
+                    setHeaderConnectivityMode('offline', stateOverride);
+                }
+            }
+
             function renderHeaderOfflineIndicator(stateOverride) {
                 if (!headerOfflineIndicator || !headerOfflineIndicatorText) {
                     return;
                 }
 
-                const isOnline = navigator.onLine;
                 let queuedCount = queuedOutboxCountFromState(stateOverride);
-                if (queuedCount <= 0 && window.edatsOfflineOutbox && typeof window.edatsOfflineOutbox.getState === 'function') {
+                if (queuedCount <= 0 && window.DTMISOfflineOutbox && typeof window.DTMISOfflineOutbox.getState === 'function') {
                     try {
-                        queuedCount = queuedOutboxCountFromState(window.edatsOfflineOutbox.getState());
+                        queuedCount = queuedOutboxCountFromState(window.DTMISOfflineOutbox.getState());
                     } catch (error) {
                         queuedCount = 0;
                     }
                 }
 
-                let label = isOnline ? 'Online' : 'Offline';
+                const resolvedMode = headerConnectivityMode === 'local'
+                    ? 'local'
+                    : (headerConnectivityMode === 'offline' ? 'offline' : 'online');
+                const isOnline = resolvedMode === 'online';
+                const isLocalOnly = resolvedMode === 'local';
+                const isOffline = resolvedMode === 'offline';
+
+                let label = 'Online';
+                if (isLocalOnly) {
+                    label = 'Local only';
+                } else if (isOffline) {
+                    label = 'Offline';
+                }
                 if (queuedCount > 0) {
                     label += ' | ' + String(queuedCount) + ' queued';
                 }
 
                 headerOfflineIndicator.classList.toggle('is-online', isOnline);
-                headerOfflineIndicator.classList.toggle('is-offline', !isOnline);
+                headerOfflineIndicator.classList.toggle('is-local', isLocalOnly);
+                headerOfflineIndicator.classList.toggle('is-offline', isOffline);
                 headerOfflineIndicatorText.textContent = label;
                 headerOfflineIndicator.setAttribute('aria-label', 'Network status: ' + label);
-                headerOfflineIndicator.title = isOnline
-                    ? (queuedCount > 0
+                if (isOnline) {
+                    headerOfflineIndicator.title = queuedCount > 0
                         ? 'Connected. ' + String(queuedCount) + ' request(s) queued for sync.'
-                        : 'Connected.')
-                    : 'Offline. Requests will be queued and synced when connection returns.';
+                        : 'Connected.';
+                } else if (isLocalOnly) {
+                    headerOfflineIndicator.title = queuedCount > 0
+                        ? 'Internet is unavailable, but the local app is reachable. ' + String(queuedCount) + ' request(s) are queued.'
+                        : 'Internet is unavailable, but the local app is reachable.';
+                } else {
+                    headerOfflineIndicator.title = 'Offline. Requests will be queued and synced when connection returns.';
+                }
             }
 
             function bindHeaderOfflineIndicator() {
@@ -9896,18 +12226,31 @@
                 }
                 renderHeaderOfflineIndicator();
                 window.addEventListener('online', function () {
-                    renderHeaderOfflineIndicator();
+                    refreshHeaderConnectivityMode();
                 });
                 window.addEventListener('offline', function () {
-                    renderHeaderOfflineIndicator();
+                    refreshHeaderConnectivityMode();
                 });
-                window.addEventListener('edats:outbox-state', function (event) {
+                window.addEventListener('DTMIS:offline-read-hit', function () {
+                    setHeaderConnectivityMode('offline');
+                });
+                window.addEventListener('DTMIS:outbox-state', function (event) {
                     const detail = event && event.detail ? event.detail : null;
-                    renderHeaderOfflineIndicator(detail && detail.state ? detail.state : null);
+                    const nextState = detail && detail.state ? detail.state : null;
+                    if (nextState && nextState.online === false) {
+                        setHeaderConnectivityMode('offline', nextState);
+                        return;
+                    }
+                    if (nextState && nextState.online === true && headerConnectivityMode === 'offline' && navigator.onLine) {
+                        refreshHeaderConnectivityMode(nextState);
+                        return;
+                    }
+                    renderHeaderOfflineIndicator(nextState);
                 });
-                window.addEventListener('edats:offline-data-cleared', function () {
+                window.addEventListener('DTMIS:offline-data-cleared', function () {
                     renderHeaderOfflineIndicator();
                 });
+                refreshHeaderConnectivityMode();
             }
 
             function bindOfflineQueuedQueueView() {
@@ -9916,7 +12259,7 @@
                 }
                 ensureOfflineQueuedStatusFilterOption();
                 refreshOfflineQueuedRowsInView();
-                window.addEventListener('edats:offline-badge-click', function () {
+                window.addEventListener('DTMIS:offline-badge-click', function () {
                     ensureOfflineQueuedStatusFilterOption();
                     refreshOfflineQueuedRowsInView().finally(function () {
                         if (statusFilterSelect) {
@@ -9928,13 +12271,13 @@
                         }
                     });
                 });
-                window.addEventListener('edats:outbox-state', function () {
+                window.addEventListener('DTMIS:outbox-state', function () {
                     refreshOfflineQueuedRowsInView();
                 });
-                window.addEventListener('edats:outbox-synced', function () {
+                window.addEventListener('DTMIS:outbox-synced', function () {
                     refreshOfflineQueuedRowsInView();
                 });
-                window.addEventListener('edats:offline-data-cleared', function () {
+                window.addEventListener('DTMIS:offline-data-cleared', function () {
                     refreshOfflineQueuedRowsInView();
                 });
             }
@@ -9945,9 +12288,7 @@
                 }
 
                 liveRefreshInFlight = true;
-                const hasQuery = String(dashboardLivePath || '').indexOf('?') !== -1;
-                const joiner = hasQuery ? '&' : '?';
-                const requestUrl = dashboardLivePath + joiner + 'limit=80&t=' + String(Date.now());
+                const requestUrl = buildLiveDashboardRequestUrl();
                 fetchWithLocalhostFallback(requestUrl, {
                     method: 'GET',
                     credentials: 'same-origin',
@@ -9958,7 +12299,7 @@
                     const viaLocalhost = !!(networkResult && networkResult.viaLocalhost);
                     if (!response) {
                         const noResponseError = new Error('Unable to sync live dashboard data.');
-                        noResponseError.__edatsSyncFailure = true;
+                        noResponseError.__DTMISSyncFailure = true;
                         throw noResponseError;
                     }
                     if (!response.ok) {
@@ -9978,13 +12319,13 @@
                                 + String(response.status)
                                 + (endpointMessage !== '' ? (': ' + endpointMessage) : '.')
                             );
-                            httpError.__edatsSyncFailure = true;
-                            httpError.__edatsHttpStatus = Number(response.status || 0);
-                            httpError.__edatsViaLocalhost = viaLocalhost;
+                            httpError.__DTMISSyncFailure = true;
+                            httpError.__DTMISHttpStatus = Number(response.status || 0);
+                            httpError.__DTMISViaLocalhost = viaLocalhost;
                             throw httpError;
                         });
                     }
-                    const offlineCacheHit = String(response.headers.get('X-eDATS-Offline-Cache') || '').toUpperCase() === 'HIT';
+                    const offlineCacheHit = String(response.headers.get('X-DTMIS-Offline-Cache') || '').toUpperCase() === 'HIT';
                     return response.json().then(function (payload) {
                         return {
                             payload: payload,
@@ -9996,12 +12337,14 @@
                     const data = payload && typeof payload === 'object' ? payload.payload : null;
                     if (!data || data.ok !== true) {
                         const payloadError = new Error(data && data.message ? String(data.message) : 'Live data sync failed.');
-                        payloadError.__edatsSyncFailure = true;
-                        payloadError.__edatsViaLocalhost = !!(payload && payload.viaLocalhost);
+                        payloadError.__DTMISSyncFailure = true;
+                        payloadError.__DTMISViaLocalhost = !!(payload && payload.viaLocalhost);
                         throw payloadError;
                     }
 
                     updateLiveCardsAndPanels(data);
+                    updateLiveCharts(data);
+                    refreshChartOverrides();
                     const payloadQueueRows = Array.isArray(data.queue_rows) ? data.queue_rows : [];
                     let queueRowsForView = payloadQueueRows;
                     if (showCompletedQueueRowsOnly) {
@@ -10018,25 +12361,35 @@
                         : syncDate.toLocaleString();
                     if (payload.offlineCacheHit) {
                         setLiveChannelIndicator('cache');
+                        setHeaderConnectivityMode('offline');
                         setLiveStatus('Live sync: offline mode (cached data) as of ' + syncLabel + '.', true);
                         return;
                     }
                     if (payload.viaLocalhost) {
                         setLiveChannelIndicator('localhost');
+                        setHeaderConnectivityMode('local');
                         setLiveStatus('Live sync: updated via localhost at ' + syncLabel + '.', false);
                         return;
                     }
+                    if (!navigator.onLine && isLoopbackHostname(window.location.hostname)) {
+                        setLiveChannelIndicator('localhost');
+                        setHeaderConnectivityMode('local');
+                        setLiveStatus('Live sync: local app reachable while internet is unavailable. Updated ' + syncLabel + '.', false);
+                        return;
+                    }
                     setLiveChannelIndicator('internet');
+                    setHeaderConnectivityMode('online');
                     setLiveStatus('Live sync: updated ' + syncLabel + '.', false);
                 }).catch(function (error) {
-                    const networkUnavailable = !!(error && error.__edatsNetworkUnavailable);
+                    const networkUnavailable = !!(error && error.__DTMISNetworkUnavailable);
                     if (networkUnavailable) {
                         setLiveChannelIndicator('offline');
+                        setHeaderConnectivityMode('offline');
                         setLiveStatus('Live sync: offline mode active (internet and localhost unavailable). Showing latest loaded data.', true);
                         return;
                     }
 
-                    const viaLocalhost = !!(error && error.__edatsViaLocalhost);
+                    const viaLocalhost = !!(error && error.__DTMISViaLocalhost);
                     const endpointErrorMessage = String(error && error.message ? error.message : '').trim();
                     setLiveChannelIndicator(viaLocalhost ? 'localhost' : 'internet');
                     setLiveStatus(
@@ -10047,6 +12400,12 @@
                     );
                 }).finally(function () {
                     liveRefreshInFlight = false;
+                    if (liveRefreshPending) {
+                        liveRefreshPending = false;
+                        window.setTimeout(function () {
+                            pollLiveDashboardData();
+                        }, 0);
+                    }
                 });
             }
 
@@ -10083,9 +12442,191 @@
                 });
             }
 
+            function buildLiveDashboardRequestUrl() {
+                const fallbackJoiner = String(dashboardLivePath || '').indexOf('?') !== -1 ? '&' : '?';
+                try {
+                    const requestUrl = new URL(String(dashboardLivePath || ''), window.location.origin);
+                    appendDateRangeToUrlObject(requestUrl, getActiveDateFilterRange());
+                    requestUrl.searchParams.set('limit', String(getDashboardLiveLimit()));
+                    requestUrl.searchParams.set('t', String(Date.now()));
+                    return requestUrl.toString();
+                } catch (error) {
+                    const range = getActiveDateFilterRange();
+                    let requestUrl = String(dashboardLivePath || '') + fallbackJoiner + 'limit=' + encodeURIComponent(String(getDashboardLiveLimit())) + '&t=' + String(Date.now());
+                    if (range.fromDate) {
+                        requestUrl += '&fromDate=' + encodeURIComponent(range.fromDate);
+                    }
+                    if (range.toDate) {
+                        requestUrl += '&toDate=' + encodeURIComponent(range.toDate);
+                    }
+                    return requestUrl;
+                }
+            }
 
+            function updateQueuePaginationUi(totalRows, totalPages, pageStartIndex, pageEndIndex) {
+                if (!queueTablePagination || !queueTablePaginationMeta || !queueTablePrevBtn || !queueTableNextBtn) {
+                    return;
+                }
 
-            function applyTableFilters() {
+                const hasPagination = totalRows > queueRowsPerPage;
+                queueTablePagination.hidden = !hasPagination;
+                queueTablePrevBtn.disabled = queueCurrentPage <= 1;
+                queueTableNextBtn.disabled = queueCurrentPage >= totalPages;
+
+                const safeStart = totalRows > 0 ? pageStartIndex + 1 : 0;
+                const safeEnd = totalRows > 0 ? Math.min(pageEndIndex, totalRows) : 0;
+                queueTablePaginationMeta.textContent = 'Showing ' + String(safeStart) + '-' + String(safeEnd) + ' of ' + String(totalRows);
+            }
+
+            function buildQueueFilterSignature() {
+                const searchTerm = String(queueSearchInput ? queueSearchInput.value : '').toLowerCase().trim();
+                const statusFilterValue = normalizeLabelKey(statusFilterSelect ? statusFilterSelect.value : '');
+                const fromTimestamp = parseDateInputValue(dateFilterFromInput ? dateFilterFromInput.value : '', false);
+                const toTimestamp = parseDateInputValue(dateFilterToInput ? dateFilterToInput.value : '', true);
+                return [searchTerm, statusFilterValue, String(fromTimestamp), String(toTimestamp)].join('|');
+            }
+
+            function persistQueueTableState() {
+                if (!shouldPaginateQueueTable || typeof window.sessionStorage === 'undefined') {
+                    return;
+                }
+                try {
+                    const payload = {
+                        page: queueCurrentPage,
+                        trackingId: String(selectedQueueTrackingId || '').trim(),
+                        search: String(queueSearchInput ? queueSearchInput.value : '').trim(),
+                        status: String(statusFilterSelect ? statusFilterSelect.value : '').trim(),
+                        fromDate: normalizeDateInputString(dateFilterFromInput ? dateFilterFromInput.value : ''),
+                        toDate: normalizeDateInputString(dateFilterToInput ? dateFilterToInput.value : ''),
+                    };
+                    window.sessionStorage.setItem(queueTableStateStorageKey, JSON.stringify(payload));
+                } catch (error) {
+                    // Ignore storage errors.
+                }
+            }
+
+            function restoreQueueTableState() {
+                if (!shouldPaginateQueueTable || typeof window.sessionStorage === 'undefined') {
+                    return;
+                }
+
+                let parsedUrl = null;
+                try {
+                    parsedUrl = new URL(window.location.href);
+                } catch (error) {
+                    parsedUrl = null;
+                }
+
+                let persisted = null;
+                try {
+                    const raw = String(window.sessionStorage.getItem(queueTableStateStorageKey) || '').trim();
+                    persisted = raw !== '' ? JSON.parse(raw) : null;
+                } catch (error) {
+                    persisted = null;
+                }
+
+                if (!persisted || typeof persisted !== 'object') {
+                    return;
+                }
+
+                const hasStatusQuery = !!(parsedUrl && normalizeLabelKey(parsedUrl.searchParams.get('status') || '') !== '');
+                const hasFromDateQuery = !!(parsedUrl && normalizeDateInputString(parsedUrl.searchParams.get('fromDate') || '') !== '');
+                const hasToDateQuery = !!(parsedUrl && normalizeDateInputString(parsedUrl.searchParams.get('toDate') || '') !== '');
+
+                if (queueSearchInput && String(queueSearchInput.value || '').trim() === '' && typeof persisted.search === 'string') {
+                    queueSearchInput.value = String(persisted.search || '').trim();
+                }
+
+                if (statusFilterSelect && !hasStatusQuery && typeof persisted.status === 'string') {
+                    const persistedStatus = String(persisted.status || '').trim();
+                    const matchingOption = Array.from(statusFilterSelect.options).find(function (option) {
+                        return String(option.value || '').trim() === persistedStatus;
+                    });
+                    if (matchingOption) {
+                        statusFilterSelect.value = persistedStatus;
+                    }
+                }
+
+                if (dateFilterFromInput && !hasFromDateQuery && typeof persisted.fromDate === 'string') {
+                    const restoredFromDate = normalizeDateInputString(persisted.fromDate);
+                    if (restoredFromDate !== '') {
+                        dateFilterFromInput.value = restoredFromDate;
+                    }
+                }
+
+                if (dateFilterToInput && !hasToDateQuery && typeof persisted.toDate === 'string') {
+                    const restoredToDate = normalizeDateInputString(persisted.toDate);
+                    if (restoredToDate !== '') {
+                        dateFilterToInput.value = restoredToDate;
+                    }
+                }
+
+                const restoredPage = parseInt(String(persisted.page || ''), 10);
+                if (Number.isFinite(restoredPage) && restoredPage > 0) {
+                    queueCurrentPage = restoredPage;
+                }
+
+                if (typeof persisted.trackingId === 'string') {
+                    selectedQueueTrackingId = String(persisted.trackingId || '').trim();
+                }
+
+                lastQueueFilterSignature = buildQueueFilterSignature();
+            }
+
+            function renderQueuePagination(filteredRows, resetPage) {
+                const safeFilteredRows = Array.isArray(filteredRows) ? filteredRows : [];
+                if (!shouldPaginateQueueTable) {
+                    safeFilteredRows.forEach(function (row) {
+                        row.style.display = '';
+                    });
+                    if (queueTablePagination) {
+                        queueTablePagination.hidden = true;
+                    }
+                    return;
+                }
+                const totalRows = safeFilteredRows.length;
+                const totalPages = Math.max(1, Math.ceil(totalRows / queueRowsPerPage));
+                const shouldResetPage = resetPage === true;
+
+                if (shouldResetPage) {
+                    queueCurrentPage = 1;
+                }
+                if (queueCurrentPage > totalPages) {
+                    queueCurrentPage = totalPages;
+                }
+                if (queueCurrentPage < 1) {
+                    queueCurrentPage = 1;
+                }
+
+                const startIndex = (queueCurrentPage - 1) * queueRowsPerPage;
+                const endIndex = startIndex + queueRowsPerPage;
+                safeFilteredRows.forEach(function (row, index) {
+                    row.style.display = (index >= startIndex && index < endIndex) ? '' : 'none';
+                });
+
+                updateQueuePaginationUi(totalRows, totalPages, startIndex, endIndex);
+            }
+
+            function bindQueuePagination() {
+                if (!queueTablePrevBtn || !queueTableNextBtn) {
+                    return;
+                }
+
+                queueTablePrevBtn.addEventListener('click', function () {
+                    if (queueCurrentPage <= 1) {
+                        return;
+                    }
+                    queueCurrentPage -= 1;
+                    applyTableFilters(false);
+                });
+
+                queueTableNextBtn.addEventListener('click', function () {
+                    queueCurrentPage += 1;
+                    applyTableFilters(false);
+                });
+            }
+
+            function applyTableFilters(resetPage) {
                 if (!tableElement || !tableBody) {
                     return;
                 }
@@ -10094,6 +12635,9 @@
                 const statusFilterValue = normalizeLabelKey(statusFilterSelect ? statusFilterSelect.value : '');
                 const fromTimestamp = parseDateInputValue(dateFilterFromInput ? dateFilterFromInput.value : '', false);
                 const toTimestamp = parseDateInputValue(dateFilterToInput ? dateFilterToInput.value : '', true);
+                const filterSignature = buildQueueFilterSignature();
+                const shouldResetPage = resetPage === true || filterSignature !== lastQueueFilterSignature;
+                lastQueueFilterSignature = filterSignature;
 
                 const headers = Array.from(tableElement.querySelectorAll('thead th')).map(function (th) {
                     return String(th.textContent || '').toLowerCase();
@@ -10104,6 +12648,14 @@
                 }
                 if (dateColumnIndex < 0) {
                     dateColumnIndex = headers.findIndex(function (text) { return text.indexOf('received') !== -1; });
+                }
+                if (dateColumnIndex < 0) {
+                    dateColumnIndex = headers.findIndex(function (text) {
+                        return text.indexOf('created at') !== -1
+                            || text.indexOf('updated at') !== -1
+                            || text.indexOf('created') !== -1
+                            || text.indexOf('updated') !== -1;
+                    });
                 }
                 let statusColumnIndex = headers.findIndex(function (text) { return text.indexOf('status') !== -1; });
                 if (statusColumnIndex < 0) {
@@ -10121,9 +12673,13 @@
                 const useCreatedDate = dateColumnKey.indexOf('created') !== -1;
 
                 const rows = Array.from(tableBody.querySelectorAll('tr'));
+                const filteredRows = [];
                 rows.forEach(function (row) {
                     const cells = Array.from(row.querySelectorAll('td'));
                     if (cells.length === 0) {
+                        return;
+                    }
+                    if (row.querySelector('.table-empty-state')) {
                         return;
                     }
 
@@ -10183,10 +12739,17 @@
                         rowActorActionRaw
                     );
 
-                    row.style.display = matchesSearch && matchesDate && matchesStatus ? '' : 'none';
+                    row.style.display = 'none';
+                    if (matchesSearch && matchesDate && matchesStatus) {
+                        filteredRows.push(row);
+                    }
                 });
+                renderQueuePagination(filteredRows, shouldResetPage);
                 syncSelectedDocumentToolsState(true);
                 syncBulkSelectionUi();
+                persistQueueTableState();
+                scheduleArchivePrefetchFromTable();
+                refreshArchiveOfflineAvailabilityIndicators();
             }
 
             function bindSearchAndFilters() {
@@ -10203,7 +12766,15 @@
 
                 if (dateFilterApplyButton) {
                     dateFilterApplyButton.addEventListener('click', function () {
+                        syncDateFilterQueryState();
+                        syncChartControlsToPageRange();
                         applyTableFilters();
+                        if (liveDashboardRefreshEnabled && dashboardLivePath) {
+                            pollLiveDashboardData();
+                        } else {
+                            window.location.reload();
+                            return;
+                        }
                         setOpen(dateFilterDropdown, dateFilterToggle, false);
                     });
                 }
@@ -10217,6 +12788,73 @@
                 if (statusFilterSelect) {
                     statusFilterSelect.addEventListener('change', applyTableFilters);
                 }
+            }
+
+            function bindChartDateFilters() {
+                if (chartPanels.length === 0) {
+                    return;
+                }
+
+                chartPanels.forEach(function (chartPanel) {
+                    const elements = getChartPanelFilterElements(chartPanel);
+                    if (!elements || !elements.kind) {
+                        return;
+                    }
+
+                    syncChartFilterCaption(elements.kind);
+
+                    if (elements.toggle) {
+                        elements.toggle.addEventListener('click', function (event) {
+                            event.stopPropagation();
+                            const nextState = !(elements.dropdown && elements.dropdown.classList.contains('is-open'));
+                            chartPanels.forEach(function (panelNode) {
+                                const siblingElements = getChartPanelFilterElements(panelNode);
+                                if (siblingElements && siblingElements.kind !== elements.kind) {
+                                    setChartDateDropdownOpen(siblingElements, false);
+                                }
+                            });
+                            setChartDateDropdownOpen(elements, nextState);
+                        });
+                    }
+
+                    if (elements.applyButton) {
+                        elements.applyButton.addEventListener('click', function () {
+                            applyChartDateRange(elements.kind, getChartPanelSelectedRange(elements.kind));
+                        });
+                    }
+
+                    if (elements.resetButton) {
+                        elements.resetButton.addEventListener('click', function () {
+                            const pageRange = getActiveDateFilterRange();
+                            syncChartFilterInputsFromRange(elements.kind, pageRange);
+                            applyChartDateRange(elements.kind, pageRange);
+                        });
+                    }
+                });
+
+                document.addEventListener('click', function (event) {
+                    chartPanels.forEach(function (chartPanel) {
+                        const elements = getChartPanelFilterElements(chartPanel);
+                        if (!elements || !elements.wrap) {
+                            return;
+                        }
+                        if (!elements.wrap.contains(event.target)) {
+                            setChartDateDropdownOpen(elements, false);
+                        }
+                    });
+                });
+
+                document.addEventListener('keydown', function (event) {
+                    if (event.key !== 'Escape') {
+                        return;
+                    }
+                    chartPanels.forEach(function (chartPanel) {
+                        const elements = getChartPanelFilterElements(chartPanel);
+                        if (elements) {
+                            setChartDateDropdownOpen(elements, false);
+                        }
+                    });
+                });
             }
 
             function statusFilterOptionLabelForValue(filterValue, fallbackLabel) {
@@ -10549,43 +13187,23 @@
                     const label = String(labelNode ? labelNode.textContent : '').trim();
                     const filterValue = resolveCardStatusFilterValue(label);
                     const navigationTarget = resolveStatCardNavigationTarget(filterValue);
-                    if (!tablePanel && navigationTarget === '') {
+                    if (navigationTarget === '') {
+                        card.classList.remove('stat-card-clickable');
+                        card.removeAttribute('role');
+                        card.removeAttribute('tabindex');
+                        card.removeAttribute('aria-label');
                         return;
                     }
 
                     card.classList.add('stat-card-clickable');
                     card.setAttribute('role', 'button');
                     card.setAttribute('tabindex', '0');
-                    card.setAttribute('aria-label', label === '' ? 'Open queue details' : ('Open queue filtered by ' + label));
+                    card.setAttribute('aria-label', label === '' ? 'Open queue details' : ('Open page for ' + label));
 
                     const applyCardAction = function () {
-                        if (tablePanel) {
-                            if (statusFilterSelect && filterValue !== '') {
-                                statusFilterSelect.value = filterValue;
-                            }
-                            applyTableFilters();
-                            tablePanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                            const firstVisibleRow = findFirstVisibleQueueRow();
-                            if (firstVisibleRow) {
-                                const trackingId = String(firstVisibleRow.getAttribute('data-tracking-id') || '').trim();
-                                if (trackingId !== '') {
-                                    selectedQueueTrackingId = trackingId;
-                                    syncSelectedDocumentToolsState(false);
-                                }
-                            }
-                            return;
-                        }
-
-                        if (navigationTarget === '') {
-                            return;
-                        }
-
                         try {
                             const destinationUrl = new URL(navigationTarget, window.location.origin);
-                            const normalizedFilter = normalizeLabelKey(filterValue);
-                            if (normalizedFilter !== '') {
-                                destinationUrl.searchParams.set('status', normalizedFilter);
-                            }
+                            appendDateRangeToUrlObject(destinationUrl, getActiveDateFilterRange());
                             window.location.href = destinationUrl.toString();
                         } catch (error) {
                             window.location.href = navigationTarget;
@@ -10605,7 +13223,7 @@
                 });
             }
 
-            function exportVisibleTableToCsv() {
+            async function exportVisibleTableToCsv() {
                 if (!tableElement || !tableBody) {
                     showAlertDialog('No table is available for export.');
                     return;
@@ -10651,6 +13269,70 @@
                     return;
                 }
 
+                if (serverSideExportPath) {
+                    const requestUrl = new URL(String(serverSideExportPath), window.location.origin);
+                    const searchTerm = String(queueSearchInput ? queueSearchInput.value : '').trim();
+                    const fromDate = String(dateFilterFromInput ? dateFilterFromInput.value : '').trim();
+                    const toDate = String(dateFilterToInput ? dateFilterToInput.value : '').trim();
+
+                    if (searchTerm !== '') {
+                        requestUrl.searchParams.set('search', searchTerm);
+                    }
+                    if (fromDate !== '') {
+                        requestUrl.searchParams.set('fromDate', fromDate);
+                    }
+                    if (toDate !== '') {
+                        requestUrl.searchParams.set('toDate', toDate);
+                    }
+
+                    if (bulkRowExportEnabled) {
+                        sourceRows.forEach(function (row, index) {
+                            const rowKey = getBulkRowSelectionKey(row, index);
+                            if (rowKey !== '') {
+                                requestUrl.searchParams.append('row_keys[]', rowKey);
+                            }
+                        });
+                    }
+
+                    try {
+                        const response = await fetch(requestUrl.toString(), {
+                            method: 'GET',
+                            credentials: 'same-origin',
+                            cache: 'no-store',
+                            headers: {
+                                'Accept': 'text/csv,application/json;q=0.9,*/*;q=0.8'
+                            }
+                        });
+
+                        if (!response.ok) {
+                            const contentType = String(response.headers.get('Content-Type') || '').toLowerCase();
+                            let message = 'Unable to export rows right now.';
+                            if (contentType.indexOf('application/json') !== -1) {
+                                const payload = await response.json().catch(function () { return null; });
+                                if (payload && payload.message) {
+                                    message = String(payload.message);
+                                }
+                            } else {
+                                const text = await response.text().catch(function () { return ''; });
+                                if (String(text).trim() !== '') {
+                                    message = String(text).trim();
+                                }
+                            }
+                            showAlertDialog(message);
+                            return;
+                        }
+
+                        const filename = parseContentDispositionFilename(response.headers.get('Content-Disposition'))
+                            || ('super-admin-export-' + new Date().toISOString().slice(0, 10) + '.csv');
+                        const blob = await response.blob();
+                        downloadBlob(blob, filename);
+                        return;
+                    } catch (error) {
+                        showAlertDialog(error && error.message ? error.message : 'Unable to export rows right now.');
+                        return;
+                    }
+                }
+
                 const csvEscape = function (value) {
                     const text = String(value || '');
                     if (text.indexOf(',') !== -1 || text.indexOf('"') !== -1 || text.indexOf('\n') !== -1) {
@@ -10668,13 +13350,7 @@
                 });
 
                 const csvBlob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
-                const exportLinkNode = document.createElement('a');
-                exportLinkNode.href = URL.createObjectURL(csvBlob);
-                exportLinkNode.download = 'edats-export-' + new Date().toISOString().slice(0, 10) + '.csv';
-                document.body.appendChild(exportLinkNode);
-                exportLinkNode.click();
-                document.body.removeChild(exportLinkNode);
-                URL.revokeObjectURL(exportLinkNode.href);
+                downloadBlob(csvBlob, 'DTMIS-export-' + new Date().toISOString().slice(0, 10) + '.csv');
             }
 
             function bindBulkRowSelection() {
@@ -10736,7 +13412,7 @@
                 }
                 exportLink.addEventListener('click', function (event) {
                     event.preventDefault();
-                    exportVisibleTableToCsv();
+                    void exportVisibleTableToCsv();
                 });
             }
 
@@ -10803,7 +13479,7 @@
                             return;
                         }
                         if ((label.indexOf('export') !== -1 || label.indexOf('generate') !== -1) && exportLink) {
-                            exportVisibleTableToCsv();
+                            void exportVisibleTableToCsv();
                             return;
                         }
                         if (label.indexOf('filter') !== -1 && dateFilterToggle) {
@@ -10847,13 +13523,6 @@
                             const forwardButton = getFirstVisibleActionButton('FORWARD');
                             if (forwardButton) {
                                 forwardButton.click();
-                                return;
-                            }
-                        }
-                        if (label.indexOf('approve') !== -1) {
-                            const approveButton = getFirstVisibleActionButton('APPROVE');
-                            if (approveButton) {
-                                approveButton.click();
                                 return;
                             }
                         }
@@ -11378,21 +14047,6 @@
                 });
             }
 
-            function toggleExternalClientField() {
-                if (!intakeSourceType || !intakeExternalField) {
-                    return;
-                }
-                const externalEnabled = String(intakeSourceType.value || '').toUpperCase() === 'EXTERNAL';
-                intakeExternalField.style.display = externalEnabled ? '' : 'none';
-                const input = intakeExternalField.querySelector('input[name="external_client_name"]');
-                if (input) {
-                    input.required = externalEnabled;
-                    if (!externalEnabled) {
-                        input.value = '';
-                    }
-                }
-            }
-
             function customTypeDefaultsForCategory(category) {
                 const normalized = String(category || '').trim().toLowerCase();
                 if (normalized === 'complex') {
@@ -11407,6 +14061,61 @@
                 return { days: 3, category: 'Simple' };
             }
 
+            function isOthersDocumentTypeSelected() {
+                if (!intakeDocumentType) {
+                    return false;
+                }
+                const selectedOption = intakeDocumentType.selectedOptions && intakeDocumentType.selectedOptions.length > 0
+                    ? intakeDocumentType.selectedOptions[0]
+                    : null;
+                if (!selectedOption) {
+                    return false;
+                }
+                return String(selectedOption.getAttribute('data-is-others') || '0') === '1';
+            }
+
+            function autoSelectOthersDocumentType(customTypeName) {
+                if (!intakeDocumentType) {
+                    return false;
+                }
+                const normalizedCustomType = String(customTypeName || '').trim();
+                if (normalizedCustomType === '') {
+                    return false;
+                }
+                if (isOthersDocumentTypeSelected()) {
+                    return true;
+                }
+                const selectedDocumentTypeId = String(intakeDocumentType.value || '').trim();
+                if (selectedDocumentTypeId !== '') {
+                    return false;
+                }
+                const othersOption = Array.from(intakeDocumentType.options || []).find(function (option) {
+                    if (!option) {
+                        return false;
+                    }
+                    const optionValue = String(option.value || '').trim();
+                    if (optionValue === '') {
+                        return false;
+                    }
+                    return String(option.getAttribute('data-is-others') || '0') === '1';
+                });
+                if (!othersOption) {
+                    return false;
+                }
+                intakeDocumentType.value = String(othersOption.value || '').trim();
+                intakeDocumentType.dispatchEvent(new Event('change', { bubbles: true }));
+                return true;
+            }
+
+            function toggleOtherDocumentTypeField() {
+                if (!intakeOtherDocumentTypeField || !customDocumentTypeNameInput) {
+                    return;
+                }
+                const shouldShow = isOthersDocumentTypeSelected();
+                intakeOtherDocumentTypeField.hidden = !shouldShow;
+                customDocumentTypeNameInput.required = shouldShow;
+            }
+
             function syncCustomTypeDefaults(forceDays) {
                 if (!intakeComplexityTypeInput || !intakeComplexityDaysInput) {
                     return;
@@ -11418,21 +14127,118 @@
                 }
             }
 
+            function syncColorClassificationFromComplexity() {
+                if (!intakeComplexityTypeInput || !intakeColorClassificationInput) {
+                    return;
+                }
+
+                const normalizedComplexity = String(intakeComplexityTypeInput.value || '').trim().toLowerCase();
+                if (normalizedComplexity === 'complex' || normalizedComplexity === 'highly technical') {
+                    intakeColorClassificationInput.value = 'BLUE_COMPLEX_HIGHLY_TECHNICAL';
+                    return;
+                }
+                if (normalizedComplexity === 'others' || normalizedComplexity === 'other') {
+                    intakeColorClassificationInput.value = 'YELLOW_URGENT';
+                    return;
+                }
+                intakeColorClassificationInput.value = 'PINK_SIMPLE';
+            }
+
             function syncComplexityFromDocumentType(forceDays) {
                 if (!intakeDocumentType || !intakeComplexityTypeInput) {
                     syncCustomTypeDefaults(forceDays);
+                    syncColorClassificationFromComplexity();
                     return;
                 }
 
                 const selectedOption = intakeDocumentType.selectedOptions && intakeDocumentType.selectedOptions.length > 0
                     ? intakeDocumentType.selectedOptions[0]
                     : null;
+                const isOthersSelection = selectedOption
+                    ? String(selectedOption.getAttribute('data-is-others') || '0') === '1'
+                    : false;
+                if (isOthersSelection) {
+                    syncCustomTypeDefaults(forceDays);
+                    syncColorClassificationFromComplexity();
+                    return;
+                }
                 const docCategory = String(selectedOption ? (selectedOption.getAttribute('data-category') || '') : '').trim();
                 const currentCategory = String(intakeComplexityTypeInput.value || '').trim();
-                if (docCategory !== '' && (forceDays || currentCategory === '')) {
-                    intakeComplexityTypeInput.value = customTypeDefaultsForCategory(docCategory).category;
+                if (docCategory !== '') {
+                    const resolvedDefaults = customTypeDefaultsForCategory(docCategory);
+                    const currentDaysRaw = String(intakeComplexityDaysInput ? (intakeComplexityDaysInput.value || '') : '').trim();
+                    const nextCategory = resolvedDefaults.category;
+                    const shouldResetDays = forceDays
+                        || currentDaysRaw === ''
+                        || currentCategory !== nextCategory;
+
+                    intakeComplexityTypeInput.value = nextCategory;
+                    if (intakeComplexityDaysInput && shouldResetDays) {
+                        intakeComplexityDaysInput.value = String(resolvedDefaults.days);
+                    }
                 }
                 syncCustomTypeDefaults(forceDays);
+                syncColorClassificationFromComplexity();
+            }
+
+            function closeCreateIntakeModal() {
+                if (!createIntakeModal) {
+                    return;
+                }
+                createIntakeModal.classList.remove('is-open');
+                createIntakeModal.hidden = true;
+                document.body.classList.remove('modal-open');
+            }
+
+            function openCreateIntakeModal() {
+                if (!createIntakeModal || !intakeForm) {
+                    showAlertDialog('Create intake modal is not available on this page.');
+                    return;
+                }
+
+                createIntakeModal.hidden = false;
+                createIntakeModal.classList.add('is-open');
+                document.body.classList.add('modal-open');
+                syncIntakeSenderSource();
+                toggleOtherDocumentTypeField();
+                syncComplexityFromDocumentType(false);
+
+                const preferredFocusNode = document.getElementById('intakeSubject');
+                if (preferredFocusNode) {
+                    preferredFocusNode.focus();
+                }
+            }
+
+            function bindCreateIntakeModal() {
+                if (!createIntakeModal || !intakeForm || !openCreateIntakeModalBtn) {
+                    return;
+                }
+
+                openCreateIntakeModalBtn.addEventListener('click', function () {
+                    openCreateIntakeModal();
+                });
+
+                createIntakeCloseButtons.forEach(function (button) {
+                    button.addEventListener('click', function (event) {
+                        event.preventDefault();
+                        if ((intakeSubmitButton && intakeSubmitButton.disabled) || (intakeSubmitForwardButton && intakeSubmitForwardButton.disabled)) {
+                            return;
+                        }
+                        closeCreateIntakeModal();
+                    });
+                });
+
+                document.addEventListener('keydown', function (event) {
+                    if (
+                        event.key === 'Escape'
+                        && createIntakeModal
+                        && !createIntakeModal.hidden
+                        && !(intakeSubmitButton && intakeSubmitButton.disabled)
+                        && !(intakeSubmitForwardButton && intakeSubmitForwardButton.disabled)
+                    ) {
+                        closeCreateIntakeModal();
+                    }
+                });
             }
 
             function bindIntakeForm() {
@@ -11440,8 +14246,66 @@
                     return;
                 }
 
-                const draftKey = 'edats_intake_draft_' + String(<?= json_encode($roleFolder) ?>).toLowerCase();
+                const draftKey = 'DTMIS_intake_draft_' + String(<?= json_encode($roleFolder) ?>).toLowerCase();
                 let intakeSubmitMode = 'submit';
+                function syncIntakeSenderSource() {
+                    if (!intakeExternalClient) {
+                        return;
+                    }
+
+                    const sourceTypeValue = String(intakeSourceTypeInput ? intakeSourceTypeInput.value : 'INTERNAL').trim().toUpperCase();
+                    const isClientSource = sourceTypeValue === 'EXTERNAL';
+                    const routingOfficeValue = String(
+                        (intakeRoutingOfficeInput && intakeRoutingOfficeInput.value) || currentOfficeName || ''
+                    ).trim();
+
+                    if (intakeSenderLabel) {
+                        intakeSenderLabel.textContent = isClientSource ? 'Client Name' : 'Sender Name';
+                    }
+                    if (intakeSenderHint) {
+                        intakeSenderHint.textContent = isClientSource
+                            ? 'Required when sender source is Client. Shown on the tracking slip above Encoder.'
+                            : 'Enter the sender name from the current office. Shown on the tracking slip above Encoder.';
+                    }
+
+                    intakeExternalClient.readOnly = false;
+                    intakeExternalClient.required = true;
+                    intakeExternalClient.placeholder = isClientSource ? 'Enter client name' : 'Enter sender name';
+                    if (intakeClientAddressField && intakeClientAddressInput) {
+                        intakeClientAddressField.hidden = false;
+                        intakeClientAddressInput.hidden = false;
+                        intakeClientAddressInput.required = isClientSource;
+                        intakeClientAddressInput.placeholder = isClientSource ? 'Enter client address' : 'Enter office address';
+                        if (intakeClientAddressLabel) {
+                            intakeClientAddressLabel.textContent = isClientSource ? 'Client Address' : 'Office Address';
+                        }
+                        if (intakeClientAddressHint) {
+                            intakeClientAddressHint.textContent = isClientSource
+                                ? 'Required for client source. Shown in the tracking slip Address field.'
+                                : 'Optional. Leave blank to use the originating office on the tracking slip.';
+                        }
+                    }
+                    if (intakeOriginatingEntityInput) {
+                        intakeOriginatingEntityInput.required = true;
+                        intakeOriginatingEntityInput.placeholder = isClientSource
+                            ? 'Enter client or external originating entity'
+                            : 'Enter originating office or unit';
+                        if (intakeOriginatingEntityLabel) {
+                            intakeOriginatingEntityLabel.textContent = 'Originating Office / Entity';
+                        }
+                        if (intakeOriginatingEntityHint) {
+                            intakeOriginatingEntityHint.textContent = isClientSource
+                                ? 'Required for client source. Shown on the tracking slip and print package.'
+                                : 'Prefilled from your DENR office, but you can edit the display value.';
+                        }
+                        if (!isClientSource && String(intakeOriginatingEntityInput.value || '').trim() === '') {
+                            intakeOriginatingEntityInput.value = routingOfficeValue;
+                        }
+                        if (isClientSource && String(intakeOriginatingEntityInput.value || '').trim() === routingOfficeValue) {
+                            intakeOriginatingEntityInput.value = '';
+                        }
+                    }
+                }
 
                 function resolveForwardQueuePath(trackingId) {
                     let basePath = '';
@@ -11479,14 +14343,23 @@
                     });
                 }
 
-                if (intakeSourceType) {
-                    intakeSourceType.addEventListener('change', toggleExternalClientField);
+                toggleOtherDocumentTypeField();
+                syncIntakeSenderSource();
+
+                if (intakeSourceTypeInput) {
+                    intakeSourceTypeInput.addEventListener('change', syncIntakeSenderSource);
                 }
-                toggleExternalClientField();
 
                 if (intakeDocumentType) {
                     intakeDocumentType.addEventListener('change', function () {
+                        toggleOtherDocumentTypeField();
                         syncComplexityFromDocumentType(true);
+                    });
+                }
+                if (intakeComplexityTypeInput) {
+                    intakeComplexityTypeInput.addEventListener('change', function () {
+                        syncCustomTypeDefaults(true);
+                        syncColorClassificationFromComplexity();
                     });
                 }
                 if (intakeComplexityTypeInput) {
@@ -11525,7 +14398,8 @@
                                 field.value = savedDraft[key];
                             }
                         });
-                        toggleExternalClientField();
+                        syncIntakeSenderSource();
+                        toggleOtherDocumentTypeField();
                         syncComplexityFromDocumentType(false);
                     }
                 } catch (error) {
@@ -11540,39 +14414,46 @@
                     const formData = new FormData(intakeForm);
                     formData.set('csrf_token', csrfToken);
 
+                    const sourceTypeValue = String(intakeSourceTypeInput ? intakeSourceTypeInput.value : 'INTERNAL').trim().toUpperCase();
+                    const senderValue = String(intakeExternalClient ? intakeExternalClient.value : '').trim();
+                    const clientAddressValue = String(intakeClientAddressInput ? intakeClientAddressInput.value : '').trim();
+                    const originatingEntityValue = String(intakeOriginatingEntityInput ? intakeOriginatingEntityInput.value : '').trim();
+                    if (senderValue === '') {
+                        showAlertDialog(sourceTypeValue === 'EXTERNAL'
+                            ? 'Please enter the client name.'
+                            : 'Please enter the sender name.'
+                        );
+                        if (intakeExternalClient) {
+                            intakeExternalClient.focus();
+                        }
+                        return;
+                    }
+                    if (originatingEntityValue === '') {
+                        showAlertDialog('Please enter the originating office / entity.');
+                        if (intakeOriginatingEntityInput) {
+                            intakeOriginatingEntityInput.focus();
+                        }
+                        return;
+                    }
+                    if (sourceTypeValue === 'EXTERNAL' && clientAddressValue === '') {
+                        showAlertDialog('Please enter the client address.');
+                        if (intakeClientAddressInput) {
+                            intakeClientAddressInput.focus();
+                        }
+                        return;
+                    }
+                    formData.set('source_type', sourceTypeValue === 'EXTERNAL' ? 'EXTERNAL' : 'INTERNAL');
+                    formData.set('sender', senderValue);
+                    formData.set('external_client_name', sourceTypeValue === 'EXTERNAL' ? senderValue : '');
+                    formData.set('client_address', clientAddressValue);
+                    formData.set('originating_entity_name', originatingEntityValue);
+
                     const remarksText = String(intakeRemarksInput ? intakeRemarksInput.value : '').trim();
                     const selectedFiles = intakeAttachmentsInput && intakeAttachmentsInput.files
                         ? Array.from(intakeAttachmentsInput.files)
                         : [];
                     const selectedAttachmentCount = selectedFiles.length;
                     const hasAttachment = selectedAttachmentCount > 0;
-                    if (selectedAttachmentCount > intakeMaxAttachments) {
-                        showAlertDialog('You can upload up to 40 attachments per intake. Please remove extra files.');
-                        if (intakeAttachmentsInput) {
-                            intakeAttachmentsInput.focus();
-                        }
-                        return;
-                    }
-                    let totalAttachmentBytes = 0;
-                    for (let i = 0; i < selectedFiles.length; i += 1) {
-                        const file = selectedFiles[i];
-                        const fileSize = Number(file && file.size ? file.size : 0);
-                        if (fileSize > intakeMaxFileSizeBytes) {
-                            showAlertDialog('Each attachment must be 15 MB or smaller. Please remove large files.');
-                            if (intakeAttachmentsInput) {
-                                intakeAttachmentsInput.focus();
-                            }
-                            return;
-                        }
-                        totalAttachmentBytes += fileSize;
-                    }
-                    if (totalAttachmentBytes > intakeMaxTotalBytes) {
-                        showAlertDialog('Combined attachment size is too large. Keep total attachments around 240 MB or less per intake.');
-                        if (intakeAttachmentsInput) {
-                            intakeAttachmentsInput.focus();
-                        }
-                        return;
-                    }
                     formData.set('attachment_count_expected', String(selectedAttachmentCount));
                     if (!hasAttachment && remarksText === '') {
                         showAlertDialog('Soft copy not uploaded. Please provide remarks explaining why no digital file was attached.');
@@ -11584,13 +14465,33 @@
 
                     const selectedDocumentTypeId = String(intakeDocumentType ? intakeDocumentType.value : '').trim();
                     const customTypeName = String(customDocumentTypeNameInput ? customDocumentTypeNameInput.value : '').trim();
-                    if (selectedDocumentTypeId === '') {
+                    if (selectedDocumentTypeId === '' && customTypeName !== '') {
+                        autoSelectOthersDocumentType(customTypeName);
+                    }
+                    const resolvedDocumentTypeId = String(intakeDocumentType ? intakeDocumentType.value : '').trim();
+                    const isImplicitOthersSubmission = resolvedDocumentTypeId === '' && customTypeName !== '';
+                    if (resolvedDocumentTypeId === '' && !isImplicitOthersSubmission) {
                         showAlertDialog('Please select a document type.');
                         if (intakeDocumentType) {
-                            intakeDocumentType.focus();
+                            focusSearchableSelect(intakeDocumentType, false);
                         }
                         return;
                     }
+                    if (customTypeName !== '' && resolvedDocumentTypeId !== '' && !isOthersDocumentTypeSelected()) {
+                        showAlertDialog('Use the Others document type before entering a custom document type.');
+                        if (intakeDocumentType) {
+                            focusSearchableSelect(intakeDocumentType, false);
+                        }
+                        return;
+                    }
+                    if (resolvedDocumentTypeId !== '' && isOthersDocumentTypeSelected() && customTypeName === '') {
+                        showAlertDialog('Please specify the document type under Others.');
+                        if (customDocumentTypeNameInput) {
+                            customDocumentTypeNameInput.focus();
+                        }
+                        return;
+                    }
+                    formData.set('custom_document_type_name', customTypeName);
 
                     if (intakeComplexityTypeInput) {
                         const normalizedComplexity = customTypeDefaultsForCategory(intakeComplexityTypeInput.value).category;
@@ -11612,11 +14513,6 @@
                             return;
                         }
                         formData.set('intake_complexity_days', String(resolvedDays));
-                    }
-
-                    if (customTypeName !== '') {
-                        showAlertDialog('Custom type creation was moved to the Document Type Requests page.');
-                        return;
                     }
 
                     const submitBtn = intakeSubmitButton || null;
@@ -11656,11 +14552,13 @@
                             if (queuedOffline) {
                                 localStorage.removeItem(draftKey);
                                 intakeForm.reset();
-                                toggleExternalClientField();
+                                syncIntakeSenderSource();
+                                toggleOtherDocumentTypeField();
                                 syncComplexityFromDocumentType(false);
+                                closeCreateIntakeModal();
                                 showAlertDialog(json.message || 'Offline mode: intake was queued and will sync when connection returns.').then(function () {
-                                    if (window.edatsOfflineOutbox && typeof window.edatsOfflineOutbox.requestSync === 'function') {
-                                        window.edatsOfflineOutbox.requestSync();
+                                    if (window.DTMISOfflineOutbox && typeof window.DTMISOfflineOutbox.requestSync === 'function') {
+                                        window.DTMISOfflineOutbox.requestSync();
                                     }
                                 });
                                 return;
@@ -11913,17 +14811,25 @@
             syncSelectedDocumentToolsState(true);
             bindBulkRowSelection();
             renderWorkflowSplineChart();
-            document.addEventListener('edats:theme-changed', renderWorkflowSplineChart);
+            document.addEventListener('DTMIS:theme-changed', renderWorkflowSplineChart);
             bindRouteActionModal();
             bindEditIntakeModal();
             bindQueueActionHandlers();
+            bindCreateIntakeModal();
             bindIntakeForm();
+            bindQueuePagination();
             bindSearchAndFilters();
             bindOfflineQueuedQueueView();
             ensureStatCardStatusFilterOptions();
+            initAllSearchableSelects(document);
+            applyDateFilterFromQuery();
             applyStatusFilterFromQuery();
+            restoreQueueTableState();
             bindStatCardQuickFilters();
+            bindChartDateFilters();
+            syncChartControlsToPageRange();
             bindExportAction();
+            bindSessionHeartbeat();
             bindStickyActions();
             bindNotificationActions();
             bindQrReceivePanel();
@@ -12009,18 +14915,18 @@
             });
 
             function flushOfflineSensitiveDataOnLogout() {
-                if (window.edatsOfflineSecurity && typeof window.edatsOfflineSecurity.clearSensitiveData === 'function') {
-                    return Promise.resolve(window.edatsOfflineSecurity.clearSensitiveData('logout-click'));
+                if (window.DTMISOfflineSecurity && typeof window.DTMISOfflineSecurity.clearSensitiveData === 'function') {
+                    return Promise.resolve(window.DTMISOfflineSecurity.clearSensitiveData('logout-click'));
                 }
 
                 const fallbackTasks = [];
-                if (window.edatsOfflineOutbox && typeof window.edatsOfflineOutbox.clearAll === 'function') {
-                    fallbackTasks.push(Promise.resolve(window.edatsOfflineOutbox.clearAll('logout-click')));
-                } else if (window.edatsOfflineOutbox && typeof window.edatsOfflineOutbox.clear === 'function') {
-                    fallbackTasks.push(Promise.resolve(window.edatsOfflineOutbox.clear()));
+                if (window.DTMISOfflineOutbox && typeof window.DTMISOfflineOutbox.clearAll === 'function') {
+                    fallbackTasks.push(Promise.resolve(window.DTMISOfflineOutbox.clearAll('logout-click')));
+                } else if (window.DTMISOfflineOutbox && typeof window.DTMISOfflineOutbox.clear === 'function') {
+                    fallbackTasks.push(Promise.resolve(window.DTMISOfflineOutbox.clear()));
                 }
-                if (window.edatsOfflineReadCache && typeof window.edatsOfflineReadCache.clear === 'function') {
-                    fallbackTasks.push(Promise.resolve(window.edatsOfflineReadCache.clear()));
+                if (window.DTMISOfflineReadCache && typeof window.DTMISOfflineReadCache.clear === 'function') {
+                    fallbackTasks.push(Promise.resolve(window.DTMISOfflineReadCache.clear()));
                 }
                 return Promise.allSettled(fallbackTasks);
             }

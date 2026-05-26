@@ -220,6 +220,7 @@ function role_table_default_actions(array $queueRow): string
 
     $roleKeyRaw = app_normalize_role_key((string)($roleName ?? ''));
     $roleKey = app_role_behavior_key((string)($roleName ?? ''));
+    $isRegionalOredSigner = $roleKeyRaw === 'ORED_SIGN';
     $isCenroAdminRecord = $roleKeyRaw === 'CENRO_ADMIN_RECORD';
     $isPenroAdminRecord = $roleKeyRaw === 'PENRO_ADMIN_RECORD';
     $isPamoAdminRecord = $roleKeyRaw === 'PAMO_ADMIN';
@@ -240,10 +241,7 @@ function role_table_default_actions(array $queueRow): string
     if (role_status_allows_receive($status)) {
         $actions[] = 'Receive';
     }
-    if (in_array($roleKey, ['RECORDS_UNIT', 'DIVISION_CHIEF', 'ORED', 'SECTION_STAFF', 'ARD_TS', 'ARD_MS'], true)) {
-        $actions[] = 'Approve';
-    }
-    if ($roleKey === 'ORED') {
+    if ($isRegionalOredSigner) {
         $actions[] = 'Sign';
         $actions[] = 'Undo Sign';
     }
@@ -263,7 +261,7 @@ function role_table_default_actions(array $queueRow): string
     if ($isInternalAdminRecord && $hasReceivedCustody) {
         $actions[] = 'Release';
     }
-    if ($roleKey === 'ORED' && !$isCenroOfficer) {
+    if ($isRegionalOredSigner && !$isCenroOfficer) {
         $actions[] = 'Override';
     }
     if (!role_hide_reroute_quick_action()) {
@@ -307,20 +305,22 @@ function role_queue_intake_indicator_label(array $queueRow): string
     $subject = strtolower(trim((string)($queueRow['subject'] ?? '')));
     $remarks = strtolower(trim((string)($queueRow['last_remarks'] ?? $queueRow['actor_action_remarks'] ?? '')));
     $deadlineBucket = strtolower(trim((string)($queueRow['deadline_bucket'] ?? '')));
+    $classification = '';
 
     if (str_contains($remarks, 'color classification:')) {
-        if (str_contains($remarks, 'yellow') || str_contains($remarks, 'urgent')) {
-            return 'Yellow - Urgent';
-        }
-        if (str_contains($remarks, 'pink') || str_contains($remarks, 'simple')) {
-            return 'Pink - Simple';
-        }
-        if (str_contains($remarks, 'blue') || str_contains($remarks, 'complex') || str_contains($remarks, 'highly technical')) {
-            return 'Blue - Complex/Highly Technical';
-        }
         if (str_contains($remarks, 'green') || str_contains($remarks, 'released')) {
-            return 'Green - Released';
+            $classification = 'green';
+        } elseif (str_contains($remarks, 'yellow') || str_contains($remarks, 'urgent')) {
+            $classification = 'yellow';
+        } elseif (str_contains($remarks, 'blue') || str_contains($remarks, 'complex') || str_contains($remarks, 'highly technical')) {
+            $classification = 'blue';
+        } elseif (str_contains($remarks, 'pink') || str_contains($remarks, 'simple')) {
+            $classification = 'pink';
         }
+    }
+
+    if ($classification === 'green') {
+        return 'Green - Released';
     }
 
     if (str_contains($status, 'released')) {
@@ -337,6 +337,9 @@ function role_queue_intake_indicator_label(array $queueRow): string
     ) {
         return 'Yellow - Urgent';
     }
+    if ($classification === 'yellow') {
+        return 'Yellow - Urgent';
+    }
 
     if (
         str_contains($complexity, 'complex')
@@ -346,8 +349,14 @@ function role_queue_intake_indicator_label(array $queueRow): string
     ) {
         return 'Blue - Complex/Highly Technical';
     }
+    if ($classification === 'blue') {
+        return 'Blue - Complex/Highly Technical';
+    }
 
     if (str_contains($complexity, 'simple')) {
+        return 'Pink - Simple';
+    }
+    if ($classification === 'pink') {
         return 'Pink - Simple';
     }
 
@@ -367,7 +376,8 @@ function role_table_rows_from_queue(array $queueRows, array $tableColumns): arra
             } elseif (str_contains($columnKey, 'tracking')) {
                 $value = (string)($queueRow['tracking_id'] ?? '-');
             } elseif (str_contains($columnKey, 'source')) {
-                $value = ucfirst(strtolower((string)($queueRow['source_type'] ?? 'INTERNAL')));
+                $sourceType = strtoupper(trim((string)($queueRow['source_type'] ?? 'INTERNAL')));
+                $value = $sourceType === 'EXTERNAL' ? 'Client' : 'Current Office';
             } elseif (str_contains($columnKey, 'subject') && str_contains($columnKey, 'complexity')) {
                 $subject = trim((string)($queueRow['subject'] ?? ''));
                 $complexity = trim((string)($queueRow['arta_category'] ?? ''));
@@ -401,6 +411,7 @@ function role_table_rows_from_queue(array $queueRows, array $tableColumns): arra
                 if ($lastRemarks === '') {
                     $lastRemarks = trim((string)($queueRow['actor_action_remarks'] ?? ''));
                 }
+                $lastRemarks = workflow_strip_custom_others_document_type_from_remarks($lastRemarks);
                 $value = $lastRemarks !== '' ? $lastRemarks : '-';
             } elseif (str_contains($columnKey, 'current holder')) {
                 $value = (string)($queueRow['current_holder'] ?? '-');
@@ -419,6 +430,8 @@ function role_table_rows_from_queue(array $queueRows, array $tableColumns): arra
                 || str_contains($columnKey, 'last update')
             ) {
                 $value = (string)($queueRow['date_received'] ?? '-');
+            } elseif (str_contains($columnKey, 'sender')) {
+                $value = (string)($queueRow['sender'] ?? '-');
             } elseif (str_contains($columnKey, 'date created') || str_contains($columnKey, 'created date') || str_contains($columnKey, 'created at')) {
                 $value = (string)($queueRow['date_created'] ?? '-');
             } elseif (str_contains($columnKey, 'date')) {
@@ -443,7 +456,7 @@ function role_table_rows_from_queue(array $queueRows, array $tableColumns): arra
                 'date_created_raw' => (string)($queueRow['date_created_raw'] ?? ''),
                 'deadline_at_raw' => (string)($queueRow['deadline_at_raw'] ?? ''),
                 'deadline_bucket' => (string)($queueRow['deadline_bucket'] ?? ''),
-                'status_raw' => (string)($queueRow['status'] ?? ''),
+                'status_raw' => (string)($queueRow['status_raw'] ?? $queueRow['status'] ?? ''),
                 'has_section_receive' => (int)($queueRow['has_section_receive'] ?? 0) > 0 ? '1' : '0',
                 'has_signed_action' => (int)($queueRow['has_signed_action'] ?? 0) > 0 ? '1' : '0',
                 'has_return_action' => (int)($queueRow['has_return_action'] ?? 0) > 0 ? '1' : '0',
@@ -459,6 +472,90 @@ function role_table_rows_from_queue(array $queueRows, array $tableColumns): arra
     }
 
     return $rows;
+}
+
+function role_table_indicator_column_index(array $tableColumns): int
+{
+    foreach ($tableColumns as $index => $column) {
+        $columnKey = strtolower(trim((string)$column));
+        if ($columnKey === 'indicator' || str_contains($columnKey, 'indicator')) {
+            return (int)$index;
+        }
+    }
+
+    return -1;
+}
+
+function role_table_tracking_column_index(array $tableColumns): int
+{
+    foreach ($tableColumns as $index => $column) {
+        $columnKey = strtolower(trim((string)$column));
+        if (str_contains($columnKey, 'tracking')) {
+            return (int)$index;
+        }
+    }
+
+    return -1;
+}
+
+function role_table_with_indicator_column(array $tableColumns): array
+{
+    if (role_table_indicator_column_index($tableColumns) >= 0) {
+        return array_values($tableColumns);
+    }
+
+    $trackingColumnIndex = role_table_tracking_column_index($tableColumns);
+    if ($trackingColumnIndex < 0) {
+        array_unshift($tableColumns, 'Indicator');
+        return array_values($tableColumns);
+    }
+
+    array_splice($tableColumns, $trackingColumnIndex, 0, ['Indicator']);
+    return array_values($tableColumns);
+}
+
+function role_page_uses_queue_indicator(string $activeMenu = '', string $scriptName = ''): bool
+{
+    $normalizedMenu = strtolower(trim($activeMenu));
+    if ($normalizedMenu === 'audit_logs') {
+        return true;
+    }
+
+    $normalizedScript = strtolower(trim($scriptName));
+    if ($normalizedScript === '') {
+        return false;
+    }
+
+    return in_array($normalizedScript, [
+        'ard-ms-action.php',
+        'ard-ts-action.php',
+        'audit-logs.php',
+        'for-chief-action.php',
+        'for-staff-action.php',
+        'pacdo-action.php',
+        'rd-action-desk.php',
+    ], true);
+}
+
+function role_fallback_indicator_label(array $rowMeta = []): string
+{
+    $status = strtolower(trim((string)($rowMeta['status_raw'] ?? $rowMeta['status'] ?? '')));
+    $deadlineBucket = strtolower(trim((string)($rowMeta['deadline_bucket'] ?? '')));
+
+    if (str_contains($status, 'released')) {
+        return 'Green - Released';
+    }
+
+    if (
+        str_contains($status, 'urgent')
+        || str_contains($deadlineBucket, 'overdue')
+        || str_contains($deadlineBucket, 'at-risk')
+        || str_contains($deadlineBucket, 'at risk')
+    ) {
+        return 'Yellow - Urgent';
+    }
+
+    return 'Pink - Simple';
 }
 
 function role_has_date_column(array $tableColumns): bool
@@ -895,12 +992,12 @@ function role_assignment_tags_from_office(array $officeContext): array
 
 function role_find_records_unit_route_office(PDO $pdo): ?array
 {
-    $stmt = $pdo->query("SELECT id, name, level FROM offices WHERE UPPER(name) LIKE '%PACDO%' OR UPPER(name) LIKE '%RECORDS-UNIT%' OR UPPER(name) LIKE '%RECORDS UNIT%' OR UPPER(name) LIKE '%RECORDS_UNIT%' ORDER BY id ASC LIMIT 1");
+    $stmt = $pdo->query("SELECT id, name, level FROM offices WHERE UPPER(name) LIKE '%PACDO%' OR UPPER(name) LIKE '%RECORDS-UNIT%' OR UPPER(name) LIKE '%RECORDS UNIT%' OR UPPER(name) LIKE '%RECORDS_UNIT%' ORDER BY id ASC");
     $office = $stmt ? $stmt->fetch() : false;
     if ($office) {
         return ['id' => (int)($office['id'] ?? 0), 'name' => (string)($office['name'] ?? ''), 'level' => (string)($office['level'] ?? '')];
     }
-    $fallbackStmt = $pdo->query("SELECT o.id, o.name, o.level FROM offices o INNER JOIN users u ON u.office_id = o.id INNER JOIN roles r ON r.id = u.role_id WHERE UPPER(REPLACE(REPLACE(r.name, '_', ' '), '-', ' ')) IN ('PACDO', 'RECORDS UNIT') ORDER BY o.id ASC LIMIT 1");
+    $fallbackStmt = $pdo->query("SELECT o.id, o.name, o.level FROM offices o INNER JOIN users u ON u.office_id = o.id INNER JOIN roles r ON r.id = u.role_id WHERE UPPER(REPLACE(REPLACE(r.name, '_', ' '), '-', ' ')) IN ('PACDO', 'RECORDS UNIT') ORDER BY o.id ASC");
     $office = $fallbackStmt ? $fallbackStmt->fetch() : false;
     if (!$office) return null;
     return ['id' => (int)($office['id'] ?? 0), 'name' => (string)($office['name'] ?? ''), 'level' => (string)($office['level'] ?? '')];
@@ -913,12 +1010,12 @@ function role_find_pacdo_route_office(PDO $pdo): ?array
 
 function role_find_ored_route_office(PDO $pdo): ?array
 {
-    $stmt = $pdo->query("SELECT id, name, level FROM offices WHERE UPPER(name) LIKE '%ORED%' OR UPPER(name) LIKE '%REGIONAL EXECUTIVE%' ORDER BY id ASC LIMIT 1");
+    $stmt = $pdo->query("SELECT id, name, level FROM offices WHERE UPPER(name) LIKE '%ORED%' OR UPPER(name) LIKE '%REGIONAL EXECUTIVE%' ORDER BY id ASC");
     $office = $stmt ? $stmt->fetch() : false;
     if ($office) {
         return ['id' => (int)($office['id'] ?? 0), 'name' => (string)($office['name'] ?? ''), 'level' => (string)($office['level'] ?? '')];
     }
-    $fallbackStmt = $pdo->query("SELECT o.id, o.name, o.level FROM offices o INNER JOIN users u ON u.office_id = o.id INNER JOIN roles r ON r.id = u.role_id WHERE UPPER(r.name) = 'ORED' ORDER BY o.id ASC LIMIT 1");
+    $fallbackStmt = $pdo->query("SELECT o.id, o.name, o.level FROM offices o INNER JOIN users u ON u.office_id = o.id INNER JOIN roles r ON r.id = u.role_id WHERE UPPER(r.name) IN ('ORED', 'ORED_SIGN') ORDER BY o.id ASC");
     $office = $fallbackStmt ? $fallbackStmt->fetch() : false;
     if (!$office) return null;
     return ['id' => (int)($office['id'] ?? 0), 'name' => (string)($office['name'] ?? ''), 'level' => (string)($office['level'] ?? '')];
@@ -968,12 +1065,12 @@ function role_find_ard_route_office_by_track(PDO $pdo, string $track): ?array
     $normalizedTrack = strtoupper(trim($track));
     if (!in_array($normalizedTrack, ['TS', 'MS'], true)) return null;
     $roleName = $normalizedTrack === 'TS' ? 'ARD_TS' : 'ARD_MS';
-    $stmt = $pdo->prepare("SELECT o.id, o.name, o.level FROM offices o INNER JOIN users u ON u.office_id = o.id INNER JOIN roles r ON r.id = u.role_id WHERE UPPER(r.name) = :role_name ORDER BY o.id ASC LIMIT 1");
+    $stmt = $pdo->prepare("SELECT o.id, o.name, o.level FROM offices o INNER JOIN users u ON u.office_id = o.id INNER JOIN roles r ON r.id = u.role_id WHERE UPPER(r.name) = :role_name ORDER BY o.id ASC");
     $stmt->execute(['role_name' => $roleName]);
     $office = $stmt->fetch();
     if (!$office) {
         $likeNeedle = $normalizedTrack === 'TS' ? '%TECHNICAL%' : '%MANAGEMENT%';
-        $fallback = $pdo->prepare("SELECT id, name, level FROM offices WHERE UPPER(name) LIKE :needle OR UPPER(name) LIKE :ard_short ORDER BY id ASC LIMIT 1");
+        $fallback = $pdo->prepare("SELECT id, name, level FROM offices WHERE UPPER(name) LIKE :needle OR UPPER(name) LIKE :ard_short ORDER BY id ASC");
         $fallback->execute(['needle' => $likeNeedle, 'ard_short' => '%ARD ' . $normalizedTrack . '%']);
         $office = $fallback->fetch();
     }
@@ -984,13 +1081,13 @@ function role_find_ard_route_office_by_track(PDO $pdo, string $track): ?array
 function role_find_parent_ard_route_office(PDO $pdo, int $divisionOfficeId): ?array
 {
     if ($divisionOfficeId <= 0) return null;
-    $stmt = $pdo->prepare("SELECT parent.id, parent.name, parent.level FROM offices child INNER JOIN offices parent ON parent.id = child.parent_office_id WHERE child.id = :division_office_id AND UPPER(COALESCE(child.level, '')) = 'DIVISION' LIMIT 1");
+    $stmt = $pdo->prepare("SELECT parent.id, parent.name, parent.level FROM offices child INNER JOIN offices parent ON parent.id = child.parent_office_id WHERE child.id = :division_office_id AND UPPER(COALESCE(child.level, '')) = 'DIVISION'");
     $stmt->execute(['division_office_id' => $divisionOfficeId]);
     $parentOffice = $stmt->fetch();
     if ($parentOffice && role_ard_track_from_office_name((string)($parentOffice['name'] ?? '')) !== null) {
         return ['id' => (int)($parentOffice['id'] ?? 0), 'name' => (string)($parentOffice['name'] ?? ''), 'level' => (string)($parentOffice['level'] ?? '')];
     }
-    $divisionStmt = $pdo->prepare('SELECT name FROM offices WHERE id = :id LIMIT 1');
+    $divisionStmt = $pdo->prepare('SELECT TOP (1) name FROM offices WHERE id = :id');
     $divisionStmt->execute(['id' => $divisionOfficeId]);
     $divisionName = (string)($divisionStmt->fetchColumn() ?: '');
     $track = role_division_track_from_name($divisionName);
@@ -1095,7 +1192,7 @@ function role_find_section_staff_route_offices(PDO $pdo, int $divisionOfficeId =
 function role_find_parent_division_route_office(PDO $pdo, int $sectionOfficeId): ?array
 {
     if ($sectionOfficeId <= 0) return null;
-    $stmt = $pdo->prepare("SELECT parent.id, parent.name, parent.level FROM offices child INNER JOIN offices parent ON parent.id = child.parent_office_id WHERE child.id = :section_office_id AND UPPER(COALESCE(parent.level, '')) IN ('DIVISION', 'CENRO_SECTION', 'PENRO_DIVISION', 'PASU_OFFICER') LIMIT 1");
+    $stmt = $pdo->prepare("SELECT parent.id, parent.name, parent.level FROM offices child INNER JOIN offices parent ON parent.id = child.parent_office_id WHERE child.id = :section_office_id AND UPPER(COALESCE(parent.level, '')) IN ('DIVISION', 'CENRO_SECTION', 'PENRO_DIVISION', 'PASU_OFFICER')");
     $stmt->execute(['section_office_id' => $sectionOfficeId]);
     $office = $stmt->fetch();
     return $office ? ['id' => (int)($office['id'] ?? 0), 'name' => (string)($office['name'] ?? ''), 'level' => (string)($office['level'] ?? '')] : null;

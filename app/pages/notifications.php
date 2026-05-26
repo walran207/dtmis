@@ -30,7 +30,7 @@ $userId = (int)($_SESSION['user_id'] ?? 0);
 $offlinePolicy = app_offline_policy_for_role($roleName);
 $offlineSyncLogUrl = app_url('actions/offline-sync-log.php');
 $dashboardUrl = app_url(app_role_dashboard_path($roleName));
-$trackingSlipUrl = app_url('tracking-slip.php');
+$trackingSlipUrl = app_public_url('tracking-slip.php');
 $notificationsPageUrl = app_url('notifications.php');
 $notificationFeedUrl = app_url('actions/notifications-feed.php');
 $notificationSoundUrl = app_url('assets/audio/notif-sound.wav');
@@ -41,7 +41,7 @@ $errorMessage = '';
 try {
     if ($officeId > 0) {
         $pdo = getDatabaseConnection();
-        $notifications = dashboard_fetch_notifications($pdo, $officeId, 50, $roleName);
+        $notifications = dashboard_fetch_notifications($pdo, $officeId, 50, $roleName, $userId);
     }
 } catch (Throwable $exception) {
     $errorMessage = 'Unable to load notifications right now.';
@@ -57,10 +57,10 @@ foreach ($notifications as $notification) {
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Notifications | DENR Region XII eDATS</title>
+    <title>Notifications | DENR Region XII DTMIS</title>
     <script>
-        window.__EDATS_OFFLINE_POLICY = <?php echo json_encode($offlinePolicy, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
-        window.__EDATS_OFFLINE_SYNC_LOG_URL = <?php echo json_encode($offlineSyncLogUrl); ?>;
+        window.__DTMIS_OFFLINE_POLICY = <?php echo json_encode($offlinePolicy, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
+        window.__DTMIS_OFFLINE_SYNC_LOG_URL = <?php echo json_encode($offlineSyncLogUrl); ?>;
     </script>
     <script src="<?php echo notifications_e(app_url('assets/js/offline-read-cache.js')); ?>"></script>
     <script src="<?php echo notifications_e(app_url('assets/js/offline-outbox.js')); ?>"></script>
@@ -362,7 +362,7 @@ foreach ($notifications as $notification) {
                                 }
                             }
                             $notificationLink = $notificationTrackingId !== ''
-                                ? $trackingSlipUrl . '?tracking_id=' . rawurlencode($notificationTrackingId)
+                                ? $trackingSlipUrl . '?tracking_id=' . rawurlencode($notificationTrackingId) . '&public=1'
                                 : $notificationsPageUrl;
                         ?>
                 <article
@@ -397,13 +397,13 @@ foreach ($notifications as $notification) {
 
             const currentUserId = <?= json_encode($userId) ?>;
             if (Number.isFinite(currentUserId) && currentUserId > 0) {
-                window.__EDATS_CACHE_SCOPE = 'user:' + String(currentUserId);
+                window.__DTMIS_CACHE_SCOPE = 'user:' + String(currentUserId);
             }
             const trackingSlipPath = <?= json_encode($trackingSlipUrl) ?>;
             const notificationsPagePath = <?= json_encode($notificationsPageUrl) ?>;
             const feedPath = <?= json_encode($notificationFeedUrl) ?>;
             const soundPath = <?= json_encode($notificationSoundUrl) ?>;
-            const readKey = 'edats_notif_read_until_' + String(currentUserId > 0 ? currentUserId : 'global');
+            const readKey = 'DTMIS_notif_read_until_' + String(currentUserId > 0 ? currentUserId : 'global');
             const pollIntervalMs = 3000;
 
             let highestSeenId = Math.max(0, Number(list.getAttribute('data-latest-id') || 0));
@@ -578,11 +578,11 @@ foreach ($notifications as $notification) {
                 const message = String(notification && notification.message ? notification.message : '');
                 const datetime = String(notification && notification.datetime ? notification.datetime : '').trim();
                 const timeLabel = String(notification && notification.timeLabel ? notification.timeLabel : 'Now');
-                const trackingId = String(notification && notification.tracking_id ? notification.tracking_id : '').trim();
-                const indicatorMeta = notificationIndicatorMeta(notification);
-                const href = trackingId !== ''
-                    ? trackingSlipPath + '?tracking_id=' + encodeURIComponent(trackingId)
-                    : notificationsPagePath;
+                        const trackingId = String(notification && notification.tracking_id ? notification.tracking_id : '').trim();
+                        const indicatorMeta = notificationIndicatorMeta(notification);
+                        const href = trackingId !== ''
+                            ? trackingSlipPath + '?tracking_id=' + encodeURIComponent(trackingId) + '&public=1'
+                            : notificationsPagePath;
 
                 const article = document.createElement('article');
                 article.className = 'notif-item is-unread';

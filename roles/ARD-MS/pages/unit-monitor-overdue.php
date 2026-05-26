@@ -2,7 +2,7 @@
 $roleBasePath = dirname(__DIR__);
 $roleName = 'ARD_MS';
 $initialsFallback = 'AM';
-$pageTitle = 'Unit Monitor (Overdue / At-Risk) | DENR Region XII eDATS';
+$pageTitle = 'Unit Monitor (Overdue / At-Risk) | DENR Region XII DTMIS';
 $activeMenu = 'unit_monitor_overdue';
 $brandSubtitle = 'ARD MS Portal';
 $pageHeading = 'Unit Monitor (Overdue / At-Risk)';

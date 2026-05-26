@@ -16,10 +16,11 @@ $menuItems = [
     ['key' => 'inbox_pending_receive', 'label' => 'For Staff Action', 'href' => 'for-staff-action.php', 'icon' => 'inbox'],
     ['key' => 'outbox', 'label' => 'My Outbox', 'href' => 'my-outbox.php', 'icon' => 'outbox'],
     ['key' => 'search', 'label' => 'Search Documents', 'href' => 'search-documents.php', 'icon' => 'search'],
+    ['key' => 'profile_settings', 'label' => 'Profile Settings', 'href' => 'profile-settings.php', 'icon' => 'dashboard'],
 ];
 
-if (!function_exists('edats_sidebar_icon')) {
-    function edats_sidebar_icon(string $icon): string
+if (!function_exists('DTMIS_sidebar_icon')) {
+    function DTMIS_sidebar_icon(string $icon): string
     {
         $icons = [
             'dashboard' => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect></svg>',
@@ -67,7 +68,7 @@ if (!function_exists('edats_sidebar_icon')) {
                     $itemClass = $activeMenuKey === $itemKey ? 'menu-link is-active' : 'menu-link';
                     ?>
                     <a href="<?php echo $esc((string)($item['href'] ?? '#')); ?>" class="<?php echo $itemClass; ?>" aria-label="<?php echo $esc((string)($item['label'] ?? 'Menu')); ?>" title="<?php echo $esc((string)($item['label'] ?? 'Menu')); ?>">
-                        <span class="menu-icon" aria-hidden="true"><?php echo edats_sidebar_icon((string)($item['icon'] ?? 'dashboard')); ?></span>
+                        <span class="menu-icon" aria-hidden="true"><?php echo DTMIS_sidebar_icon((string)($item['icon'] ?? 'dashboard')); ?></span>
                         <span class="menu-text"><?php echo $esc((string)($item['label'] ?? 'Untitled')); ?></span>
                     </a>
                 <?php endforeach; ?>
@@ -97,4 +98,3 @@ if (!function_exists('edats_sidebar_icon')) {
             </div>
         </aside>
     </div>
-

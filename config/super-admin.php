@@ -35,12 +35,58 @@ if (!function_exists('super_admin_column_exists')) {
             return $cache[$cacheKey];
         }
 
-        $safeTable = str_replace('`', '', $table);
-        $safeColumn = str_replace(['\\', "'"], ['\\\\', "\\'"], $column);
-        $stmt = $pdo->query("SHOW COLUMNS FROM `{$safeTable}` LIKE '{$safeColumn}'");
-        $cache[$cacheKey] = $stmt ? (bool)$stmt->fetch() : false;
+        $cache[$cacheKey] = db_column_exists($pdo, $table, $column);
 
         return $cache[$cacheKey];
+    }
+}
+
+if (!function_exists('super_admin_document_recency_sql')) {
+    function super_admin_document_recency_sql(PDO $pdo, string $alias = 'd'): string
+    {
+        $normalizedAlias = trim($alias);
+        $qualifiedCreatedAt = $normalizedAlias !== '' ? ($normalizedAlias . '.created_at') : 'created_at';
+        if (!super_admin_column_exists($pdo, 'documents', 'updated_at')) {
+            return $qualifiedCreatedAt;
+        }
+
+        $qualifiedUpdatedAt = $normalizedAlias !== '' ? ($normalizedAlias . '.updated_at') : 'updated_at';
+
+        return 'COALESCE(' . $qualifiedUpdatedAt . ', ' . $qualifiedCreatedAt . ')';
+    }
+}
+
+if (!function_exists('super_admin_document_origin_expr')) {
+    function super_admin_document_origin_expr(PDO $pdo, string $originOfficeAlias = 'o_origin'): string
+    {
+        if (super_admin_column_exists($pdo, 'documents', 'originating_entity_name')) {
+            return "COALESCE(NULLIF(TRIM(d.originating_entity_name), ''), COALESCE({$originOfficeAlias}.name, '-'))";
+        }
+
+        return "COALESCE({$originOfficeAlias}.name, '-')";
+    }
+}
+
+if (!function_exists('super_admin_source_type_label')) {
+    function super_admin_source_type_label(string $sourceType): string
+    {
+        return strtoupper(trim($sourceType)) === 'EXTERNAL' ? 'Client' : 'Current Office';
+    }
+}
+
+if (!function_exists('super_admin_sql_placeholders')) {
+    function super_admin_sql_placeholders(array $values, string $prefix): array
+    {
+        $placeholders = [];
+        $params = [];
+
+        foreach (array_values($values) as $index => $value) {
+            $key = $prefix . $index;
+            $placeholders[] = ':' . $key;
+            $params[$key] = $value;
+        }
+
+        return [$placeholders, $params];
     }
 }
 
@@ -89,7 +135,7 @@ if (!function_exists('super_admin_fetch_global_overview')) {
                 SUM(CASE WHEN LOWER(COALESCE(status, '')) IN ('overdue', 'at-risk', 'at risk') THEN 1 ELSE 0 END) AS documents_overdue,
                 SUM(CASE WHEN LOWER(COALESCE(status, '')) IN ('completed', 'released', 'closed', 'resolved', 'done', 'signed', 'signed/completed') THEN 1 ELSE 0 END) AS completed_total,
                 SUM(CASE WHEN LOWER(COALESCE(status, '')) IN ('completed', 'released', 'closed', 'resolved', 'done', 'signed', 'signed/completed')
-                         AND COALESCE(updated_at, created_at) >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+                         AND " . super_admin_document_recency_sql($pdo, '') . " >= DATEADD(DAY, -30, SYSDATETIME())
                     THEN 1 ELSE 0 END) AS documents_completed_30d
              FROM documents"
         )?->fetch() ?: [];
@@ -105,8 +151,8 @@ if (!function_exists('super_admin_fetch_global_overview')) {
 
         $activityRow = $pdo->query(
             "SELECT
-                SUM(CASE WHEN created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR) THEN 1 ELSE 0 END) AS events_24h,
-                SUM(CASE WHEN created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY) THEN 1 ELSE 0 END) AS events_7d
+                SUM(CASE WHEN created_at >= DATEADD(HOUR, -24, SYSDATETIME()) THEN 1 ELSE 0 END) AS events_24h,
+                SUM(CASE WHEN created_at >= DATEADD(DAY, -7, SYSDATETIME()) THEN 1 ELSE 0 END) AS events_7d
              FROM activity_logs"
         )?->fetch() ?: [];
 
@@ -127,32 +173,36 @@ if (!function_exists('super_admin_fetch_recent_documents')) {
     {
         $safeLimit = max(5, min($limit, 200));
         $hasPendingOffice = super_admin_column_exists($pdo, 'documents', 'pending_office_id');
+        $hasUpdatedAt = super_admin_column_exists($pdo, 'documents', 'updated_at');
         $pendingSelect = $hasPendingOffice
             ? 'LEFT JOIN offices o_pending ON o_pending.id = d.pending_office_id'
             : '';
         $pendingField = $hasPendingOffice
             ? "COALESCE(o_pending.name, '-') AS pending_office,"
             : "'-' AS pending_office,";
+        $updatedAtField = $hasUpdatedAt
+            ? 'd.updated_at'
+            : 'd.created_at AS updated_at';
+        $recencySql = super_admin_document_recency_sql($pdo);
 
-        $sql = "SELECT
+        $sql = "SELECT TOP ({$safeLimit})
                     d.id,
                     d.tracking_id,
                     d.subject,
                     d.status,
                     d.source_type,
                     dt.name AS document_type,
-                    COALESCE(o_origin.name, '-') AS origin_office,
+                    ' . super_admin_document_origin_expr($pdo) . ' AS origin_office,
                     COALESCE(o_current.name, '-') AS current_office,
                     {$pendingField}
                     d.created_at,
-                    d.updated_at
+                    {$updatedAtField}
                 FROM documents d
                 LEFT JOIN document_types dt ON dt.id = d.document_type_id
                 LEFT JOIN offices o_origin ON o_origin.id = d.originating_office_id
                 LEFT JOIN offices o_current ON o_current.id = d.current_office_id
                 {$pendingSelect}
-                ORDER BY COALESCE(d.updated_at, d.created_at) DESC, d.id DESC
-                LIMIT {$safeLimit}";
+                ORDER BY {$recencySql} DESC, d.id DESC";
 
         $rows = $pdo->query($sql)?->fetchAll() ?: [];
         if (empty($rows)) {
@@ -166,7 +216,7 @@ if (!function_exists('super_admin_fetch_recent_documents')) {
                 'tracking_id' => trim((string)($row['tracking_id'] ?? '-')),
                 'subject' => trim((string)($row['subject'] ?? 'No subject')),
                 'status' => trim((string)($row['status'] ?? 'Pending')),
-                'source_type' => strtoupper(trim((string)($row['source_type'] ?? 'INTERNAL'))),
+                'source_type' => super_admin_source_type_label((string)($row['source_type'] ?? 'INTERNAL')),
                 'document_type' => trim((string)($row['document_type'] ?? 'Uncategorized')),
                 'origin_office' => trim((string)($row['origin_office'] ?? '-')),
                 'current_office' => trim((string)($row['current_office'] ?? '-')),
@@ -182,26 +232,144 @@ if (!function_exists('super_admin_fetch_recent_documents')) {
     }
 }
 
+if (!function_exists('super_admin_fetch_export_documents')) {
+    function super_admin_fetch_export_documents(PDO $pdo, array $filters = [], int $limit = 1000): array
+    {
+        $safeLimit = max(20, min($limit, 5000));
+        $hasPendingOffice = super_admin_column_exists($pdo, 'documents', 'pending_office_id');
+        $hasUpdatedAt = super_admin_column_exists($pdo, 'documents', 'updated_at');
+        $pendingSelect = $hasPendingOffice
+            ? 'LEFT JOIN offices o_pending ON o_pending.id = d.pending_office_id'
+            : '';
+        $pendingField = $hasPendingOffice
+            ? "COALESCE(o_pending.name, '-') AS pending_office,"
+            : "'-' AS pending_office,";
+        $updatedAtField = $hasUpdatedAt
+            ? 'd.updated_at'
+            : 'd.created_at AS updated_at';
+        $recencySql = super_admin_document_recency_sql($pdo);
+
+        $clauses = [];
+        $params = [];
+
+        $search = trim((string)($filters['search'] ?? ''));
+        if ($search !== '') {
+            $params['search'] = '%' . $search . '%';
+            $clauses[] = '(
+                d.tracking_id LIKE :search
+                OR d.subject LIKE :search
+                OR COALESCE(dt.name, \'\') LIKE :search
+                OR COALESCE(d.status, \'\') LIKE :search
+                OR COALESCE(d.source_type, \'\') LIKE :search
+                OR ' . super_admin_document_origin_expr($pdo, 'o_origin') . ' LIKE :search
+                OR COALESCE(o_current.name, \'\') LIKE :search'
+                . ($hasPendingOffice ? ' OR COALESCE(o_pending.name, \'\') LIKE :search' : '')
+                . ')';
+        }
+
+        $fromDate = trim((string)($filters['from_date'] ?? ''));
+        if ($fromDate !== '') {
+            $params['from_date'] = $fromDate . ' 00:00:00';
+            $clauses[] = 'd.created_at >= :from_date';
+        }
+
+        $toDate = trim((string)($filters['to_date'] ?? ''));
+        if ($toDate !== '') {
+            $params['to_date'] = $toDate . ' 23:59:59';
+            $clauses[] = 'd.created_at <= :to_date';
+        }
+
+        $documentIds = array_values(array_filter(array_map(static function ($value): int {
+            return (int)$value;
+        }, is_array($filters['document_ids'] ?? null) ? $filters['document_ids'] : []), static function (int $value): bool {
+            return $value > 0;
+        }));
+        if ($documentIds !== []) {
+            [$placeholders, $placeholderParams] = super_admin_sql_placeholders($documentIds, 'document_id_');
+            $clauses[] = 'd.id IN (' . implode(', ', $placeholders) . ')';
+            $params = array_merge($params, $placeholderParams);
+        }
+
+        $trackingIds = array_values(array_filter(array_map(static function ($value): string {
+            return trim((string)$value);
+        }, is_array($filters['tracking_ids'] ?? null) ? $filters['tracking_ids'] : []), static function (string $value): bool {
+            return $value !== '';
+        }));
+        if ($trackingIds !== []) {
+            [$placeholders, $placeholderParams] = super_admin_sql_placeholders($trackingIds, 'tracking_id_');
+            $clauses[] = 'd.tracking_id IN (' . implode(', ', $placeholders) . ')';
+            $params = array_merge($params, $placeholderParams);
+        }
+
+        $whereSql = $clauses === [] ? '' : ('WHERE ' . implode(' AND ', $clauses));
+
+        $sql = "SELECT TOP ({$safeLimit})
+                    d.id,
+                    d.tracking_id,
+                    d.subject,
+                    d.status,
+                    d.source_type,
+                    dt.name AS document_type,
+                    ' . super_admin_document_origin_expr($pdo) . ' AS origin_office,
+                    COALESCE(o_current.name, '-') AS current_office,
+                    {$pendingField}
+                    d.created_at,
+                    {$updatedAtField}
+                FROM documents d
+                LEFT JOIN document_types dt ON dt.id = d.document_type_id
+                LEFT JOIN offices o_origin ON o_origin.id = d.originating_office_id
+                LEFT JOIN offices o_current ON o_current.id = d.current_office_id
+                {$pendingSelect}
+                {$whereSql}
+                ORDER BY {$recencySql} DESC, d.id DESC";
+
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $rows = $stmt->fetchAll() ?: [];
+        if ($rows === []) {
+            return [];
+        }
+
+        return array_map(static function (array $row): array {
+            return [
+                'document_id' => (int)($row['id'] ?? 0),
+                'tracking_id' => trim((string)($row['tracking_id'] ?? '-')),
+                'source_type' => super_admin_source_type_label((string)($row['source_type'] ?? 'INTERNAL')),
+                'subject' => trim((string)($row['subject'] ?? 'No subject')),
+                'document_type' => trim((string)($row['document_type'] ?? 'Uncategorized')),
+                'status' => trim((string)($row['status'] ?? 'Pending')),
+                'origin_office' => trim((string)($row['origin_office'] ?? '-')),
+                'current_office' => trim((string)($row['current_office'] ?? '-')),
+                'pending_office' => trim((string)($row['pending_office'] ?? '-')),
+                'date_created' => super_admin_format_datetime((string)($row['created_at'] ?? null)),
+                'date_created_raw' => (string)($row['created_at'] ?? ''),
+                'date_updated' => super_admin_format_datetime((string)($row['updated_at'] ?? null)),
+                'date_updated_raw' => (string)($row['updated_at'] ?? ''),
+            ];
+        }, $rows);
+    }
+}
+
 if (!function_exists('super_admin_fetch_office_analytics')) {
     function super_admin_fetch_office_analytics(PDO $pdo, int $limit = 120): array
     {
         $safeLimit = max(10, min($limit, 200));
+        $recencySql = super_admin_document_recency_sql($pdo);
 
-        $sql = "SELECT
+        $sql = "SELECT TOP ({$safeLimit})
                     o.id,
                     o.name,
                     o.level,
                     COUNT(d.id) AS total_docs,
                     SUM(CASE WHEN LOWER(COALESCE(d.status, '')) IN ('completed', 'released', 'closed', 'resolved', 'done', 'signed', 'signed/completed') THEN 1 ELSE 0 END) AS completed_docs,
                     SUM(CASE WHEN LOWER(COALESCE(d.status, '')) IN ('overdue', 'at-risk', 'at risk') THEN 1 ELSE 0 END) AS overdue_docs,
-                    SUM(CASE WHEN COALESCE(d.updated_at, d.created_at) >= DATE_SUB(NOW(), INTERVAL 7 DAY) THEN 1 ELSE 0 END) AS touched_7d
+                    SUM(CASE WHEN {$recencySql} >= DATEADD(DAY, -7, SYSDATETIME()) THEN 1 ELSE 0 END) AS touched_7d
                 FROM offices o
                 LEFT JOIN documents d
                     ON d.current_office_id = o.id
                     OR d.originating_office_id = o.id
                 GROUP BY o.id, o.name, o.level
-                ORDER BY overdue_docs DESC, total_docs DESC, o.name ASC
-                LIMIT {$safeLimit}";
+                ORDER BY overdue_docs DESC, total_docs DESC, o.name ASC";
 
         $rows = $pdo->query($sql)?->fetchAll() ?: [];
         if (empty($rows)) {
@@ -239,10 +407,11 @@ if (!function_exists('super_admin_fetch_users')) {
     {
         $safeLimit = max(20, min($limit, 1000));
 
-        $sql = "SELECT
+        $sql = "SELECT TOP ({$safeLimit})
                     u.id,
                     u.first_name,
                     u.last_name,
+                    u.username,
                     u.email,
                     u.office_id,
                     u.role_id,
@@ -255,8 +424,7 @@ if (!function_exists('super_admin_fetch_users')) {
                 FROM users u
                 LEFT JOIN roles r ON r.id = u.role_id
                 LEFT JOIN offices o ON o.id = u.office_id
-                ORDER BY u.id ASC
-                LIMIT {$safeLimit}";
+                ORDER BY u.id ASC";
 
         $rows = $pdo->query($sql)?->fetchAll() ?: [];
         if (empty($rows)) {
@@ -268,6 +436,7 @@ if (!function_exists('super_admin_fetch_users')) {
                 'id' => (int)($row['id'] ?? 0),
                 'first_name' => trim((string)($row['first_name'] ?? '')),
                 'last_name' => trim((string)($row['last_name'] ?? '')),
+                'username' => trim((string)($row['username'] ?? '')),
                 'email' => trim((string)($row['email'] ?? '')),
                 'office_id' => (int)($row['office_id'] ?? 0),
                 'role_id' => (int)($row['role_id'] ?? 0),
@@ -306,7 +475,7 @@ if (!function_exists('super_admin_fetch_offices')) {
     function super_admin_fetch_offices(PDO $pdo, int $limit = 400): array
     {
         $safeLimit = max(20, min($limit, 1000));
-        $sql = "SELECT id, name, level FROM offices ORDER BY name ASC LIMIT {$safeLimit}";
+        $sql = "SELECT TOP ({$safeLimit}) id, name, level FROM offices ORDER BY name ASC";
         $rows = $pdo->query($sql)?->fetchAll() ?: [];
         if (empty($rows)) {
             return [];
@@ -329,7 +498,7 @@ if (!function_exists('super_admin_fetch_document_types')) {
         $hasIsActive = super_admin_column_exists($pdo, 'document_types', 'is_active');
         $activeSelect = $hasIsActive ? 'dt.is_active' : '1 AS is_active';
 
-        $sql = "SELECT
+        $sql = "SELECT TOP ({$safeLimit})
                     dt.id,
                     dt.name,
                     dt.category,
@@ -338,8 +507,7 @@ if (!function_exists('super_admin_fetch_document_types')) {
                     COALESCE(r.name, '') AS created_by_role
                 FROM document_types dt
                 LEFT JOIN roles r ON r.id = dt.created_by_role_id
-                ORDER BY dt.name ASC
-                LIMIT {$safeLimit}";
+                ORDER BY dt.name ASC";
 
         $rows = $pdo->query($sql)?->fetchAll() ?: [];
         if (empty($rows)) {
@@ -379,24 +547,34 @@ if (!function_exists('super_admin_fetch_network_traffic')) {
 
         $usersRow = $pdo->query(
             "SELECT
-                SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) AS active_users,
-                SUM(CASE WHEN is_active = 1 AND last_login_at IS NOT NULL AND last_login_at >= DATE_SUB(NOW(), INTERVAL 15 MINUTE) THEN 1 ELSE 0 END) AS online_users
+                SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) AS active_users
              FROM users"
         )?->fetch() ?: [];
 
+        $activeHeartbeats = function_exists('app_collect_session_heartbeats')
+            ? app_collect_session_heartbeats(15 * 60, 24 * 60 * 60)
+            : [];
+        $uniqueOnlineUsers = [];
+        foreach ($activeHeartbeats as $heartbeat) {
+            $userId = (int)($heartbeat['user_id'] ?? 0);
+            if ($userId > 0) {
+                $uniqueOnlineUsers[$userId] = true;
+            }
+        }
+
         $summary['active_users'] = (int)($usersRow['active_users'] ?? 0);
-        $summary['online_users'] = (int)($usersRow['online_users'] ?? 0);
+        $summary['online_users'] = count($uniqueOnlineUsers);
         $summary['offline_users'] = max($summary['active_users'] - $summary['online_users'], 0);
 
         $trafficRow = $pdo->query(
             "SELECT
-                SUM(CASE WHEN created_at >= DATE_SUB(NOW(), INTERVAL 5 MINUTE) THEN 1 ELSE 0 END) AS traffic_last_5m,
-                SUM(CASE WHEN created_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR) THEN 1 ELSE 0 END) AS traffic_last_1h,
-                SUM(CASE WHEN created_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
+                SUM(CASE WHEN created_at >= DATEADD(MINUTE, -5, SYSDATETIME()) THEN 1 ELSE 0 END) AS traffic_last_5m,
+                SUM(CASE WHEN created_at >= DATEADD(HOUR, -1, SYSDATETIME()) THEN 1 ELSE 0 END) AS traffic_last_1h,
+                SUM(CASE WHEN created_at >= DATEADD(HOUR, -1, SYSDATETIME())
                     AND LOWER(COALESCE(action_type, '')) IN ('received', 'recieved', 'opened') THEN 1 ELSE 0 END) AS inbound_last_1h,
-                SUM(CASE WHEN created_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
+                SUM(CASE WHEN created_at >= DATEADD(HOUR, -1, SYSDATETIME())
                     AND LOWER(COALESCE(action_type, '')) IN ('forwarded', 'forward', 'rerouted', 'reroute', 'released', 'returned', 'return', 'overridden', 'override') THEN 1 ELSE 0 END) AS outbound_last_1h,
-                SUM(CASE WHEN created_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
+                SUM(CASE WHEN created_at >= DATEADD(HOUR, -1, SYSDATETIME())
                     AND LOWER(COALESCE(action_type, '')) IN ('approved', 'approve', 'signed') THEN 1 ELSE 0 END) AS approval_last_1h
              FROM activity_logs"
         )?->fetch() ?: [];
@@ -408,12 +586,11 @@ if (!function_exists('super_admin_fetch_network_traffic')) {
         $summary['approval_last_1h'] = (int)($trafficRow['approval_last_1h'] ?? 0);
 
         $mixRows = $pdo->query(
-            "SELECT UPPER(COALESCE(action_type, 'UNKNOWN')) AS action_key, COUNT(*) AS total
+            "SELECT TOP (8) UPPER(COALESCE(action_type, 'UNKNOWN')) AS action_key, COUNT(*) AS total
              FROM activity_logs
-             WHERE created_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
+             WHERE created_at >= DATEADD(HOUR, -1, SYSDATETIME())
              GROUP BY UPPER(COALESCE(action_type, 'UNKNOWN'))
-             ORDER BY total DESC, action_key ASC
-             LIMIT 8"
+             ORDER BY total DESC, action_key ASC"
         )?->fetchAll() ?: [];
 
         $actionMix = [];
@@ -446,7 +623,12 @@ if (!function_exists('super_admin_fetch_network_traffic')) {
             ];
         }
 
-        $eventSql = "SELECT
+        $hasActivitySourceOffice = super_admin_column_exists($pdo, 'activity_logs', 'source_office_id');
+        $sourceOfficeJoin = $hasActivitySourceOffice
+            ? 'LEFT JOIN offices o_src ON o_src.id = al.source_office_id'
+            : 'LEFT JOIN offices o_src ON o_src.id = d.originating_office_id';
+
+        $eventSql = "SELECT TOP (15)
                         al.id,
                         al.action_type,
                         al.created_at,
@@ -455,11 +637,10 @@ if (!function_exists('super_admin_fetch_network_traffic')) {
                         COALESCE(o_dst.name, '') AS destination_office
                      FROM activity_logs al
                      LEFT JOIN documents d ON d.id = al.document_id
-                     LEFT JOIN offices o_src ON o_src.id = al.source_office_id
+                     {$sourceOfficeJoin}
                      LEFT JOIN offices o_dst ON o_dst.id = al.destination_office_id
-                     WHERE al.created_at >= DATE_SUB(NOW(), INTERVAL {$lookbackMinutes} MINUTE)
-                     ORDER BY al.created_at DESC, al.id DESC
-                     LIMIT 15";
+                     WHERE al.created_at >= DATEADD(MINUTE, -{$lookbackMinutes}, SYSDATETIME())
+                     ORDER BY al.created_at DESC, al.id DESC";
 
         $eventRows = $pdo->query($eventSql)?->fetchAll() ?: [];
         $recentEvents = [];

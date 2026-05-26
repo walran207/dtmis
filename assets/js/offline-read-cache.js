@@ -5,16 +5,16 @@
         return;
     }
 
-    if (window.__edatsOfflineReadCacheInstalled) {
+    if (window.__DTMISOfflineReadCacheInstalled) {
         return;
     }
-    window.__edatsOfflineReadCacheInstalled = true;
+    window.__DTMISOfflineReadCacheInstalled = true;
 
     if (typeof window.indexedDB === 'undefined') {
         return;
     }
 
-    var DB_NAME = 'edats-offline-read-cache';
+    var DB_NAME = 'DTMIS-offline-read-cache';
     var DB_VERSION = 1;
     var STORE_NAME = 'responses';
     var MAX_RECORDS = 300;
@@ -68,7 +68,7 @@
 
     function notifySessionInvalid(statusCode, reason) {
         try {
-            window.dispatchEvent(new CustomEvent('edats:session-invalid', {
+            window.dispatchEvent(new CustomEvent('DTMIS:session-invalid', {
                 detail: {
                     source: 'offline-read-cache',
                     statusCode: Number(statusCode || 0),
@@ -277,7 +277,7 @@
     }
 
     function getCurrentScopeKey() {
-        var explicitScope = String(window.__EDATS_CACHE_SCOPE || '').trim();
+        var explicitScope = String(window.__DTMIS_CACHE_SCOPE || '').trim();
         if (explicitScope !== '') {
             return explicitScope;
         }
@@ -427,10 +427,10 @@
         if (!headers.has('Content-Type')) {
             headers.set('Content-Type', 'application/json; charset=UTF-8');
         }
-        headers.set('X-eDATS-Offline-Cache', 'HIT');
-        headers.set('X-eDATS-Offline-Stale', Date.now() > Number(record.expiresAt || 0) ? '1' : '0');
+        headers.set('X-DTMIS-Offline-Cache', 'HIT');
+        headers.set('X-DTMIS-Offline-Stale', Date.now() > Number(record.expiresAt || 0) ? '1' : '0');
         if (Number(record.updatedAt || 0) > 0) {
-            headers.set('X-eDATS-Offline-Updated-At', new Date(Number(record.updatedAt)).toISOString());
+            headers.set('X-DTMIS-Offline-Updated-At', new Date(Number(record.updatedAt)).toISOString());
         }
 
         return new Response(String(record.bodyText || ''), {
@@ -482,7 +482,7 @@
             var cachedResponse = await responseFromCache(cacheKey);
             if (cachedResponse) {
                 try {
-                    window.dispatchEvent(new CustomEvent('edats:offline-read-hit', {
+                    window.dispatchEvent(new CustomEvent('DTMIS:offline-read-hit', {
                         detail: {
                             endpoint: rule.kind,
                             key: cacheKey,
@@ -498,7 +498,7 @@
         }
     };
 
-    window.edatsOfflineReadCache = {
+    window.DTMISOfflineReadCache = {
         version: 'phase6',
         limits: {
             maxRecords: MAX_RECORDS,

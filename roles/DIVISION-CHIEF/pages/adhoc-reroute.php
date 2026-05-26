@@ -4,7 +4,7 @@ require_once dirname(__DIR__, 3) . '/config/app.php';
 $roleBasePath = dirname(__DIR__);
 $roleName = 'Division Chief';
 $initialsFallback = 'DC';
-$pageTitle = 'Ad-Hoc Reroute | DENR Region XII eDATS';
+$pageTitle = 'Ad-Hoc Reroute | DENR Region XII DTMIS';
 $activeMenu = 'adhoc_reroute';
 $brandSubtitle = 'Division Chief Portal';
 $pageHeading = 'Ad-Hoc Reroute';
@@ -58,5 +58,8 @@ $statusFilterOptions = [
     ['value' => 'for_correction', 'label' => 'Returned / For Revision'],
 ];
 $notifications = json_decode('[{"title":"Queue updated","timeLabel":"Now","message":"Ad-Hoc Reroute has a new routed document.","unread":true,"datetime":"2026-03-14T10:30:00"},{"title":"Tracking slip updated","timeLabel":"48m ago","message":"Custody timeline received a new event.","unread":true,"datetime":"2026-03-14T09:42:00"},{"title":"ARTA reminder","timeLabel":"2h ago","message":"Review due-soon and overdue items.","unread":false,"datetime":"2026-03-14T08:05:00"}]', true);
+
+$kpiCards = [];
+$panels = [];
 
 require dirname(__DIR__, 3) . '/app/templates/role-page-template.php';
