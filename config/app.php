@@ -204,7 +204,7 @@ if (!function_exists('app_path_is_absolute')) {
 if (!function_exists('app_attachment_storage_root')) {
     function app_attachment_storage_root(): string
     {
-        return 'C:\\inetpub\\wwwroot\\edats\\edats-attachments';
+        return 'C:\\inetpub\\wwwroot\\dtmis\\dtmis-attachments';
     }
 }
 
@@ -257,6 +257,7 @@ if (!function_exists('app_resolve_attachment_absolute_path')) {
             $relativePath = ltrim($normalized, '/');
             $candidates[] = app_attachment_storage_path($relativePath);
             $candidates[] = app_project_root_path() . DIRECTORY_SEPARATOR . 'edats-attachments' . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relativePath);
+            $candidates[] = 'C:\\inetpub\\wwwroot\\edats\\edats-attachments' . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relativePath);
             $candidates[] = app_project_root_path() . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'attachments' . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relativePath);
             $candidates[] = app_project_root_path() . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'attachments' . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relativePath);
             $candidates[] = app_project_root_path() . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relativePath);
