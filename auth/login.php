@@ -23,6 +23,7 @@ $offlineOutboxScript = app_url('assets/js/offline-outbox.js');
 $pwaBootstrapScript = app_url('assets/js/pwa-init.js');
 $loginUrl = app_url('auth/login.php');
 $forgotPasswordUrl = app_url('auth/forgot-password.php');
+$apkDownloadUrl = app_url('dtmis.apk');
 $pwaBasePath = rtrim((string)app_url(''), '/');
 if ($pwaBasePath === '') {
     $pwaBasePath = '/';
@@ -227,6 +228,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <h1 id="portalTitle">DTMIS</h1>
             <p class="portal-label">Document Tracking and Monitoring <br> Information System</p>
         </div>
+
+        <section class="apk-download-banner" aria-label="Mobile app download">
+            <p class="apk-download-label">DTMIS Mobile App</p>
+            <p class="apk-download-copy">Download the Android APK here for quick access on your phone.</p>
+            <a class="apk-download-link" href="<?= auth_e($apkDownloadUrl) ?>" download>Download DTMIS APK</a>
+        </section>
 
         <?php if ($formError !== ''): ?>
             <p class="field-error form-error" role="alert"><?= auth_e($formError) ?></p>
