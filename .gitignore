@@ -9,3 +9,9 @@
 /app/storage/logs/
 /app/storage/locks/
 /app/storage/tmp/
+
+# Local utility and documentation folders
+/scripts/database/
+/scripts/debug/
+/scripts/docs/
+/docs/
