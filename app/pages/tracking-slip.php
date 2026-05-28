@@ -590,6 +590,7 @@ if ($document) {
 $publicSlipLink = $trackingId === ''
     ? ''
     : app_public_url('tracking-slip.php') . '?tracking_id=' . rawurlencode($trackingId) . '&public=1';
+$publicTrackingHomeUrl = app_public_url('tracking-slip.php') . '?public=1';
 $qrText = $trackingId === ''
     ? ''
     : ($publicSlipLink !== '' ? $publicSlipLink : $trackingId);
@@ -2242,7 +2243,7 @@ $layoutDefaultLogoPrintPx = 100;
             <button type="button" onclick="var input = document.querySelector('.toolbar input[name=&quot;tracking_id&quot;]'); if (input) { input.focus(); input.select(); }">Try Another Tracking ID</button>
             <a class="state-secondary" href="<?php echo e(app_url('dashboard.php')); ?>">Return to Dashboard</a>
             <?php else: ?>
-            <button type="button" onclick="if (window.history.length > 1) { window.history.back(); } else { window.location.href = '<?php echo e(app_public_url('tracking-slip.php')); ?>'; }">Go Back</button>
+            <button type="button" onclick="window.location.href = '<?php echo e($publicTrackingHomeUrl); ?>';">Go Back</button>
             <a class="state-ghost" href="<?php echo e(app_url('auth/login.php')); ?>">Login to Search Internally</a>
             <?php endif; ?>
         </div>
