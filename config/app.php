@@ -47,10 +47,27 @@ if (!function_exists('app_session_heartbeat_file_path')) {
     }
 }
 
+if (!function_exists('app_set_session_heartbeat_error')) {
+    function app_set_session_heartbeat_error(string $message): void
+    {
+        $GLOBALS['app_session_heartbeat_error'] = trim($message);
+    }
+}
+
+if (!function_exists('app_last_session_heartbeat_error')) {
+    function app_last_session_heartbeat_error(): string
+    {
+        return trim((string)($GLOBALS['app_session_heartbeat_error'] ?? ''));
+    }
+}
+
 if (!function_exists('app_touch_session_heartbeat')) {
     function app_touch_session_heartbeat(array $overrides = []): bool
     {
+        app_set_session_heartbeat_error('');
+
         if (session_status() !== PHP_SESSION_ACTIVE) {
+            app_set_session_heartbeat_error('Session is not active.');
             return false;
         }
 
@@ -58,11 +75,13 @@ if (!function_exists('app_touch_session_heartbeat')) {
             ? (int)$overrides['user_id']
             : (int)($_SESSION['user_id'] ?? 0);
         if ($userId <= 0) {
+            app_set_session_heartbeat_error('User ID is missing from the session.');
             return false;
         }
 
         $heartbeatDirectory = app_session_heartbeat_storage_path();
         if (!app_prepare_writable_directory($heartbeatDirectory)) {
+            app_set_session_heartbeat_error('Heartbeat directory is not writable: ' . $heartbeatDirectory);
             return false;
         }
 
@@ -103,10 +122,18 @@ if (!function_exists('app_touch_session_heartbeat')) {
 
         $encoded = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
         if (!is_string($encoded) || $encoded === '') {
+            app_set_session_heartbeat_error('Heartbeat payload could not be encoded to JSON.');
             return false;
         }
 
-        return file_put_contents(app_session_heartbeat_file_path(), $encoded, LOCK_EX) !== false;
+        $targetPath = app_session_heartbeat_file_path();
+        $written = @file_put_contents($targetPath, $encoded, LOCK_EX);
+        if ($written === false) {
+            app_set_session_heartbeat_error('Heartbeat file write failed: ' . $targetPath);
+            return false;
+        }
+
+        return true;
     }
 }
 
@@ -198,6 +225,41 @@ if (!function_exists('app_path_is_absolute')) {
         }
 
         return preg_match('/^[A-Za-z]:\//', $normalized) === 1 || str_starts_with($normalized, '/');
+    }
+}
+
+if (!function_exists('app_detect_mime_type')) {
+    function app_detect_mime_type(string $absolutePath): string
+    {
+        $normalized = trim($absolutePath);
+        if ($normalized === '' || !is_file($normalized) || !is_readable($normalized)) {
+            return '';
+        }
+
+        if (class_exists('finfo')) {
+            try {
+                $finfo = new finfo(FILEINFO_MIME_TYPE);
+                $detected = strtolower(trim((string)$finfo->file($normalized)));
+                if ($detected !== '' && $detected !== 'application/octet-stream') {
+                    return $detected;
+                }
+            } catch (Throwable $exception) {
+                // Fall back to other MIME detection options below.
+            }
+        }
+
+        if (function_exists('mime_content_type')) {
+            try {
+                $detected = strtolower(trim((string)mime_content_type($normalized)));
+                if ($detected !== '' && $detected !== 'application/octet-stream') {
+                    return $detected;
+                }
+            } catch (Throwable $exception) {
+                // Leave MIME empty when runtime detection is unavailable.
+            }
+        }
+
+        return '';
     }
 }
 

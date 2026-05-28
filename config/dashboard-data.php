@@ -1451,6 +1451,7 @@ if (!function_exists('dashboard_fetch_actor_tracker_rows')) {
                     d.created_at,
                     dt.name AS document_type,
                     ' . dashboard_documents_arta_category_expr($pdo) . ' AS arta_category,
+                    ' . dashboard_documents_sender_expr($pdo) . ' AS sender,
                     ' . dashboard_documents_origin_expr($pdo) . ' AS origin_office,
                     COALESCE(o_current.name, \'-\') AS current_holder_office,
                     COALESCE(UPPER(o_current.level), \'\') AS current_holder_level,
@@ -1568,6 +1569,7 @@ if (!function_exists('dashboard_fetch_actor_tracker_rows')) {
                 'origin_office_id' => (int)($row['originating_office_id'] ?? 0),
                 'current_office_id' => (int)($row['current_office_id'] ?? 0),
                 'pending_office_id' => (int)($row['pending_office_id'] ?? 0),
+                'sender' => trim((string)($row['sender'] ?? '')) !== '' ? (string)$row['sender'] : '-',
                 'document_type' => $documentTypeLabel,
                 'arta_category' => $artaCategory !== '' ? $artaCategory : 'Simple',
                 'last_remarks' => $resolvedRemarks,
@@ -2326,6 +2328,18 @@ if (!function_exists('dashboard_fetch_role_metrics')) {
         $completedTodayStmt->execute(db_is_sql_server($pdo) ? [] : $scope['params']);
         $metrics['completed_today'] = (int)($completedTodayStmt->fetchColumn() ?: 0);
 
+        // Keep the dashboard "Pending Received" metric aligned with the
+        // actionable office queue instead of the broader office tracking scope.
+        $metrics['pending_total'] = dashboard_count_pending_receive_rows(
+            $pdo,
+            $officeId,
+            true,
+            true,
+            null,
+            null,
+            $dateRange
+        );
+
         if ($metrics['completed_week'] === 0 && $metrics['completed_total'] > 0) {
             $metrics['completed_week'] = $metrics['completed_total'];
         }
@@ -2947,20 +2961,15 @@ if (!function_exists('dashboard_fetch_arta_distribution')) {
  * formally received (pending_office_id = office AND current_office_id â‰  office).
  */
 if (!function_exists('dashboard_fetch_pending_receive_rows')) {
-    function dashboard_fetch_pending_receive_rows(
+    function dashboard_build_pending_receive_filter(
         PDO $pdo,
         int $officeId,
-        int $limit = 60,
         bool $includeInOfficeActionStage = false,
         bool $excludeReturnedDocuments = false,
         ?int $viewerUserId = null,
         ?string $viewerRoleKey = null
     ): array
     {
-        if ($officeId <= 0) {
-            return [];
-        }
-        $safeLimit = max(1, min($limit, 200));
         $hasPending = dashboard_column_exists($pdo, 'documents', 'pending_office_id');
         $excludeReturnedSql = $excludeReturnedDocuments
             ? "
@@ -2979,9 +2988,6 @@ if (!function_exists('dashboard_fetch_pending_receive_rows')) {
 
         if ($hasPending) {
             if ($includeInOfficeActionStage) {
-                // Office-action variant: keep row visible after Receive/Approve,
-                // and also after Sign (for ORED post-sign forward to RECORDS-UNIT),
-                // until it is forwarded out.
                 $whereClause = '(
                                 (
                                     d.pending_office_id = :office_id_pending_incoming
@@ -3006,7 +3012,6 @@ if (!function_exists('dashboard_fetch_pending_receive_rows')) {
                     'office_id_custody' => $officeId,
                 ];
             } else {
-                // Docs awaiting receipt: routed to this office but not yet in custody
                 $whereClause = 'd.pending_office_id = :office_id_pending
                                AND d.current_office_id <> :office_id_current
                                AND LOWER(COALESCE(d.status, \'\')) NOT IN (\'completed\', \'closed\', \'approved\', \'resolved\', \'done\', \'signed\', \'signed/completed\', \'cancelled\', \'canceled\')'
@@ -3018,7 +3023,6 @@ if (!function_exists('dashboard_fetch_pending_receive_rows')) {
                 ];
             }
         } else {
-            // Fallback: docs currently owned but status suggests incoming
             $whereClause = 'd.current_office_id = :office_id_current
                            AND LOWER(COALESCE(d.status, \'\')) IN (\'pending receive\', \'for receive\', \'in transit\', \'routed\', \'received\', \'recieved\', \'approved\', \'signed\', \'signed/completed\')'
                            . $excludeReturnedSql;
@@ -3039,7 +3043,36 @@ if (!function_exists('dashboard_fetch_pending_receive_rows')) {
             $params = array_merge($params, $assignmentFilter['params']);
         }
 
-        return dashboard_cenro_run_filtered_query($pdo, $whereClause, $params, $safeLimit);
+        return [
+            'where' => $whereClause,
+            'params' => $params,
+        ];
+    }
+
+    function dashboard_fetch_pending_receive_rows(
+        PDO $pdo,
+        int $officeId,
+        int $limit = 60,
+        bool $includeInOfficeActionStage = false,
+        bool $excludeReturnedDocuments = false,
+        ?int $viewerUserId = null,
+        ?string $viewerRoleKey = null
+    ): array
+    {
+        if ($officeId <= 0) {
+            return [];
+        }
+        $safeLimit = max(1, min($limit, 200));
+        $filter = dashboard_build_pending_receive_filter(
+            $pdo,
+            $officeId,
+            $includeInOfficeActionStage,
+            $excludeReturnedDocuments,
+            $viewerUserId,
+            $viewerRoleKey
+        );
+
+        return dashboard_cenro_run_filtered_query($pdo, $filter['where'], $filter['params'], $safeLimit);
     }
 }
 
@@ -3480,6 +3513,56 @@ if (!function_exists('dashboard_cenro_run_filtered_query')) {
         }
 
         return $mapped;
+    }
+}
+
+if (!function_exists('dashboard_cenro_count_filtered_query')) {
+    function dashboard_cenro_count_filtered_query(PDO $pdo, string $whereClause, array $params, ?array $dateRange = null): int
+    {
+        $dateClause = dashboard_build_date_range_clause('COALESCE(office_ts.office_received_at, d.created_at)', $dateRange, 'cenro_queue_date');
+        $sql = 'SELECT COUNT(*) AS total_count
+                FROM documents d
+                LEFT JOIN (
+                    SELECT ts.document_id, MAX(ts.date_time_received) AS office_received_at
+                    FROM tracking_slips ts
+                    WHERE ts.receiving_office_id = :office_id_custody
+                    GROUP BY ts.document_id
+                ) office_ts ON office_ts.document_id = d.id
+                WHERE ' . $whereClause . '
+                ' . $dateClause['sql'];
+
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute(array_merge($params, $dateClause['params']));
+
+        return (int)($stmt->fetchColumn() ?: 0);
+    }
+}
+
+if (!function_exists('dashboard_count_pending_receive_rows')) {
+    function dashboard_count_pending_receive_rows(
+        PDO $pdo,
+        int $officeId,
+        bool $includeInOfficeActionStage = false,
+        bool $excludeReturnedDocuments = false,
+        ?int $viewerUserId = null,
+        ?string $viewerRoleKey = null,
+        ?array $dateRange = null
+    ): int
+    {
+        if ($officeId <= 0) {
+            return 0;
+        }
+
+        $filter = dashboard_build_pending_receive_filter(
+            $pdo,
+            $officeId,
+            $includeInOfficeActionStage,
+            $excludeReturnedDocuments,
+            $viewerUserId,
+            $viewerRoleKey
+        );
+
+        return dashboard_cenro_count_filtered_query($pdo, $filter['where'], $filter['params'], $dateRange);
     }
 }
 

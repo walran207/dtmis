@@ -30,8 +30,15 @@ if ($csrfToken === '' || !hash_equals((string)($_SESSION['csrf_token'] ?? ''), $
 }
 
 if (!app_touch_session_heartbeat()) {
-    http_response_code(500);
-    echo json_encode(['ok' => false, 'message' => 'Unable to update session heartbeat.']);
+    $message = function_exists('app_last_session_heartbeat_error')
+        ? app_last_session_heartbeat_error()
+        : 'Unable to update session heartbeat.';
+    error_log('DTMIS session heartbeat failed: ' . $message);
+    echo json_encode([
+        'ok' => false,
+        'message' => 'Session heartbeat skipped.',
+        'reason' => $message,
+    ]);
     exit;
 }
 

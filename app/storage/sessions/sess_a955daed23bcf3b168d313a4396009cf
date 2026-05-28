@@ -1,0 +1,1 @@
+csrf_token|s:64:"6db9cdbb0a315da4b933c4e21e29a84e0132565d196a37758028f503c86c1e17";user_id|i:1;username|s:11:"super.admin";email|s:23:"super.admin@denr.gov.ph";first_name|s:5:"Super";last_name|s:5:"Admin";role_id|i:10;role_name|s:11:"SUPER_ADMIN";office_id|i:1;authenticated_at|i:1779931860;last_sensitive_sync_reauth_at|i:1779931860;

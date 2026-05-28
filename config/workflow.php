@@ -3022,7 +3022,7 @@ function workflow_log_action(PDO $pdo, array $payload): void
     ]);
 }
 
-function workflow_create_document(PDO $pdo, array $payload, int $actorUserId): array
+function workflow_create_document(PDO $pdo, array $payload, int $actorUserId, bool $manageTransaction = true): array
 {
     $user = workflow_get_user_context($pdo, $actorUserId);
 
@@ -3077,7 +3077,11 @@ function workflow_create_document(PDO $pdo, array $payload, int $actorUserId): a
     $hasClientAddressColumn = workflow_column_exists($pdo, 'documents', 'client_address');
     $hasOriginatingEntityColumn = workflow_column_exists($pdo, 'documents', 'originating_entity_name');
 
-    $pdo->beginTransaction();
+    $startedTransaction = false;
+    if ($manageTransaction && !$pdo->inTransaction()) {
+        $pdo->beginTransaction();
+        $startedTransaction = true;
+    }
     try {
         $insertColumns = [
             'tracking_id',
@@ -3178,13 +3182,17 @@ function workflow_create_document(PDO $pdo, array $payload, int $actorUserId): a
             'is_visible_on_slip' => 0,
         ]);
 
-        $pdo->commit();
+        if ($startedTransaction && $pdo->inTransaction()) {
+            $pdo->commit();
+        }
         return [
             'document_id' => $documentId,
             'tracking_id' => $trackingId,
         ];
     } catch (Throwable $exception) {
-        $pdo->rollBack();
+        if ($startedTransaction && $pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
         throw $exception;
     }
 }

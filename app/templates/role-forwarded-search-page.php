@@ -124,12 +124,7 @@ $dashboardLivePath = app_url(
     'actions/dashboard-live.php?scope=approved&limit=120&actions=' . rawurlencode(implode(',', $actionTypes))
 );
 
-$kpiCards = [
-    ['label' => 'Forwarded by Me', 'icon' => 'violet', 'value' => (string)$forwardedCount],
-    ['label' => 'Rerouted by Me', 'icon' => 'orange', 'value' => (string)$reroutedCount],
-    ['label' => 'Returned by Me', 'icon' => 'blue', 'value' => (string)$returnedCount],
-    ['label' => 'Total Outbound', 'icon' => 'green', 'value' => (string)count($actedRows)],
-];
+$kpiCards = [];
 
 $panels = [];
 

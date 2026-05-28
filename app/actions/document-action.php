@@ -1209,7 +1209,6 @@ function intake_validate_uploaded_files(array $files): array
     ];
 
     $validated = [];
-    $finfo = new finfo(FILEINFO_MIME_TYPE);
     foreach ($files as $file) {
         $error = (int)($file['error'] ?? UPLOAD_ERR_NO_FILE);
         if ($error === UPLOAD_ERR_NO_FILE) {
@@ -1242,7 +1241,7 @@ function intake_validate_uploaded_files(array $files): array
             throw new InvalidArgumentException('Unsupported attachment type: ' . $originalName);
         }
 
-        $detectedMime = strtolower((string)$finfo->file($tmpName));
+        $detectedMime = app_detect_mime_type($tmpName);
         if ($detectedMime !== '' && !in_array($detectedMime, $allowedMime, true)) {
             throw new InvalidArgumentException('Unsupported attachment MIME type for: ' . $originalName);
         }
@@ -1282,39 +1281,55 @@ function intake_store_document_attachments(PDO $pdo, int $documentId, int $uploa
     );
 
     $saved = 0;
-    foreach ($validatedFiles as $index => $file) {
-        $safeBaseName = preg_replace('/[^A-Za-z0-9._-]/', '_', (string)$file['original_name']) ?? ('attachment.' . $file['extension']);
-        if ($safeBaseName === '') {
-            $safeBaseName = 'attachment.' . $file['extension'];
-        }
-        $versionNumber = $currentVersion + $index + 1;
-        $fileName = 'doc_' . $documentId . '_v' . $versionNumber . '_' . $safeBaseName;
-        $relativePath = $relativeDir . '/' . $fileName;
-        $absolutePath = $absoluteDir . DIRECTORY_SEPARATOR . $fileName;
+    $movedFiles = [];
+    try {
+        foreach ($validatedFiles as $index => $file) {
+            $safeBaseName = preg_replace('/[^A-Za-z0-9._-]/', '_', (string)$file['original_name']) ?? ('attachment.' . $file['extension']);
+            if ($safeBaseName === '') {
+                $safeBaseName = 'attachment.' . $file['extension'];
+            }
+            $versionNumber = $currentVersion + $index + 1;
+            $fileName = 'doc_' . $documentId . '_v' . $versionNumber . '_' . $safeBaseName;
+            $relativePath = $relativeDir . '/' . $fileName;
+            $absolutePath = $absoluteDir . DIRECTORY_SEPARATOR . $fileName;
 
-        if (!move_uploaded_file((string)$file['tmp_name'], $absolutePath)) {
-            throw new RuntimeException('Failed to store attachment file: ' . (string)$file['original_name']);
-        }
+            if (!@move_uploaded_file((string)$file['tmp_name'], $absolutePath)) {
+                $lastPhpError = error_get_last();
+                $failureDetail = is_array($lastPhpError) ? trim((string)($lastPhpError['message'] ?? '')) : '';
+                throw new RuntimeException(
+                    'Failed to store attachment file: ' . (string)$file['original_name']
+                    . ($failureDetail !== '' ? ' (' . $failureDetail . ')' : '')
+                );
+            }
+            $movedFiles[] = $absolutePath;
 
-        $insert->execute([
-            'document_id' => $documentId,
-            'uploaded_by' => $uploadedByUserId,
-            'file_name' => (string)$file['original_name'],
-            'file_path' => $relativePath,
-            'version_number' => $versionNumber,
-            'is_internal_only' => 0,
-        ]);
-        $attachmentId = attachment_binary_backup_resolve_attachment_id($pdo, $documentId, $versionNumber, $relativePath);
-        if ($attachmentId > 0) {
-            attachment_binary_backup_upsert_from_file(
-                $pdo,
-                $attachmentId,
-                $documentId,
-                (string)$file['original_name'],
-                $absolutePath
-            );
+            $insert->execute([
+                'document_id' => $documentId,
+                'uploaded_by' => $uploadedByUserId,
+                'file_name' => (string)$file['original_name'],
+                'file_path' => $relativePath,
+                'version_number' => $versionNumber,
+                'is_internal_only' => 0,
+            ]);
+            $attachmentId = attachment_binary_backup_resolve_attachment_id($pdo, $documentId, $versionNumber, $relativePath);
+            if ($attachmentId > 0) {
+                attachment_binary_backup_upsert_from_file(
+                    $pdo,
+                    $attachmentId,
+                    $documentId,
+                    (string)$file['original_name'],
+                    $absolutePath
+                );
+            }
+            $saved++;
         }
-        $saved++;
+    } catch (Throwable $exception) {
+        foreach ($movedFiles as $movedPath) {
+            if (is_string($movedPath) && $movedPath !== '' && is_file($movedPath)) {
+                @unlink($movedPath);
+            }
+        }
+        throw $exception;
     }
 
     return $saved;

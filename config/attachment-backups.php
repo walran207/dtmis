@@ -21,12 +21,7 @@ if (!function_exists('attachment_binary_backup_is_image_filename')) {
 if (!function_exists('attachment_binary_backup_detect_mime_type')) {
     function attachment_binary_backup_detect_mime_type(string $absolutePath): string
     {
-        if (!is_file($absolutePath) || !is_readable($absolutePath)) {
-            return '';
-        }
-
-        $finfo = new finfo(FILEINFO_MIME_TYPE);
-        return strtolower(trim((string)$finfo->file($absolutePath)));
+        return app_detect_mime_type($absolutePath);
     }
 }
 

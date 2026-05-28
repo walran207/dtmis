@@ -230,8 +230,11 @@ body {
 }
 
 .menu-label {
+    display: block;
+    flex: 0 0 auto;
     margin: 10px 12px 2px;
     font-size: 13px;
+    line-height: 1.2;
     color: #8ca0b3;
     text-transform: uppercase;
     letter-spacing: 0.1em;
@@ -248,6 +251,7 @@ body {
     color: var(--menu-link-text);
     font-size: 15px;
     font-weight: 600;
+    flex-shrink: 0;
     border-radius: 14px;
     padding: 12px 14px;
     display: flex;

@@ -8790,6 +8790,7 @@
             }
 
             function finalizeQueueActionSuccess(action, trackingId) {
+                syncStatusFilterAfterAction(action);
                 if (redirectToRecordsUnitActionStamp(action, trackingId)) {
                     return;
                 }
@@ -8946,10 +8947,7 @@
                         return;
                     }
                     showAlertDialog(result.message || 'Document received.').then(function () {
-                        if (redirectToRecordsUnitActionStamp('RECEIVE', trackingId)) {
-                            return;
-                        }
-                        window.location.reload();
+                        finalizeQueueActionSuccess('RECEIVE', trackingId);
                     });
                 }).catch(function (error) {
                     qrSetStatus(error.message || 'Unable to receive document.', true);
@@ -9625,10 +9623,7 @@
                                 return;
                             }
                             showAlertDialog(result.message || 'Action completed.').then(function () {
-                                if (redirectToRecordsUnitActionStamp(action, trackingId)) {
-                                    return;
-                                }
-                                window.location.reload();
+                                finalizeQueueActionSuccess(action, trackingId);
                             });
                         }).catch(function (error) {
                             showAlertDialog(error.message || 'Unable to complete action.');
@@ -12786,7 +12781,10 @@
                     dateFilterToInput.addEventListener('change', applyTableFilters);
                 }
                 if (statusFilterSelect) {
-                    statusFilterSelect.addEventListener('change', applyTableFilters);
+                    statusFilterSelect.addEventListener('change', function () {
+                        syncStatusFilterQueryState();
+                        applyTableFilters(true);
+                    });
                 }
             }
 
@@ -12958,6 +12956,26 @@
                 }
                 if (labelKey.indexOf('pending released') !== -1) {
                     return ['pending_released', 'released', 'forward', 'pending'];
+                }
+                if (
+                    (labelKey.indexOf('pending receive') !== -1 || labelKey.indexOf('pending received') !== -1)
+                    && (
+                        currentRoleKeyRaw === 'CENRO_ADMIN_RECORD'
+                        || currentRoleKeyRaw === 'PENRO_ADMIN_RECORD'
+                        || currentRoleKeyRaw === 'PAMO_ADMIN'
+                        || currentRoleKeyRaw === 'PENRO_SECTION_UNIT'
+                        || currentRoleKeyRaw === 'CENRO_OFFICER'
+                        || currentRoleKeyRaw === 'PENRO_OFFICER'
+                        || currentRoleKeyRaw === 'PASU_OFFICER'
+                        || currentRoleKeyRaw === 'CENRO_UNIT'
+                        || currentRoleKeyRaw === 'PENRO_SECTION'
+                        || currentRoleKeyRaw === 'PAMO_UNIT'
+                        || currentRoleKeyRaw === 'SECTION_STAFF'
+                    )
+                ) {
+                    // Action dashboards use this card as a gateway to the full
+                    // actionable queue, which can include already-received rows.
+                    return ['pending', 'received', 'awaiting_receive'];
                 }
                 if (
                     labelKey.indexOf('pending receive') !== -1
@@ -13167,6 +13185,65 @@
                 }
             }
 
+            function syncStatusFilterQueryState() {
+                if (!statusFilterSelect) {
+                    return;
+                }
+                try {
+                    const currentUrl = new URL(window.location.href);
+                    const selectedValue = normalizeLabelKey(statusFilterSelect.value || '');
+                    if (selectedValue !== '') {
+                        currentUrl.searchParams.set('status', selectedValue);
+                    } else {
+                        currentUrl.searchParams.delete('status');
+                    }
+                    window.history.replaceState({}, '', currentUrl.toString());
+                } catch (error) {
+                    // Ignore URL update failures on unsupported contexts.
+                }
+            }
+
+            function setStatusFilterValue(nextValue, options) {
+                if (!statusFilterSelect) {
+                    return false;
+                }
+                const settings = options && typeof options === 'object' ? options : {};
+                const normalizedValue = normalizeLabelKey(nextValue);
+                let resolvedValue = '';
+                if (normalizedValue !== '') {
+                    resolvedValue = findExistingStatusFilterValue([normalizedValue]);
+                    if (resolvedValue === '') {
+                        return false;
+                    }
+                }
+                statusFilterSelect.value = resolvedValue;
+                if (settings.syncQuery !== false) {
+                    syncStatusFilterQueryState();
+                }
+                if (settings.applyFilters !== false) {
+                    applyTableFilters(true);
+                }
+                return true;
+            }
+
+            function syncStatusFilterAfterAction(action) {
+                const actionKey = normalizeLabelKey(action || '');
+                if (actionKey !== 'receive') {
+                    return false;
+                }
+                if (!statusFilterSelect) {
+                    return false;
+                }
+                const currentFilter = normalizeLabelKey(statusFilterSelect.value || '');
+                if (currentFilter !== 'awaiting_receive' && currentFilter !== 'in_transit') {
+                    return false;
+                }
+                const nextFilterValue = findExistingStatusFilterValue(['received', 'pending', '']);
+                return setStatusFilterValue(nextFilterValue, {
+                    applyFilters: false,
+                });
+            }
+
             function bindStatCardQuickFilters() {
                 const cards = Array.from(document.querySelectorAll('.stat-card'));
                 if (cards.length === 0) {
@@ -13203,6 +13280,9 @@
                     const applyCardAction = function () {
                         try {
                             const destinationUrl = new URL(navigationTarget, window.location.origin);
+                            if (filterValue !== '') {
+                                destinationUrl.searchParams.set('status', filterValue);
+                            }
                             appendDateRangeToUrlObject(destinationUrl, getActiveDateFilterRange());
                             window.location.href = destinationUrl.toString();
                         } catch (error) {

@@ -60,6 +60,7 @@ foreach ($actedRows as $row) {
     $tableRows[] = [
         'value' => [
             (string)($row['tracking_id'] ?? '-'),
+            (string)($row['sender'] ?? '-'),
             (string)($row['subject'] ?? '-'),
             (string)($row['document_type'] ?? '-'),
             (string)($row['current_holder'] ?? '-'),
@@ -89,27 +90,15 @@ $pageSubtitle = 'Live view of documents you acted on and where they are now.';
 $searchPlaceholder = 'Search Tracking ID or subject';
 $dashboardLivePath = app_url('actions/dashboard-live.php?scope=approved&actions=' . rawurlencode(implode(',', $actionTypes)));
 
-$kpiCards = [
-    ['label' => 'Actioned Docs (Active)', 'icon' => 'orange', 'value' => (string)$activeCount],
-    ['label' => 'Forwarded by Me', 'icon' => 'violet', 'value' => (string)$forwardedCount],
-    ['label' => 'Reached Final Status', 'icon' => 'green', 'value' => (string)$completedCount],
-    ['label' => 'Total Actioned', 'icon' => 'blue', 'value' => (string)count($actedRows)],
-];
-
-$panels = [
-    [
-        'title' => 'My Live Action Snapshot',
-        'rows' => [
-            ['label' => 'Still In Progress', 'value' => (string)$activeCount, 'width' => '46%'],
-            ['label' => 'Forwarded by Me', 'value' => (string)$forwardedCount, 'width' => '27%'],
-            ['label' => 'Finalized', 'value' => (string)$completedCount, 'width' => '27%'],
-        ],
-    ],
-];
+$kpiCards = [];
+$panels = [];
 
 $tableTitle = 'My Outbox Live Tracker';
-$tableColumns = ['Tracking ID', 'Subject', 'Document Type (+ ARTA)', 'Current Holder', 'Last Action Time', 'Last Action by Me', 'Status', 'Quick Actions'];
+$tableColumns = ['Tracking ID', 'Sender', 'Subject', 'Document Type (+ ARTA)', 'Current Holder', 'Last Action Time', 'Last Action by Me', 'Status', 'Quick Actions'];
 $pageActions = ['View Tracking Slip', 'Print Package', 'Live Action Monitor'];
 $stickyActions = ['View Tracking Slip', 'Print Package', 'Search'];
+$queueControlsPlacement = 'table_card';
+$enableTableCardFilterControls = true;
+$dateFilterPlacement = 'table_card';
 
 require dirname(__DIR__, 3) . '/app/templates/role-page-template.php';

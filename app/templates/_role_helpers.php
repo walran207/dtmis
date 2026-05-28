@@ -721,7 +721,7 @@ function role_sanitize_sticky_actions(array $stickyActions, bool $isQueueLikePag
     $sanitized = [];
     $seen = [];
     $queueRedundantTokens = [
-        'receive', 'approve', 'pending', 'forward', 'reroute', 'return', 'release', 'override', 'sign', 'view tracking slip', 'print slip', 'print package', 'search', 'filter'
+        'receive', 'approve', 'pending', 'forward', 'reroute', 'return', 'release', 'override', 'sign', 'send back', 'view tracking slip', 'print slip', 'print package', 'search', 'filter'
     ];
 
     foreach ($stickyActions as $action) {
