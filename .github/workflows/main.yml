@@ -1,0 +1,19 @@
+name: Manual Production Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type DEPLOY to continue"
+        required: true
+        default: "NO"
+
+jobs:
+  deploy:
+    if: ${{ github.event.inputs.confirm == 'DEPLOY' }}
+    runs-on: [self-hosted, windows, prod]
+    steps:
+      - name: Run deploy script on production server
+        shell: powershell
+        run: |
+          powershell -ExecutionPolicy Bypass -File "C:\inetpub\wwwroot\dtmis\scripts\deploy\prod-deploy.ps1"
