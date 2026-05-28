@@ -35,7 +35,6 @@
             const currentRoleKey = <?= json_encode($roleKey) ?>;
             const currentRoleKeyRaw = <?= json_encode($roleKeyRaw ?? $roleKey) ?>;
             const activeMenuKey = <?= json_encode($activeMenu ?? 'dashboard') ?>;
-            const preferScopedQueueCountersForLiveStats = String(activeMenuKey || '').trim() !== 'dashboard';
             const isCenroAdminRecordRole = String(currentRoleKeyRaw || '').toUpperCase() === 'CENRO_ADMIN_RECORD';
             const isPamoAdminRole = String(currentRoleKeyRaw || '').toUpperCase() === 'PAMO_ADMIN';
             const offlineArchivePrefetchLimit = 40;
@@ -62,6 +61,15 @@
             const isPamoInternalFlowRole = isPamoAdminRole || isPamoOfficerRole || isPamoUnitRole;
             const isPenroInternalFlowRole = isPenroAdminRecordRole || isPenroOfficerRole || isPenroDivisionRole || isPenroSectionRole || isPenroSectionUnitRole;
             const isArdRole = currentRoleKey === 'ARD_TS' || currentRoleKey === 'ARD_MS';
+            const pendingReceiveCardUsesActionableQueue = [
+                'RECORDS_UNIT',
+                'ADMIN_RECORDS_UNIT',
+                'ORED',
+                'DIVISION_CHIEF',
+                'SECTION_STAFF',
+                'ARD_TS',
+                'ARD_MS'
+            ].indexOf(String(currentRoleKey || '').toUpperCase()) !== -1;
             const isIntakePage = <?= json_encode($isIntakePage) ?>;
             const filterRouteExistingAttachmentsToPreparedResponse = <?= json_encode((bool)($filterRouteExistingAttachmentsToPreparedResponse ?? false)) ?>;
             const forceHideRerouteQuickAction = <?= json_encode((bool)($forceHideRerouteQuickAction ?? false)) ?>;
@@ -120,6 +128,10 @@
             } catch (error) {
                 liveScopeMode = 'queue';
             }
+            const useScopedDashboardQueueMetrics = String(activeMenuKey || '').trim() === 'dashboard'
+                && liveScopeMode === 'pending_receive_action';
+            const preferScopedQueueCountersForLiveStats = String(activeMenuKey || '').trim() !== 'dashboard'
+                || useScopedDashboardQueueMetrics;
             const workflowActionScopes = ['queue', 'pending_receive', 'pending_receive_action', 'pending_receive_penro', 'for_cenro_action', 'office_action', 'returned_regional', 'outbox'];
             const workflowActionScopeActive = workflowActionScopes.indexOf(liveScopeMode) !== -1 || forceWorkflowActionScope;
             const offlineQueuedStatusFilterValue = 'offline_queued';
@@ -10393,6 +10405,11 @@
                     completed_total: 0,
                 };
                 const safeRows = Array.isArray(queueRows) ? queueRows : [];
+                const receivedRowsCanCountAsPendingForward = currentRoleKey === 'ORED'
+                    || currentRoleKey === 'DIVISION_CHIEF'
+                    || currentRoleKey === 'SECTION_STAFF'
+                    || isArdRole;
+                const unsignedReceivedRecordsCanCountAsPendingForward = currentRoleKey === 'RECORDS_UNIT';
 
                 safeRows.forEach(function (queueRow) {
                     const status = String(queueRow && queueRow.status ? queueRow.status : '').trim();
@@ -10453,7 +10470,15 @@
                         counters.pending_release_total += 1;
                     }
 
-                    if (isManagedByCurrentOffice && isApproved && !isForwarded) {
+                    const countsAsPendingForward = isManagedByCurrentOffice
+                        && isReceived
+                        && !isForwarded
+                        && (
+                            isApproved
+                            || receivedRowsCanCountAsPendingForward
+                            || (unsignedReceivedRecordsCanCountAsPendingForward && !hasSignedAction)
+                        );
+                    if (countsAsPendingForward) {
                         counters.pending_forward_total += 1;
                     }
 
@@ -10678,7 +10703,9 @@
                 if (!payload || typeof payload !== 'object') {
                     return;
                 }
-                const metrics = payload.metrics && typeof payload.metrics === 'object' ? payload.metrics : {};
+                const metrics = payload.metrics && typeof payload.metrics === 'object'
+                    ? Object.assign({}, payload.metrics)
+                    : {};
                 const activityCounters = payload.activity_counters && typeof payload.activity_counters === 'object' ? payload.activity_counters : {};
                 const returnedTotal = preferScopedQueueCountersForLiveStats
                     ? Number(payload.returned_total || 0)
@@ -10687,6 +10714,14 @@
                 const queueCounters = buildQueueCounters(payloadQueueRows);
                 const queueCountersForDisplay = preferScopedQueueCountersForLiveStats ? queueCounters : {};
                 const actorActionCounters = buildActorActionCounters(payloadQueueRows);
+
+                if (useScopedDashboardQueueMetrics) {
+                    metrics.pending_total = Number(queueCounters.pending_total || 0);
+                    metrics.pending_approval_total = Number(queueCounters.pending_approval_total || 0);
+                    metrics.pending_sign_total = Number(queueCounters.pending_sign_total || 0);
+                    metrics.pending_forward_total = Number(queueCounters.pending_forward_total || 0);
+                    metrics.returned_total = Number(returnedTotal || 0);
+                }
 
                 const cards = Array.from(document.querySelectorAll('.stat-card'));
                 cards.forEach(function (card) {
@@ -10867,7 +10902,15 @@
                     return;
                 }
                 if (chartKind === 'queue_status') {
-                    updateQueueStatusBarChart(payload.metrics);
+                    let metricsPayload = payload.metrics && typeof payload.metrics === 'object'
+                        ? Object.assign({}, payload.metrics)
+                        : {};
+                    if (useScopedDashboardQueueMetrics) {
+                        const payloadQueueRows = Array.isArray(payload.queue_rows) ? payload.queue_rows : [];
+                        const queueCounters = buildQueueCounters(payloadQueueRows);
+                        metricsPayload.pending_total = Number(queueCounters.pending_total || 0);
+                    }
+                    updateQueueStatusBarChart(metricsPayload);
                     return;
                 }
                 if (chartKind === 'workflow_trend') {
@@ -12959,22 +13002,11 @@
                 }
                 if (
                     (labelKey.indexOf('pending receive') !== -1 || labelKey.indexOf('pending received') !== -1)
-                    && (
-                        currentRoleKeyRaw === 'CENRO_ADMIN_RECORD'
-                        || currentRoleKeyRaw === 'PENRO_ADMIN_RECORD'
-                        || currentRoleKeyRaw === 'PAMO_ADMIN'
-                        || currentRoleKeyRaw === 'PENRO_SECTION_UNIT'
-                        || currentRoleKeyRaw === 'CENRO_OFFICER'
-                        || currentRoleKeyRaw === 'PENRO_OFFICER'
-                        || currentRoleKeyRaw === 'PASU_OFFICER'
-                        || currentRoleKeyRaw === 'CENRO_UNIT'
-                        || currentRoleKeyRaw === 'PENRO_SECTION'
-                        || currentRoleKeyRaw === 'PAMO_UNIT'
-                        || currentRoleKeyRaw === 'SECTION_STAFF'
-                    )
+                    && pendingReceiveCardUsesActionableQueue
                 ) {
                     // Action dashboards use this card as a gateway to the full
-                    // actionable queue, which can include already-received rows.
+                    // actionable queue, so prefer the broad queue filter over
+                    // the narrower transit-only awaiting_receive category.
                     return ['pending', 'received', 'awaiting_receive'];
                 }
                 if (
@@ -13277,12 +13309,36 @@
                     card.setAttribute('tabindex', '0');
                     card.setAttribute('aria-label', label === '' ? 'Open queue details' : ('Open page for ' + label));
 
+                    const clearDestinationStatusFilterState = function (destinationUrl) {
+                        if (typeof window.sessionStorage === 'undefined' || !destinationUrl) {
+                            return;
+                        }
+                        try {
+                            const destinationPath = String(destinationUrl.pathname || '').toLowerCase();
+                            if (destinationPath === '') {
+                                return;
+                            }
+                            const storageKey = 'DTMIS_queue_table_state_v1:' + destinationPath;
+                            const raw = String(window.sessionStorage.getItem(storageKey) || '').trim();
+                            if (raw === '') {
+                                return;
+                            }
+                            const persisted = JSON.parse(raw);
+                            if (!persisted || typeof persisted !== 'object') {
+                                return;
+                            }
+                            persisted.status = '';
+                            window.sessionStorage.setItem(storageKey, JSON.stringify(persisted));
+                        } catch (error) {
+                            // Ignore storage errors for cross-page stat-card navigation.
+                        }
+                    };
+
                     const applyCardAction = function () {
                         try {
                             const destinationUrl = new URL(navigationTarget, window.location.origin);
-                            if (filterValue !== '') {
-                                destinationUrl.searchParams.set('status', filterValue);
-                            }
+                            destinationUrl.searchParams.delete('status');
+                            clearDestinationStatusFilterState(destinationUrl);
                             appendDateRangeToUrlObject(destinationUrl, getActiveDateFilterRange());
                             window.location.href = destinationUrl.toString();
                         } catch (error) {

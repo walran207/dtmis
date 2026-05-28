@@ -277,6 +277,17 @@ if ($defaultStatCardNavigationPath !== '') {
     }
     $statCardNavigationTargets = array_merge($defaultStatCardNavigationTargets, $statCardNavigationTargets);
 }
+
+if (
+    (!isset($dashboardLivePath) || !is_string($dashboardLivePath) || trim($dashboardLivePath) === '')
+    && ($activeMenu ?? '') === 'dashboard'
+) {
+    if (in_array($roleKey, ['ORED', 'DIVISION_CHIEF', 'ARD_TS', 'ARD_MS', 'SECTION_STAFF'], true)) {
+        $dashboardLivePath = app_url('actions/dashboard-live.php?scope=pending_receive_action');
+    } elseif ($isRecordsUnitContext) {
+        $dashboardLivePath = app_url('actions/dashboard-live.php?scope=pending_receive_action&exclude_returned=1');
+    }
+}
 $normalizedStatCardNavigationTargets = [];
 foreach ($statCardNavigationTargets as $targetKey => $targetPath) {
     if (!is_string($targetPath)) {
@@ -489,7 +500,8 @@ if ($pdo instanceof PDO && $officeId > 0) {
         if (empty($routeOffices)) {
             $routeOffices = dashboard_fetch_route_offices($pdo, $officeId);
         }
-            $sessionUserId = (int)($_SESSION['user_id'] ?? 0);
+        $sessionUserId = (int)($_SESSION['user_id'] ?? 0);
+        $sessionRoleKey = app_normalize_role_key((string)($_SESSION['role_name'] ?? ''));
         switch ($initialLiveScope) {
             case 'origin':
                 $liveQueueRows = dashboard_fetch_origin_tracker_rows($pdo, $officeId, $initialLiveLimit);
@@ -498,13 +510,13 @@ if ($pdo instanceof PDO && $officeId > 0) {
                 $liveQueueRows = dashboard_fetch_archive_rows($pdo, $officeId, $initialLiveLimit);
                 break;
             case 'pending_receive':
-                $liveQueueRows = dashboard_fetch_pending_receive_rows($pdo, $officeId, $initialLiveLimit, false, false, $sessionUserId, $roleKeyRaw);
+                $liveQueueRows = dashboard_fetch_pending_receive_rows($pdo, $officeId, $initialLiveLimit, false, false, $sessionUserId, $sessionRoleKey);
                 break;
             case 'pending_receive_action':
-                $liveQueueRows = dashboard_fetch_pending_receive_rows($pdo, $officeId, $initialLiveLimit, true, false, $sessionUserId, $roleKeyRaw);
+                $liveQueueRows = dashboard_fetch_pending_receive_rows($pdo, $officeId, $initialLiveLimit, true, false, $sessionUserId, $sessionRoleKey);
                 break;
             case 'pending_receive_penro':
-                $liveQueueRows = dashboard_fetch_pending_receive_rows($pdo, $officeId, $initialLiveLimit, true, false, $sessionUserId, $roleKeyRaw);
+                $liveQueueRows = dashboard_fetch_pending_receive_rows($pdo, $officeId, $initialLiveLimit, true, false, $sessionUserId, $sessionRoleKey);
                 break;
             case 'for_cenro_action':
                 $liveQueueRows = dashboard_fetch_for_cenro_action_rows($pdo, $officeId, $initialLiveLimit);
@@ -534,10 +546,10 @@ if ($pdo instanceof PDO && $officeId > 0) {
                 $liveQueueRows = dashboard_fetch_ard_division_tracker_rows($pdo, $officeId, $actionTypes, $initialLiveLimit);
                 break;
             default:
-                $liveQueueRows = dashboard_fetch_queue_rows($pdo, $officeId, $initialLiveLimit);
+                $liveQueueRows = dashboard_fetch_queue_rows($pdo, $officeId, $initialLiveLimit, null, $sessionUserId, $sessionRoleKey);
                 break;
         }
-        $liveMetrics = dashboard_fetch_role_metrics($pdo, $officeId);
+        $liveMetrics = dashboard_fetch_role_metrics($pdo, $officeId, null, $sessionUserId, $sessionRoleKey);
         $activityCounters = dashboard_fetch_activity_counters($pdo, $officeId, 30);
         $artaDistribution = dashboard_fetch_arta_distribution($pdo, $officeId);
         $workflowTrend = dashboard_fetch_workflow_trend($pdo, $officeId, 7);
@@ -1882,11 +1894,21 @@ foreach ($liveQueueRows as $queueRow) {
     }
 }
 $queueCounters = role_queue_status_counters($liveQueueRows, $officeId);
-$preferScopedQueueCountersForDisplay = ($activeMenu ?? '') !== 'dashboard';
+$useScopedDashboardQueueMetrics = ($activeMenu ?? '') === 'dashboard'
+    && $initialLiveScope === 'pending_receive_action';
+$preferScopedQueueCountersForDisplay = ($activeMenu ?? '') !== 'dashboard' || $useScopedDashboardQueueMetrics;
 $queueCountersForDisplay = $preferScopedQueueCountersForDisplay ? $queueCounters : [];
 $returnedTotalForDisplay = $preferScopedQueueCountersForDisplay
     ? $returnedTotal
     : (int)($liveMetrics['returned_total'] ?? $returnedTotal);
+
+if ($useScopedDashboardQueueMetrics && !empty($liveMetrics)) {
+    $liveMetrics['pending_total'] = (int)($queueCounters['pending_total'] ?? ($liveMetrics['pending_total'] ?? 0));
+    $liveMetrics['pending_approval_total'] = (int)($queueCounters['pending_approval_total'] ?? ($liveMetrics['pending_approval_total'] ?? 0));
+    $liveMetrics['pending_sign_total'] = (int)($queueCounters['pending_sign_total'] ?? ($liveMetrics['pending_sign_total'] ?? 0));
+    $liveMetrics['pending_forward_total'] = (int)($queueCounters['pending_forward_total'] ?? ($liveMetrics['pending_forward_total'] ?? 0));
+    $liveMetrics['returned_total'] = $returnedTotalForDisplay;
+}
 
 if (!empty($liveMetrics)) {
     foreach ($kpiCards as $index => $card) {

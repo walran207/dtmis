@@ -15,6 +15,7 @@ if (empty($_SESSION['user_id'])) {
     app_redirect('auth/login.php');
 }
 $officeId = (int)($_SESSION['office_id'] ?? 0);
+$userId = (int)($_SESSION['user_id'] ?? 0);
 $roleName = 'ORED';
 $sessionRoleKey = app_normalize_role_key((string)($_SESSION['role_name'] ?? ''));
 $isOredSigningAccount = $sessionRoleKey === 'ORED_SIGN';
@@ -47,9 +48,9 @@ $metrics = [
 
 try {
     $pdo = getDatabaseConnection();
-    $queueRows = dashboard_fetch_queue_rows($pdo, $officeId, 8);
+    $queueRows = dashboard_fetch_queue_rows($pdo, $officeId, 8, null, $userId, $sessionRoleKey);
     $routeOffices = dashboard_fetch_route_offices($pdo, $officeId);
-    $metrics = dashboard_fetch_role_metrics($pdo, $officeId);
+    $metrics = dashboard_fetch_role_metrics($pdo, $officeId, null, $userId, $sessionRoleKey);
 } catch (Throwable $exception) {
     $queueRows = [];
     $routeOffices = [];

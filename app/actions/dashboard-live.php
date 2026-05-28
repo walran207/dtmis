@@ -131,14 +131,14 @@ try {
             }
             $queueRows = dashboard_fetch_ard_division_tracker_rows($pdo, $officeId, $actionTypes, $limit);
         } else {
-            $queueRows = dashboard_fetch_queue_rows($pdo, $officeId, $limit);
+            $queueRows = dashboard_fetch_queue_rows($pdo, $officeId, $limit, null, $userId, $roleKey);
         }
     } catch (Throwable $exception) {
         $queueRows = [];
     }
 
     try {
-        $metrics = dashboard_fetch_role_metrics($pdo, $officeId);
+        $metrics = dashboard_fetch_role_metrics($pdo, $officeId, null, $userId, $roleKey);
     } catch (Throwable $exception) {
         $metrics = [];
     }
@@ -167,6 +167,11 @@ try {
         if (str_contains($status, 'return')) {
             $returnedTotal++;
         }
+    }
+
+    if (in_array($scope, ['pending_receive', 'pending_receive_action', 'pending_receive_penro'], true)) {
+        $metrics['pending_total'] = count($queueRows);
+        $metrics['returned_total'] = $returnedTotal;
     }
 
     $payload = [

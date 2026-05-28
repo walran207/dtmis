@@ -639,6 +639,9 @@ function role_queue_status_counters(array $queueRows, int $currentOfficeId): arr
     ];
 
     $currentUserId = (int)($_SESSION['user_id'] ?? 0);
+    $roleBehaviorKey = app_role_behavior_key((string)($roleName ?? ($_SESSION['role_name'] ?? '')));
+    $receivedRowsCanCountAsPendingForward = in_array($roleBehaviorKey, ['ORED', 'DIVISION_CHIEF', 'SECTION_STAFF', 'ARD_TS', 'ARD_MS'], true);
+    $unsignedReceivedRecordsCanCountAsPendingForward = $roleBehaviorKey === 'RECORDS_UNIT';
     foreach ($queueRows as $queueRow) {
         $status = strtolower(trim((string)($queueRow['status'] ?? '')));
         $pendingOfficeId = (int)($queueRow['pending_office_id'] ?? 0);
@@ -705,8 +708,15 @@ function role_queue_status_counters(array $queueRows, int $currentOfficeId): arr
             $counters['pending_release_total'] += 1;
         }
 
-        // "Pending Forward" means approved/actioned but not yet forwarded/routed out.
-        if ($isManagedByCurrentOffice && $isApprovedForForwardStage && !$isForwarded) {
+        $countsAsPendingForward = $isManagedByCurrentOffice
+            && $hasReceived
+            && !$isForwarded
+            && (
+                $isApprovedForForwardStage
+                || $receivedRowsCanCountAsPendingForward
+                || ($unsignedReceivedRecordsCanCountAsPendingForward && !$hasSignedAction)
+            );
+        if ($countsAsPendingForward) {
             $counters['pending_forward_total'] += 1;
         }
 

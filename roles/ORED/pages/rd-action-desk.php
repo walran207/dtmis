@@ -48,7 +48,7 @@ try {
     $pdo = getDatabaseConnection();
     $queueRows = dashboard_fetch_pending_receive_rows($pdo, $officeId, 50, true, false, $userId, $sessionRoleKey);
     $routeOffices = dashboard_fetch_route_offices($pdo, $officeId);
-    $metrics = dashboard_fetch_role_metrics($pdo, $officeId);
+    $metrics = dashboard_fetch_role_metrics($pdo, $officeId, null, $userId, $sessionRoleKey);
 } catch (Throwable $exception) {
     $queueRows = [];
     $routeOffices = [];
