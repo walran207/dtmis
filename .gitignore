@@ -1,2 +1,11 @@
-# Ignore uploaded file attachments in storage
-/storage/uploads/attachments/**
+# Runtime uploads and generated files (do not commit from live/prod)
+/dtmis-attachments/
+/app/storage/uploads/attachments/
+/storage/uploads/attachments/
+
+# Runtime sessions/heartbeats/logs/locks/tmp
+/app/storage/sessions/
+/app/storage/session-heartbeats/
+/app/storage/logs/
+/app/storage/locks/
+/app/storage/tmp/
