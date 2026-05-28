@@ -10721,6 +10721,64 @@
                     metrics.pending_sign_total = Number(queueCounters.pending_sign_total || 0);
                     metrics.pending_forward_total = Number(queueCounters.pending_forward_total || 0);
                     metrics.returned_total = Number(returnedTotal || 0);
+<<<<<<< HEAD
+                }
+
+                const cards = Array.from(document.querySelectorAll('.stat-card'));
+                cards.forEach(function (card) {
+                    const disableStatCardLive = String(card.getAttribute('data-disable-stat-card-live') || '').trim() === '1';
+                    if (disableStatCardLive) {
+                        return;
+                    }
+
+                    const labelNode = card.querySelector('.stat-label');
+                    const valueNode = card.querySelector('.stat-value');
+                    if (!labelNode || !valueNode) {
+                        return;
+                    }
+                    const mappedValue = liveMetricValueForLabel(labelNode.textContent || '', metrics, activityCounters, returnedTotal, queueCountersForDisplay, actorActionCounters);
+                    if (mappedValue === null) {
+                        return;
+                    }
+                    valueNode.textContent = String(mappedValue);
+                });
+
+                const progressRows = Array.from(document.querySelectorAll('.progress-row'));
+                let maxValue = 1;
+                const staged = [];
+                progressRows.forEach(function (row) {
+                    const labelNode = row.querySelector('.row-meta span:first-child');
+                    const valueNode = row.querySelector('.row-meta span:last-child');
+                    const barNode = row.querySelector('.bar > span');
+                    if (!labelNode || !valueNode || !barNode) {
+                        return;
+                    }
+                    const mappedValue = liveMetricValueForLabel(labelNode.textContent || '', metrics, activityCounters, returnedTotal, queueCountersForDisplay, actorActionCounters);
+                    if (mappedValue === null) {
+                        return;
+                    }
+                    const numeric = Math.max(0, Number(mappedValue || 0));
+                    staged.push({ valueNode: valueNode, barNode: barNode, numeric: numeric });
+                    maxValue = Math.max(maxValue, numeric);
+                });
+
+                staged.forEach(function (item) {
+                    item.valueNode.textContent = String(item.numeric);
+                    item.barNode.style.width = String(Math.round((item.numeric / maxValue) * 100)) + '%';
+                });
+            }
+
+            function findChartPanel(chartKind) {
+                return chartPanels.find(function (panel) {
+                    return String(panel.getAttribute('data-chart-kind') || '').trim() === String(chartKind || '').trim();
+                }) || null;
+            }
+
+            function getChartPanelFilterElements(chartPanel) {
+                if (!chartPanel) {
+                    return null;
+=======
+>>>>>>> c78c0a1c5fa127947290077df6a5b0c77e640877
                 }
 
                 const cards = Array.from(document.querySelectorAll('.stat-card'));

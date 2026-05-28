@@ -1,1 +1,5 @@
+<<<<<<< HEAD
 {"session_id":"159eef4a050b987bbdc537fa0ca15d91","session_key":"159eef4a050b987bbdc537fa0ca15d91","user_id":36,"username":"seed.division.chief.3","email":"seed.division.chief.3@denr.gov.ph","first_name":"Division Chief","last_name":"Planning and Management Division (PMD)","role_id":5,"role_name":"DIVISION_CHIEF","role_key":"DIVISION_CHIEF","office_id":3,"authenticated_at":1779944182,"last_seen_at":1779959334,"last_seen_iso":"2026-05-28T09:08:54+00:00"}
+=======
+{"session_id":"159eef4a050b987bbdc537fa0ca15d91","session_key":"159eef4a050b987bbdc537fa0ca15d91","user_id":36,"username":"seed.division.chief.3","email":"seed.division.chief.3@denr.gov.ph","first_name":"Division Chief","last_name":"Planning and Management Division (PMD)","role_id":5,"role_name":"DIVISION_CHIEF","role_key":"DIVISION_CHIEF","office_id":3,"authenticated_at":1779944182,"last_seen_at":1779946105,"last_seen_iso":"2026-05-28T05:28:25+00:00"}
+>>>>>>> c78c0a1c5fa127947290077df6a5b0c77e640877

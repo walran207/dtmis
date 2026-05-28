@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 <?php
 declare(strict_types=1);
 
@@ -13,6 +14,23 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
 
 if (empty($_SESSION['user_id'])) {
     app_redirect('auth/login.php');
+=======
+<?php
+declare(strict_types=1);
+
+$roleBasePath = dirname(__DIR__);
+
+require_once dirname(__DIR__, 3) . '/config/app.php';
+require_once dirname(__DIR__, 3) . '/config/database.php';
+require_once dirname(__DIR__, 3) . '/config/dashboard-data.php';
+
+if (session_status() !== PHP_SESSION_ACTIVE) {
+    session_start();
+}
+
+if (empty($_SESSION['user_id'])) {
+    app_redirect('auth/login.php');
+>>>>>>> c78c0a1c5fa127947290077df6a5b0c77e640877
 }
 $officeId = (int)($_SESSION['office_id'] ?? 0);
 $userId = (int)($_SESSION['user_id'] ?? 0);

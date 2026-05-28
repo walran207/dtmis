@@ -3134,6 +3134,7 @@ if (!function_exists('dashboard_build_regional_ored_assignment_filter')) {
         if (!$hasPendingUserId && !$hasCurrentHolderUserId) {
             return ['sql' => '', 'params' => []];
         }
+<<<<<<< HEAD
 
         $viewerParam = 'ored_queue_viewer_user_id';
         $params = [];
@@ -3160,12 +3161,34 @@ if (!function_exists('dashboard_build_regional_ored_assignment_filter')) {
                             OR ' . $currentlyHeldByViewer . '
                         )';
 
+=======
+
+        $viewerParam = 'ored_queue_viewer_user_id';
+        $params = [$viewerParam => $userId];
+        $pendingAssignedToViewer = $hasPendingUserId
+            ? '(' . $documentAlias . '.pending_user_id = :' . $viewerParam . ')'
+            : '0 = 1';
+        $currentlyHeldByViewer = $hasCurrentHolderUserId
+            ? '(
+                    (' . ($hasPendingUserId ? $documentAlias . '.pending_user_id IS NULL OR ' . $documentAlias . '.pending_user_id = 0' : '1 = 1') . ')
+                    AND ' . $documentAlias . '.current_holder_user_id = :' . $viewerParam . '
+               )'
+            : '0 = 1';
+
+        if ($roleKey === 'ORED_SIGN') {
+            $sql = ' AND (
+                            ' . $pendingAssignedToViewer . '
+                            OR ' . $currentlyHeldByViewer . '
+                        )';
+
+>>>>>>> c78c0a1c5fa127947290077df6a5b0c77e640877
             return [
                 'sql' => $sql,
                 'params' => $params,
             ];
         }
 
+<<<<<<< HEAD
         $pendingAssignedToReviewerPool = '0 = 1';
         if ($hasPendingUserId && $officeId > 0 && $reviewerRoleId > 0) {
             $params['ored_queue_viewer_office_id_pool'] = $officeId;
@@ -3193,10 +3216,13 @@ if (!function_exists('dashboard_build_regional_ored_assignment_filter')) {
                 )';
         }
 
+=======
+>>>>>>> c78c0a1c5fa127947290077df6a5b0c77e640877
         $incomingToRegionalOredOffice = '0 = 1';
         if ($hasPendingOfficeId && $officeId > 0) {
             $params['ored_queue_viewer_office_id'] = $officeId;
             $params['ored_queue_viewer_office_id_current'] = $officeId;
+<<<<<<< HEAD
             $incomingUserStageGuard = '1 = 1';
             if ($hasPendingUserId) {
                 $incomingUserStageGuard = '(
@@ -3224,6 +3250,11 @@ if (!function_exists('dashboard_build_regional_ored_assignment_filter')) {
                     ' . $documentAlias . '.pending_office_id = :ored_queue_viewer_office_id
                     AND ' . $documentAlias . '.current_office_id <> :ored_queue_viewer_office_id_current
                     AND ' . $incomingUserStageGuard . '
+=======
+            $incomingToRegionalOredOffice = '(
+                    ' . $documentAlias . '.pending_office_id = :ored_queue_viewer_office_id
+                    AND ' . $documentAlias . '.current_office_id <> :ored_queue_viewer_office_id_current
+>>>>>>> c78c0a1c5fa127947290077df6a5b0c77e640877
                 )';
         }
 
@@ -3241,11 +3272,16 @@ if (!function_exists('dashboard_build_regional_ored_assignment_filter')) {
         $sql = ' AND (
                         ' . $incomingToRegionalOredOffice . '
                         OR
+<<<<<<< HEAD
                         ' . $pendingAssignedToReviewerPool . '
                         OR (
                             (' . ($hasPendingUserId ? $documentAlias . '.pending_user_id IS NULL OR ' . $documentAlias . '.pending_user_id = 0' : '1 = 1') . ')
                             AND ' . $currentlyHeldByReviewerPool . '
                         )
+=======
+                        ' . $pendingAssignedToViewer . '
+                        OR ' . $currentlyHeldByViewer . '
+>>>>>>> c78c0a1c5fa127947290077df6a5b0c77e640877
                         OR ' . $unassignedToAnySpecificUser . '
                     )';
 

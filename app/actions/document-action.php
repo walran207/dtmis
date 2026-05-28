@@ -2950,6 +2950,7 @@ try {
     ]);
     $emitJson($responsePayload);
 } catch (DocumentVersionConflictException $exception) {
+<<<<<<< HEAD
     document_action_idempotency_mark_failed($pdo, $actorUserId, $operationId, $exception->getMessage(), 409);
     offline_sync_log_event($pdo, [
         'event_type' => 'ACTION_CONFLICT',
@@ -2965,6 +2966,23 @@ try {
             'current_version' => $exception->currentVersion(),
         ],
     ]);
+=======
+    document_action_idempotency_mark_failed($pdo, $actorUserId, $operationId, $exception->getMessage(), 409);
+    offline_sync_log_event($pdo, [
+        'event_type' => 'ACTION_CONFLICT',
+        'route_kind' => 'document_action',
+        'action_name' => $action,
+        'operation_id' => $operationId,
+        'request_url' => (string)($_SERVER['REQUEST_URI'] ?? ''),
+        'source' => 'server-document-action',
+        'http_status' => 409,
+        'message' => $exception->getMessage(),
+        'payload' => [
+            'is_outbox_sync' => $isOutboxSyncRequest,
+            'current_version' => $exception->currentVersion(),
+        ],
+    ]);
+>>>>>>> c78c0a1c5fa127947290077df6a5b0c77e640877
     $emitJson([
         'ok' => false,
         'message' => $exception->getMessage(),
@@ -2972,6 +2990,7 @@ try {
         'current_version' => $exception->currentVersion(),
     ], 409);
 } catch (DocumentActionIdempotencyConflictException $exception) {
+<<<<<<< HEAD
     document_action_idempotency_mark_failed($pdo, $actorUserId, $operationId, $exception->getMessage(), 409);
     offline_sync_log_event($pdo, [
         'event_type' => 'IDEMPOTENCY_CONFLICT',
@@ -2986,12 +3005,29 @@ try {
             'is_outbox_sync' => $isOutboxSyncRequest,
         ],
     ]);
+=======
+    document_action_idempotency_mark_failed($pdo, $actorUserId, $operationId, $exception->getMessage(), 409);
+    offline_sync_log_event($pdo, [
+        'event_type' => 'IDEMPOTENCY_CONFLICT',
+        'route_kind' => 'document_action',
+        'action_name' => $action,
+        'operation_id' => $operationId,
+        'request_url' => (string)($_SERVER['REQUEST_URI'] ?? ''),
+        'source' => 'server-document-action',
+        'http_status' => 409,
+        'message' => $exception->getMessage(),
+        'payload' => [
+            'is_outbox_sync' => $isOutboxSyncRequest,
+        ],
+    ]);
+>>>>>>> c78c0a1c5fa127947290077df6a5b0c77e640877
     $emitJson([
         'ok' => false,
         'message' => $exception->getMessage(),
         'conflict' => true,
     ], 409);
 } catch (DocumentSyncReauthRequiredException $exception) {
+<<<<<<< HEAD
     document_action_idempotency_mark_failed($pdo, $actorUserId, $operationId, $exception->getMessage(), 428);
     offline_sync_log_event($pdo, [
         'event_type' => 'SYNC_REAUTH_REQUIRED',
@@ -3006,12 +3042,29 @@ try {
             'is_outbox_sync' => $isOutboxSyncRequest,
         ],
     ]);
+=======
+    document_action_idempotency_mark_failed($pdo, $actorUserId, $operationId, $exception->getMessage(), 428);
+    offline_sync_log_event($pdo, [
+        'event_type' => 'SYNC_REAUTH_REQUIRED',
+        'route_kind' => 'document_action',
+        'action_name' => $action,
+        'operation_id' => $operationId,
+        'request_url' => (string)($_SERVER['REQUEST_URI'] ?? ''),
+        'source' => 'server-document-action',
+        'http_status' => 428,
+        'message' => $exception->getMessage(),
+        'payload' => [
+            'is_outbox_sync' => $isOutboxSyncRequest,
+        ],
+    ]);
+>>>>>>> c78c0a1c5fa127947290077df6a5b0c77e640877
     $emitJson([
         'ok' => false,
         'message' => $exception->getMessage(),
         'reauth_required' => true,
     ], 428);
 } catch (InvalidArgumentException $exception) {
+<<<<<<< HEAD
     document_action_idempotency_mark_failed($pdo, $actorUserId, $operationId, $exception->getMessage(), 422);
     offline_sync_log_event($pdo, [
         'event_type' => 'ACTION_VALIDATION_FAILED',
@@ -3058,5 +3111,53 @@ try {
             'is_outbox_sync' => $isOutboxSyncRequest,
         ],
     ]);
+=======
+    document_action_idempotency_mark_failed($pdo, $actorUserId, $operationId, $exception->getMessage(), 422);
+    offline_sync_log_event($pdo, [
+        'event_type' => 'ACTION_VALIDATION_FAILED',
+        'route_kind' => 'document_action',
+        'action_name' => $action,
+        'operation_id' => $operationId,
+        'request_url' => (string)($_SERVER['REQUEST_URI'] ?? ''),
+        'source' => 'server-document-action',
+        'http_status' => 422,
+        'message' => $exception->getMessage(),
+        'payload' => [
+            'is_outbox_sync' => $isOutboxSyncRequest,
+        ],
+    ]);
+    $emitJson(['ok' => false, 'message' => $exception->getMessage()], 422);
+} catch (RuntimeException $exception) {
+    document_action_idempotency_mark_failed($pdo, $actorUserId, $operationId, $exception->getMessage(), 403);
+    offline_sync_log_event($pdo, [
+        'event_type' => 'ACTION_FORBIDDEN',
+        'route_kind' => 'document_action',
+        'action_name' => $action,
+        'operation_id' => $operationId,
+        'request_url' => (string)($_SERVER['REQUEST_URI'] ?? ''),
+        'source' => 'server-document-action',
+        'http_status' => 403,
+        'message' => $exception->getMessage(),
+        'payload' => [
+            'is_outbox_sync' => $isOutboxSyncRequest,
+        ],
+    ]);
+    $emitJson(['ok' => false, 'message' => $exception->getMessage()], 403);
+} catch (Throwable $exception) {
+    document_action_idempotency_mark_failed($pdo, $actorUserId, $operationId, 'Unable to process action right now.', 500);
+    offline_sync_log_event($pdo, [
+        'event_type' => 'ACTION_SERVER_ERROR',
+        'route_kind' => 'document_action',
+        'action_name' => $action,
+        'operation_id' => $operationId,
+        'request_url' => (string)($_SERVER['REQUEST_URI'] ?? ''),
+        'source' => 'server-document-action',
+        'http_status' => 500,
+        'message' => 'Unable to process action right now.',
+        'payload' => [
+            'is_outbox_sync' => $isOutboxSyncRequest,
+        ],
+    ]);
+>>>>>>> c78c0a1c5fa127947290077df6a5b0c77e640877
     $emitJson(['ok' => false, 'message' => 'Unable to process action right now.'], 500);
 }

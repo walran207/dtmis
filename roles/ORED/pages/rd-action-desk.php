@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 <?php
 declare(strict_types=1);
 
@@ -44,6 +45,54 @@ $metrics = [
     'compliance_rate' => 100,
 ];
 
+=======
+<?php
+declare(strict_types=1);
+
+$roleBasePath = dirname(__DIR__);
+
+require_once dirname(__DIR__, 3) . '/config/app.php';
+require_once dirname(__DIR__, 3) . '/config/database.php';
+require_once dirname(__DIR__, 3) . '/config/dashboard-data.php';
+
+if (session_status() !== PHP_SESSION_ACTIVE) {
+    session_start();
+}
+
+if (empty($_SESSION['user_id'])) {
+    app_redirect('auth/login.php');
+}
+
+$officeId = (int) ($_SESSION['office_id'] ?? 0);
+$userId = (int) ($_SESSION['user_id'] ?? 0);
+$roleName = 'ORED';
+$sessionRoleKey = app_normalize_role_key((string)($_SESSION['role_name'] ?? ''));
+$isOredSigningAccount = $sessionRoleKey === 'ORED_SIGN';
+$queueRows = [];
+$routeOffices = [];
+$metrics = [
+    'total_scope' => 0,
+    'pending_total' => 0,
+    'due_today_total' => 0,
+    'due_soon_total' => 0,
+    'overdue_total' => 0,
+    'completed_total' => 0,
+    'completed_week' => 0,
+    'created_today' => 0,
+    'external_today' => 0,
+    'pending_approval_total' => 0,
+    'pending_sign_total' => 0,
+    'pending_forward_total' => 0,
+    'for_signature_total' => 0,
+    'for_clearance_total' => 0,
+    'for_endorsement_total' => 0,
+    'for_validation_total' => 0,
+    'at_risk_total' => 0,
+    'overrides_30d' => 0,
+    'compliance_rate' => 100,
+];
+
+>>>>>>> c78c0a1c5fa127947290077df6a5b0c77e640877
 try {
     $pdo = getDatabaseConnection();
     $queueRows = dashboard_fetch_pending_receive_rows($pdo, $officeId, 50, true, false, $userId, $sessionRoleKey);

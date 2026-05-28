@@ -517,6 +517,32 @@ if ($pdo instanceof PDO && $officeId > 0) {
                 break;
             case 'pending_receive_penro':
                 $liveQueueRows = dashboard_fetch_pending_receive_rows($pdo, $officeId, $initialLiveLimit, true, false, $sessionUserId, $sessionRoleKey);
+<<<<<<< HEAD
+                break;
+            case 'for_cenro_action':
+                $liveQueueRows = dashboard_fetch_for_cenro_action_rows($pdo, $officeId, $initialLiveLimit);
+                break;
+            case 'office_action':
+                $liveQueueRows = dashboard_fetch_office_action_rows($pdo, $officeId, $initialLiveLimit);
+                break;
+            case 'returned_regional':
+                $liveQueueRows = dashboard_fetch_returned_from_regional_rows($pdo, $officeId, $initialLiveLimit);
+                break;
+            case 'outbox':
+                $liveQueueRows = dashboard_fetch_outbox_rows($pdo, $officeId, $initialLiveLimit);
+                break;
+            case 'approved':
+            case 'acted':
+                $actionTypes = !empty($initialLiveActions) ? $initialLiveActions : ['Approved', 'Signed'];
+                $liveQueueRows = $sessionUserId > 0
+                    ? dashboard_fetch_actor_tracker_rows($pdo, $sessionUserId, $actionTypes, $initialLiveLimit)
+                    : [];
+                break;
+            case 'division_staff':
+                $actionTypes = !empty($initialLiveActions) ? $initialLiveActions : ['Approved', 'Forwarded', 'Returned', 'Rerouted'];
+                $liveQueueRows = dashboard_fetch_division_staff_tracker_rows($pdo, $officeId, $actionTypes, $initialLiveLimit);
+=======
+>>>>>>> c78c0a1c5fa127947290077df6a5b0c77e640877
                 break;
             case 'for_cenro_action':
                 $liveQueueRows = dashboard_fetch_for_cenro_action_rows($pdo, $officeId, $initialLiveLimit);
@@ -1908,6 +1934,40 @@ if ($useScopedDashboardQueueMetrics && !empty($liveMetrics)) {
     $liveMetrics['pending_sign_total'] = (int)($queueCounters['pending_sign_total'] ?? ($liveMetrics['pending_sign_total'] ?? 0));
     $liveMetrics['pending_forward_total'] = (int)($queueCounters['pending_forward_total'] ?? ($liveMetrics['pending_forward_total'] ?? 0));
     $liveMetrics['returned_total'] = $returnedTotalForDisplay;
+<<<<<<< HEAD
+}
+
+if (!empty($liveMetrics)) {
+    foreach ($kpiCards as $index => $card) {
+        $mappedValue = role_metric_value_for_label((string)($card['label'] ?? ''), $liveMetrics, $activityCounters, $returnedTotalForDisplay, $queueCountersForDisplay);
+        if ($mappedValue !== null) {
+            $kpiCards[$index]['value'] = (string)$mappedValue;
+        }
+    }
+
+    foreach ($panels as $panelIndex => $panel) {
+        if (empty($panel['rows']) || !is_array($panel['rows'])) {
+            continue;
+        }
+        $rowValues = [];
+        foreach ($panel['rows'] as $rowIndex => $row) {
+            $mappedValue = role_metric_value_for_label((string)($row['label'] ?? ''), $liveMetrics, $activityCounters, $returnedTotalForDisplay, $queueCountersForDisplay);
+            if ($mappedValue !== null) {
+                $panels[$panelIndex]['rows'][$rowIndex]['value'] = (string)$mappedValue;
+                $rowValues[] = $mappedValue;
+            } else {
+                $existingValue = (int)preg_replace('/[^0-9]/', '', (string)($row['value'] ?? '0'));
+                $rowValues[] = max($existingValue, 0);
+            }
+        }
+        $maxRowValue = max(array_merge([1], $rowValues));
+        foreach ($panels[$panelIndex]['rows'] as $rowIndex => $row) {
+            $valueInt = (int)preg_replace('/[^0-9]/', '', (string)($row['value'] ?? '0'));
+            $panels[$panelIndex]['rows'][$rowIndex]['width'] = (string)(int)round(($valueInt / $maxRowValue) * 100) . '%';
+        }
+    }
+=======
+>>>>>>> c78c0a1c5fa127947290077df6a5b0c77e640877
 }
 
 if (!empty($liveMetrics)) {
