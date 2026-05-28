@@ -1,5 +1,5 @@
 <?php
-$roleBasePath = dirname(__DIR__);
+$roleBasePath = $roleBasePath ?? dirname(__DIR__);
 $roleName = 'ORED';
 $initialsFallback = 'OR';
 $pageTitle = 'Digital Signature Workspace | DENR Region XII DTMIS';

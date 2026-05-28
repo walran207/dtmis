@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-$roleBasePath = dirname(__DIR__);
+$roleBasePath = $roleBasePath ?? dirname(__DIR__);
 
 require_once dirname(__DIR__, 3) . '/config/app.php';
 require_once dirname(__DIR__, 3) . '/config/database.php';

@@ -1,7 +1,7 @@
 <?php
 require_once dirname(__DIR__, 3) . '/config/app.php';
 
-$roleBasePath = dirname(__DIR__);
+$roleBasePath = $roleBasePath ?? dirname(__DIR__);
 $roleName = 'ORED';
 $initialsFallback = 'OR';
 $pageTitle = 'Path Diversion / Override | DENR Region XII DTMIS';

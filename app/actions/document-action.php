@@ -13,25 +13,37 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
     session_start();
 }
 
+@ini_set('display_errors', '0');
+ob_start();
+
 header('Content-Type: application/json; charset=utf-8');
 
-if (empty($_SESSION['user_id'])) {
-    http_response_code(401);
-    echo json_encode(['ok' => false, 'message' => 'Authentication required.']);
+$emitJson = static function (array $payload, int $statusCode = 200): never {
+    if (ob_get_level() > 0) {
+        ob_clean();
+    }
+    http_response_code($statusCode);
+    $encoded = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+    if (!is_string($encoded) || $encoded === '') {
+        http_response_code(500);
+        echo '{"ok":false,"message":"Unable to encode response."}';
+        exit;
+    }
+    echo $encoded;
     exit;
+};
+
+if (empty($_SESSION['user_id'])) {
+    $emitJson(['ok' => false, 'message' => 'Authentication required.'], 401);
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    http_response_code(405);
-    echo json_encode(['ok' => false, 'message' => 'Method not allowed.']);
-    exit;
+    $emitJson(['ok' => false, 'message' => 'Method not allowed.'], 405);
 }
 
 $csrf = (string)($_POST['csrf_token'] ?? '');
 if (empty($_SESSION['csrf_token']) || !hash_equals((string)$_SESSION['csrf_token'], $csrf)) {
-    http_response_code(419);
-    echo json_encode(['ok' => false, 'message' => 'Invalid CSRF token.']);
-    exit;
+    $emitJson(['ok' => false, 'message' => 'Invalid CSRF token.'], 419);
 }
 
 $action = strtoupper(trim((string)($_POST['action'] ?? '')));
@@ -62,9 +74,7 @@ $isOutboxSyncRequest = $syncModeRaw === '1' || $syncHeaderRaw === '1';
 $preconditionVersion = 0;
 if ($preconditionVersionRaw !== '') {
     if (!preg_match('/^\d+$/', $preconditionVersionRaw)) {
-        http_response_code(422);
-        echo json_encode(['ok' => false, 'message' => 'Invalid precondition version.']);
-        exit;
+        $emitJson(['ok' => false, 'message' => 'Invalid precondition version.'], 422);
     }
     $preconditionVersion = (int)$preconditionVersionRaw;
 }
@@ -516,9 +526,7 @@ $operationId = '';
 try {
     $operationId = document_action_normalize_operation_id($operationIdRaw);
 } catch (InvalidArgumentException $exception) {
-    http_response_code(422);
-    echo json_encode(['ok' => false, 'message' => $exception->getMessage()]);
-    exit;
+    $emitJson(['ok' => false, 'message' => $exception->getMessage()], 422);
 }
 
 function workflow_build_subject_change_log_remarks(string $fromSubject, string $toSubject): string
@@ -665,9 +673,7 @@ function workflow_build_prepared_response_route_context(
 }
 
 if ($releaseMode !== '' && !in_array($releaseMode, ['complete_local', 'send_to_office'], true)) {
-    http_response_code(422);
-    echo json_encode(['ok' => false, 'message' => 'Invalid release mode.']);
-    exit;
+    $emitJson(['ok' => false, 'message' => 'Invalid release mode.'], 422);
 }
 
 function workflow_build_endorsement_route_context(
@@ -2106,13 +2112,11 @@ try {
                 'role_key' => $actorRoleKey,
             ],
         ]);
-        http_response_code(403);
-        echo json_encode([
+        $emitJson([
             'ok' => false,
             'message' => $rolloutMessage,
             'offline_rollout_blocked' => true,
-        ]);
-        exit;
+        ], 403);
     }
     $successMessage = 'Action completed.';
     $remarksAttachmentFiles = [];
@@ -2162,12 +2166,10 @@ try {
             document_action_idempotency_request_hash($_POST, $rawUploadedFiles)
         );
         if (($idempotencyDecision['mode'] ?? '') === 'replay') {
-            http_response_code((int)($idempotencyDecision['code'] ?? 200));
-            echo json_encode($idempotencyDecision['payload'] ?? [
+            $emitJson($idempotencyDecision['payload'] ?? [
                 'ok' => false,
                 'message' => 'Unable to replay document action safely.',
-            ]);
-            exit;
+            ], (int)($idempotencyDecision['code'] ?? 200));
         }
     }
 
@@ -2946,7 +2948,7 @@ try {
             'current_version' => (int)($responsePayload['current_version'] ?? 0),
         ],
     ]);
-    echo json_encode($responsePayload);
+    $emitJson($responsePayload);
 } catch (DocumentVersionConflictException $exception) {
     document_action_idempotency_mark_failed($pdo, $actorUserId, $operationId, $exception->getMessage(), 409);
     offline_sync_log_event($pdo, [
@@ -2963,13 +2965,12 @@ try {
             'current_version' => $exception->currentVersion(),
         ],
     ]);
-    http_response_code(409);
-    echo json_encode([
+    $emitJson([
         'ok' => false,
         'message' => $exception->getMessage(),
         'conflict' => true,
         'current_version' => $exception->currentVersion(),
-    ]);
+    ], 409);
 } catch (DocumentActionIdempotencyConflictException $exception) {
     document_action_idempotency_mark_failed($pdo, $actorUserId, $operationId, $exception->getMessage(), 409);
     offline_sync_log_event($pdo, [
@@ -2985,12 +2986,11 @@ try {
             'is_outbox_sync' => $isOutboxSyncRequest,
         ],
     ]);
-    http_response_code(409);
-    echo json_encode([
+    $emitJson([
         'ok' => false,
         'message' => $exception->getMessage(),
         'conflict' => true,
-    ]);
+    ], 409);
 } catch (DocumentSyncReauthRequiredException $exception) {
     document_action_idempotency_mark_failed($pdo, $actorUserId, $operationId, $exception->getMessage(), 428);
     offline_sync_log_event($pdo, [
@@ -3006,12 +3006,11 @@ try {
             'is_outbox_sync' => $isOutboxSyncRequest,
         ],
     ]);
-    http_response_code(428);
-    echo json_encode([
+    $emitJson([
         'ok' => false,
         'message' => $exception->getMessage(),
         'reauth_required' => true,
-    ]);
+    ], 428);
 } catch (InvalidArgumentException $exception) {
     document_action_idempotency_mark_failed($pdo, $actorUserId, $operationId, $exception->getMessage(), 422);
     offline_sync_log_event($pdo, [
@@ -3027,8 +3026,7 @@ try {
             'is_outbox_sync' => $isOutboxSyncRequest,
         ],
     ]);
-    http_response_code(422);
-    echo json_encode(['ok' => false, 'message' => $exception->getMessage()]);
+    $emitJson(['ok' => false, 'message' => $exception->getMessage()], 422);
 } catch (RuntimeException $exception) {
     document_action_idempotency_mark_failed($pdo, $actorUserId, $operationId, $exception->getMessage(), 403);
     offline_sync_log_event($pdo, [
@@ -3044,8 +3042,7 @@ try {
             'is_outbox_sync' => $isOutboxSyncRequest,
         ],
     ]);
-    http_response_code(403);
-    echo json_encode(['ok' => false, 'message' => $exception->getMessage()]);
+    $emitJson(['ok' => false, 'message' => $exception->getMessage()], 403);
 } catch (Throwable $exception) {
     document_action_idempotency_mark_failed($pdo, $actorUserId, $operationId, 'Unable to process action right now.', 500);
     offline_sync_log_event($pdo, [
@@ -3061,6 +3058,5 @@ try {
             'is_outbox_sync' => $isOutboxSyncRequest,
         ],
     ]);
-    http_response_code(500);
-    echo json_encode(['ok' => false, 'message' => 'Unable to process action right now.']);
+    $emitJson(['ok' => false, 'message' => 'Unable to process action right now.'], 500);
 }

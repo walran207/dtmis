@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-$roleBasePath = dirname(__DIR__);
+$roleBasePath = $roleBasePath ?? dirname(__DIR__);
 
 require_once dirname(__DIR__, 3) . '/config/app.php';
 require_once dirname(__DIR__, 3) . '/config/database.php';
@@ -48,7 +48,7 @@ try {
     $pdo = getDatabaseConnection();
     $queueRows = dashboard_fetch_pending_receive_rows($pdo, $officeId, 50, true, false, $userId, $sessionRoleKey);
     $routeOffices = dashboard_fetch_route_offices($pdo, $officeId);
-    $metrics = dashboard_fetch_role_metrics($pdo, $officeId);
+    $metrics = dashboard_fetch_role_metrics($pdo, $officeId, null, $userId, $sessionRoleKey);
 } catch (Throwable $exception) {
     $queueRows = [];
     $routeOffices = [];

@@ -801,7 +801,14 @@ if (!function_exists('dashboard_build_office_scope')) {
 }
 
 if (!function_exists('dashboard_fetch_queue_rows')) {
-    function dashboard_fetch_queue_rows(PDO $pdo, int $officeId, int $limit = 8, ?array $dateRange = null): array
+    function dashboard_fetch_queue_rows(
+        PDO $pdo,
+        int $officeId,
+        int $limit = 8,
+        ?array $dateRange = null,
+        ?int $viewerUserId = null,
+        ?string $viewerRoleKey = null
+    ): array
     {
         if ($officeId <= 0) {
             return [];
@@ -810,6 +817,16 @@ if (!function_exists('dashboard_fetch_queue_rows')) {
         $safeLimit = max(1, min($limit, 20));
         $hasPendingOfficeColumn = dashboard_column_exists($pdo, 'documents', 'pending_office_id');
         $scope = dashboard_build_office_scope($officeId, $hasPendingOfficeColumn);
+        $assignmentFilter = dashboard_build_regional_ored_assignment_filter(
+            $pdo,
+            $viewerUserId,
+            $viewerRoleKey,
+            $officeId
+        );
+        if ($assignmentFilter['sql'] !== '') {
+            $scope['where'] .= $assignmentFilter['sql'];
+            $scope['params'] = array_merge($scope['params'], $assignmentFilter['params']);
+        }
         $pendingOfficeSelect = $hasPendingOfficeColumn
             ? 'd.pending_office_id AS pending_office_id,'
             : 'NULL AS pending_office_id,';
@@ -2024,7 +2041,13 @@ if (!function_exists('dashboard_fetch_ard_division_tracker_rows')) {
 }
 
 if (!function_exists('dashboard_fetch_role_metrics')) {
-    function dashboard_fetch_role_metrics(PDO $pdo, int $officeId, ?array $dateRange = null): array
+    function dashboard_fetch_role_metrics(
+        PDO $pdo,
+        int $officeId,
+        ?array $dateRange = null,
+        ?int $viewerUserId = null,
+        ?string $viewerRoleKey = null
+    ): array
     {
         $defaults = [
             'total_scope' => 0,
@@ -2059,6 +2082,16 @@ if (!function_exists('dashboard_fetch_role_metrics')) {
         $hasPendingOfficeColumn = dashboard_column_exists($pdo, 'documents', 'pending_office_id');
         $hasSourceTypeColumn = dashboard_column_exists($pdo, 'documents', 'source_type');
         $scope = dashboard_build_office_scope($officeId, $hasPendingOfficeColumn);
+        $assignmentFilter = dashboard_build_regional_ored_assignment_filter(
+            $pdo,
+            $viewerUserId,
+            $viewerRoleKey,
+            $officeId
+        );
+        if ($assignmentFilter['sql'] !== '') {
+            $scope['where'] .= $assignmentFilter['sql'];
+            $scope['params'] = array_merge($scope['params'], $assignmentFilter['params']);
+        }
         $dateClause = dashboard_build_date_range_clause('COALESCE(office_ts.office_received_at, d.created_at)', $dateRange, 'role_metrics_date');
         $activityDateClause = dashboard_build_date_range_clause('al.created_at', $dateRange, 'role_metrics_activity_date');
         $hasExplicitDateRange = !empty($dateClause['range']);
@@ -2335,8 +2368,8 @@ if (!function_exists('dashboard_fetch_role_metrics')) {
             $officeId,
             true,
             true,
-            null,
-            null,
+            $viewerUserId,
+            $viewerRoleKey,
             $dateRange
         );
 
@@ -3095,6 +3128,7 @@ if (!function_exists('dashboard_build_regional_ored_assignment_filter')) {
             return ['sql' => '', 'params' => []];
         }
 
+        $hasPendingOfficeId = dashboard_column_exists($pdo, 'documents', 'pending_office_id');
         $hasPendingUserId = dashboard_column_exists($pdo, 'documents', 'pending_user_id');
         $hasCurrentHolderUserId = dashboard_column_exists($pdo, 'documents', 'current_holder_user_id');
         if (!$hasPendingUserId && !$hasCurrentHolderUserId) {
@@ -3102,7 +3136,13 @@ if (!function_exists('dashboard_build_regional_ored_assignment_filter')) {
         }
 
         $viewerParam = 'ored_queue_viewer_user_id';
-        $params = [$viewerParam => $userId];
+        $params = [];
+        $reviewerRoleId = function_exists('workflow_get_role_id_by_key')
+            ? (int)(workflow_get_role_id_by_key($pdo, 'ORED') ?? 0)
+            : 0;
+        $signerRoleId = function_exists('workflow_get_role_id_by_key')
+            ? (int)(workflow_get_role_id_by_key($pdo, 'ORED_SIGN') ?? 0)
+            : 0;
         $pendingAssignedToViewer = $hasPendingUserId
             ? '(' . $documentAlias . '.pending_user_id = :' . $viewerParam . ')'
             : '0 = 1';
@@ -3114,6 +3154,7 @@ if (!function_exists('dashboard_build_regional_ored_assignment_filter')) {
             : '0 = 1';
 
         if ($roleKey === 'ORED_SIGN') {
+            $params[$viewerParam] = $userId;
             $sql = ' AND (
                             ' . $pendingAssignedToViewer . '
                             OR ' . $currentlyHeldByViewer . '
@@ -3123,6 +3164,67 @@ if (!function_exists('dashboard_build_regional_ored_assignment_filter')) {
                 'sql' => $sql,
                 'params' => $params,
             ];
+        }
+
+        $pendingAssignedToReviewerPool = '0 = 1';
+        if ($hasPendingUserId && $officeId > 0 && $reviewerRoleId > 0) {
+            $params['ored_queue_viewer_office_id_pool'] = $officeId;
+            $params['ored_queue_reviewer_role_id'] = $reviewerRoleId;
+            $pendingAssignedToReviewerPool = 'EXISTS (
+                    SELECT 1
+                    FROM users u_pool
+                    WHERE u_pool.id = ' . $documentAlias . '.pending_user_id
+                      AND u_pool.is_active = 1
+                      AND u_pool.office_id = :ored_queue_viewer_office_id_pool
+                      AND u_pool.role_id = :ored_queue_reviewer_role_id
+                )';
+        }
+        $currentlyHeldByReviewerPool = '0 = 1';
+        if ($hasCurrentHolderUserId && $officeId > 0 && $reviewerRoleId > 0) {
+            $params['ored_queue_viewer_office_id_holder_pool'] = $officeId;
+            $params['ored_queue_reviewer_role_id_holder'] = $reviewerRoleId;
+            $currentlyHeldByReviewerPool = 'EXISTS (
+                    SELECT 1
+                    FROM users u_hold
+                    WHERE u_hold.id = ' . $documentAlias . '.current_holder_user_id
+                      AND u_hold.is_active = 1
+                      AND u_hold.office_id = :ored_queue_viewer_office_id_holder_pool
+                      AND u_hold.role_id = :ored_queue_reviewer_role_id_holder
+                )';
+        }
+
+        $incomingToRegionalOredOffice = '0 = 1';
+        if ($hasPendingOfficeId && $officeId > 0) {
+            $params['ored_queue_viewer_office_id'] = $officeId;
+            $params['ored_queue_viewer_office_id_current'] = $officeId;
+            $incomingUserStageGuard = '1 = 1';
+            if ($hasPendingUserId) {
+                $incomingUserStageGuard = '(
+                        ' . $documentAlias . '.pending_user_id IS NULL
+                        OR ' . $documentAlias . '.pending_user_id = 0
+                        OR ' . $pendingAssignedToReviewerPool . '
+                    )';
+                if ($signerRoleId > 0) {
+                    $params['ored_queue_signer_role_id'] = $signerRoleId;
+                    $incomingUserStageGuard = '(
+                            ' . $documentAlias . '.pending_user_id IS NULL
+                            OR ' . $documentAlias . '.pending_user_id = 0
+                            OR ' . $pendingAssignedToReviewerPool . '
+                            OR NOT EXISTS (
+                                SELECT 1
+                                FROM users u_sign
+                                WHERE u_sign.id = ' . $documentAlias . '.pending_user_id
+                                  AND u_sign.is_active = 1
+                                  AND u_sign.role_id = :ored_queue_signer_role_id
+                            )
+                        )';
+                }
+            }
+            $incomingToRegionalOredOffice = '(
+                    ' . $documentAlias . '.pending_office_id = :ored_queue_viewer_office_id
+                    AND ' . $documentAlias . '.current_office_id <> :ored_queue_viewer_office_id_current
+                    AND ' . $incomingUserStageGuard . '
+                )';
         }
 
         $unassignedToAnySpecificUser = '0 = 1';
@@ -3137,8 +3239,13 @@ if (!function_exists('dashboard_build_regional_ored_assignment_filter')) {
         }
 
         $sql = ' AND (
-                        ' . $pendingAssignedToViewer . '
-                        OR ' . $currentlyHeldByViewer . '
+                        ' . $incomingToRegionalOredOffice . '
+                        OR
+                        ' . $pendingAssignedToReviewerPool . '
+                        OR (
+                            (' . ($hasPendingUserId ? $documentAlias . '.pending_user_id IS NULL OR ' . $documentAlias . '.pending_user_id = 0' : '1 = 1') . ')
+                            AND ' . $currentlyHeldByReviewerPool . '
+                        )
                         OR ' . $unassignedToAnySpecificUser . '
                     )';
 
