@@ -51,6 +51,114 @@ function format_year_only(?string $value): string
     }
 }
 
+function tracking_find_ored_office(PDO $pdo): ?array
+{
+    $stmt = $pdo->query(
+        "SELECT TOP (1) id, name, level, parent_office_id
+         FROM offices
+         WHERE UPPER(name) LIKE '%ORED%'
+            OR UPPER(name) LIKE '%REGIONAL EXECUTIVE%'
+         ORDER BY id ASC"
+    );
+    $office = $stmt ? $stmt->fetch() : false;
+    if ($office) {
+        return $office;
+    }
+
+    $oredRoleId = workflow_get_role_id_by_key($pdo, 'ORED');
+    $oredSignRoleId = workflow_get_role_id_by_key($pdo, 'ORED_SIGN');
+    $roleIds = array_values(array_filter([
+        $oredRoleId,
+        $oredSignRoleId,
+    ], static fn ($value): bool => (int)$value > 0));
+    if ($roleIds === []) {
+        return null;
+    }
+
+    $placeholders = [];
+    $params = [];
+    foreach ($roleIds as $index => $roleId) {
+        $key = 'role_id_' . $index;
+        $placeholders[] = ':' . $key;
+        $params[$key] = (int)$roleId;
+    }
+
+    $fallbackStmt = $pdo->prepare(
+        'SELECT TOP (1) o.id, o.name, o.level, o.parent_office_id
+         FROM offices o
+         INNER JOIN users u ON u.office_id = o.id
+         WHERE u.role_id IN (' . implode(', ', $placeholders) . ')
+         ORDER BY o.id ASC'
+    );
+    $fallbackStmt->execute($params);
+    $office = $fallbackStmt->fetch();
+
+    return $office ?: null;
+}
+
+function tracking_resolve_created_destination_office(PDO $pdo, array $document): ?array
+{
+    $originatingOfficeId = (int)($document['originating_office_id'] ?? 0);
+    if ($originatingOfficeId <= 0) {
+        return null;
+    }
+
+    $originatingOffice = workflow_get_office_context($pdo, $originatingOfficeId);
+    if (!$originatingOffice) {
+        return null;
+    }
+
+    $originatingLevel = workflow_office_level_key((string)($originatingOffice['level'] ?? ''));
+    $originatingName = strtoupper(trim((string)($originatingOffice['name'] ?? '')));
+
+    if ($originatingLevel === 'CENRO_ADMIN_RECORD') {
+        $cenroRoot = workflow_find_cenro_root_office($pdo, $originatingOfficeId);
+        if ($cenroRoot) {
+            $cenroOfficer = workflow_find_child_office_by_level($pdo, (int)($cenroRoot['id'] ?? 0), 'CENRO_OFFICER');
+            if ($cenroOfficer) {
+                return $cenroOfficer;
+            }
+        }
+    }
+
+    if ($originatingLevel === 'PENRO_ADMIN_RECORD') {
+        $penroRoot = workflow_find_penro_root_office($pdo, $originatingOfficeId);
+        if ($penroRoot) {
+            $penroOfficer = workflow_find_child_office_by_level($pdo, (int)($penroRoot['id'] ?? 0), 'PENRO_OFFICER');
+            if ($penroOfficer) {
+                return $penroOfficer;
+            }
+        }
+    }
+
+    if ($originatingLevel === 'PAMO_ADMIN') {
+        $pamoRoot = workflow_find_pamo_root_office($pdo, $originatingOfficeId);
+        if ($pamoRoot) {
+            $pasuOffice = workflow_find_child_office_by_level($pdo, (int)($pamoRoot['id'] ?? 0), 'PASU_OFFICER');
+            if ($pasuOffice) {
+                return $pasuOffice;
+            }
+        }
+    }
+
+    if (workflow_name_matches_records_unit($originatingName)) {
+        return tracking_find_ored_office($pdo);
+    }
+
+    return null;
+}
+
+function tracking_resolve_created_destination_label(PDO $pdo, array $document, string $fallbackLabel): string
+{
+    $destinationOffice = tracking_resolve_created_destination_office($pdo, $document);
+    $destinationLabel = trim((string)($destinationOffice['name'] ?? ''));
+    if ($destinationLabel !== '') {
+        return $destinationLabel;
+    }
+
+    return $fallbackLabel;
+}
+
 function tracking_status_from_action_type(?string $actionType): string
 {
     $normalized = strtoupper(trim((string)$actionType));
@@ -259,6 +367,7 @@ if ($trackingId === '') {
                 d.tracking_id,
                 d.subject,
                 d.created_at,
+                d.originating_office_id,
                 d.source_type,
                 d.external_client_name,
                 d.client_address,
@@ -491,6 +600,11 @@ if ($document !== null) {
     $createdAt = trim((string)($createdEvent['created_at'] ?? ($document['created_at'] ?? '')));
     $createdBy = trim((string)($createdEvent['actor_name'] ?? ($document['sender_name'] ?? '')));
     $createdOffice = trim((string)($createdEvent['actor_office'] ?? ($document['originating_office'] ?? '')));
+    $createdDestination = tracking_resolve_created_destination_label(
+        $pdo,
+        $document,
+        $createdOffice !== '' ? $createdOffice : '-'
+    );
     $createdRemarks = trim((string)($createdEvent['remarks'] ?? ''));
     if ($createdRemarks === '') {
         $createdRemarks = tracking_default_action_text('CREATED');
@@ -501,7 +615,7 @@ if ($document !== null) {
             'received' => $createdAt,
             'from' => $createdOffice !== '' ? $createdOffice : '-',
             'released' => null,
-            'to' => $createdOffice !== '' ? $createdOffice : '-',
+            'to' => $createdDestination,
             'status' => tracking_status_from_action_type('CREATED'),
             'action' => $createdRemarks,
             'received_by' => $createdBy,

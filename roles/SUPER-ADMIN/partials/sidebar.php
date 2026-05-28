@@ -12,6 +12,7 @@ $profileParentOfficeTag = (string)($profileParentOfficeTag ?? '');
 
 $menuItems = [
     ['key' => 'dashboard', 'label' => 'Control Center', 'href' => 'dashboard.php', 'icon' => 'dashboard'],
+    ['key' => 'documents_management', 'label' => 'Documents Management', 'href' => 'documents-management.php', 'icon' => 'audit'],
     ['key' => 'users_management', 'label' => 'Users Management', 'href' => 'users-management.php', 'icon' => 'users'],
     ['key' => 'deleted_users', 'label' => 'Deleted Users', 'href' => 'deleted-users.php', 'icon' => 'audit'],
     ['key' => 'data_management', 'label' => 'Data Management', 'href' => 'data-management.php', 'icon' => 'database'],

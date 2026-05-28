@@ -8,12 +8,16 @@ on:
         required: true
         default: "NO"
 
+concurrency:
+  group: prod-deploy
+  cancel-in-progress: false
+
 jobs:
   deploy:
     if: ${{ github.event.inputs.confirm == 'DEPLOY' }}
-    runs-on: [self-hosted, windows, prod]
+    runs-on: [self-hosted, Windows, prod]
     steps:
       - name: Run deploy script on production server
         shell: powershell
         run: |
-          powershell -ExecutionPolicy Bypass -File "C:\inetpub\wwwroot\dtmis\scripts\deploy\prod-deploy.ps1"
+          & "D:\www\dtmis\scripts\deploy\prod-deploy.ps1"

@@ -487,6 +487,111 @@ body[data-role-key="SUPER_ADMIN"] .super-admin-mini-metrics p {
     font-size: 0.88rem;
 }
 
+body[data-role-key="SUPER_ADMIN"] .super-admin-cell-stack {
+    display: grid;
+    gap: 3px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-cell-stack strong {
+    font-size: 0.88rem;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-cell-stack span {
+    color: var(--muted);
+    font-size: 0.8rem;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-document-details-shell {
+    gap: 14px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-document-details-content {
+    display: grid;
+    gap: 16px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-details-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-detail-card {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--surface);
+    padding: 12px;
+    display: grid;
+    gap: 8px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-detail-card span {
+    color: var(--muted);
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-detail-card strong {
+    font-size: 0.92rem;
+    line-height: 1.45;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-details-section {
+    display: grid;
+    gap: 12px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-details-section-head {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-details-section-head h4,
+body[data-role-key="SUPER_ADMIN"] .super-admin-details-section-head p {
+    margin: 0;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-details-section-head p {
+    color: var(--muted);
+    font-size: 0.84rem;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-attachment-list {
+    display: grid;
+    gap: 10px;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-attachment-card {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--surface);
+    padding: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-attachment-copy {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-attachment-copy strong {
+    font-size: 0.9rem;
+}
+
+body[data-role-key="SUPER_ADMIN"] .super-admin-attachment-copy span,
+body[data-role-key="SUPER_ADMIN"] .super-admin-attachments-empty {
+    color: var(--muted);
+    font-size: 0.84rem;
+    line-height: 1.5;
+}
+
 body[data-role-key="SUPER_ADMIN"] .super-admin-live-head {
     display: flex;
     justify-content: space-between;
@@ -943,6 +1048,10 @@ body[data-role-key="SUPER_ADMIN"].super-admin-density-compact .super-admin-table
 
     body[data-role-key="SUPER_ADMIN"] .super-admin-form-actions {
         flex-direction: column;
+    }
+
+    body[data-role-key="SUPER_ADMIN"] .super-admin-attachment-card {
+        align-items: stretch;
     }
 
     body[data-role-key="SUPER_ADMIN"] .super-admin-btn {

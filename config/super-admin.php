@@ -192,7 +192,7 @@ if (!function_exists('super_admin_fetch_recent_documents')) {
                     d.status,
                     d.source_type,
                     dt.name AS document_type,
-                    ' . super_admin_document_origin_expr($pdo) . ' AS origin_office,
+                    " . super_admin_document_origin_expr($pdo) . " AS origin_office,
                     COALESCE(o_current.name, '-') AS current_office,
                     {$pendingField}
                     d.created_at,
@@ -310,7 +310,7 @@ if (!function_exists('super_admin_fetch_export_documents')) {
                     d.status,
                     d.source_type,
                     dt.name AS document_type,
-                    ' . super_admin_document_origin_expr($pdo) . ' AS origin_office,
+                    " . super_admin_document_origin_expr($pdo) . " AS origin_office,
                     COALESCE(o_current.name, '-') AS current_office,
                     {$pendingField}
                     d.created_at,
@@ -341,6 +341,127 @@ if (!function_exists('super_admin_fetch_export_documents')) {
                 'origin_office' => trim((string)($row['origin_office'] ?? '-')),
                 'current_office' => trim((string)($row['current_office'] ?? '-')),
                 'pending_office' => trim((string)($row['pending_office'] ?? '-')),
+                'date_created' => super_admin_format_datetime((string)($row['created_at'] ?? null)),
+                'date_created_raw' => (string)($row['created_at'] ?? ''),
+                'date_updated' => super_admin_format_datetime((string)($row['updated_at'] ?? null)),
+                'date_updated_raw' => (string)($row['updated_at'] ?? ''),
+            ];
+        }, $rows);
+    }
+}
+
+if (!function_exists('super_admin_document_status_key')) {
+    function super_admin_document_status_key(string $status): string
+    {
+        $normalized = strtolower(trim($status));
+        $normalized = preg_replace('/[^a-z0-9]+/', '_', $normalized) ?? '';
+
+        return trim($normalized, '_');
+    }
+}
+
+if (!function_exists('super_admin_document_status_is_completed')) {
+    function super_admin_document_status_is_completed(string $status): bool
+    {
+        return in_array(
+            super_admin_document_status_key($status),
+            ['completed', 'released', 'closed', 'resolved', 'done', 'signed', 'signed_completed'],
+            true
+        );
+    }
+}
+
+if (!function_exists('super_admin_document_status_is_overdue')) {
+    function super_admin_document_status_is_overdue(string $status): bool
+    {
+        return in_array(
+            super_admin_document_status_key($status),
+            ['overdue', 'at_risk'],
+            true
+        );
+    }
+}
+
+if (!function_exists('super_admin_fetch_document_management_documents')) {
+    function super_admin_fetch_document_management_documents(PDO $pdo, int $limit = 600): array
+    {
+        $safeLimit = max(20, min($limit, 2000));
+        $hasPendingOffice = super_admin_column_exists($pdo, 'documents', 'pending_office_id');
+        $hasUpdatedAt = super_admin_column_exists($pdo, 'documents', 'updated_at');
+        $hasAttachmentTable = db_table_exists($pdo, 'document_attachments');
+        $pendingSelect = $hasPendingOffice
+            ? 'LEFT JOIN offices o_pending ON o_pending.id = d.pending_office_id'
+            : '';
+        $pendingField = $hasPendingOffice
+            ? "COALESCE(o_pending.name, '-') AS pending_office,"
+            : "'-' AS pending_office,";
+        $updatedAtField = $hasUpdatedAt
+            ? 'd.updated_at'
+            : 'd.created_at AS updated_at';
+        $attachmentCountField = $hasAttachmentTable
+            ? '(SELECT COUNT(*) FROM document_attachments da WHERE da.document_id = d.id) AS attachment_count,'
+            : '0 AS attachment_count,';
+        $recencySql = super_admin_document_recency_sql($pdo);
+
+        $sql = "SELECT TOP ({$safeLimit})
+                    d.id,
+                    d.tracking_id,
+                    d.subject,
+                    d.status,
+                    d.source_type,
+                    dt.name AS document_type,
+                    " . super_admin_document_origin_expr($pdo) . " AS origin_office,
+                    COALESCE(o_current.name, '-') AS current_office,
+                    {$pendingField}
+                    d.created_at,
+                    {$updatedAtField},
+                    d.created_by_user_id,
+                    COALESCE(u.email, '') AS created_by_email,
+                    LTRIM(RTRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, '')))) AS created_by_name,
+                    {$attachmentCountField}
+                    COALESCE(CAST(d.document_type_id AS INT), 0) AS document_type_id
+                FROM documents d
+                LEFT JOIN document_types dt ON dt.id = d.document_type_id
+                LEFT JOIN offices o_origin ON o_origin.id = d.originating_office_id
+                LEFT JOIN offices o_current ON o_current.id = d.current_office_id
+                LEFT JOIN users u ON u.id = d.created_by_user_id
+                {$pendingSelect}
+                ORDER BY {$recencySql} DESC, d.id DESC";
+
+        $rows = $pdo->query($sql)?->fetchAll() ?: [];
+        if ($rows === []) {
+            return [];
+        }
+
+        return array_map(static function (array $row): array {
+            $trackingId = trim((string)($row['tracking_id'] ?? ''));
+            $subject = trim((string)($row['subject'] ?? ''));
+            $statusRaw = trim((string)($row['status'] ?? 'Pending'));
+            $statusKey = super_admin_document_status_key($statusRaw);
+            $creatorName = trim((string)($row['created_by_name'] ?? ''));
+
+            return [
+                'document_id' => (int)($row['id'] ?? 0),
+                'tracking_id' => $trackingId !== '' ? $trackingId : '-',
+                'subject' => $subject !== '' ? $subject : 'No subject',
+                'status' => $statusRaw !== '' ? $statusRaw : 'Pending',
+                'status_key' => $statusKey !== '' ? $statusKey : 'pending',
+                'status_category' => super_admin_document_status_is_completed($statusRaw)
+                    ? 'completed'
+                    : (super_admin_document_status_is_overdue($statusRaw) ? 'overdue' : 'active'),
+                'source_type' => super_admin_source_type_label((string)($row['source_type'] ?? 'INTERNAL')),
+                'source_type_raw' => strtoupper(trim((string)($row['source_type'] ?? 'INTERNAL'))),
+                'document_type' => trim((string)($row['document_type'] ?? '')) !== ''
+                    ? trim((string)$row['document_type'])
+                    : 'Uncategorized',
+                'document_type_id' => (int)($row['document_type_id'] ?? 0),
+                'origin_office' => trim((string)($row['origin_office'] ?? '-')),
+                'current_office' => trim((string)($row['current_office'] ?? '-')),
+                'pending_office' => trim((string)($row['pending_office'] ?? '-')),
+                'created_by_user_id' => (int)($row['created_by_user_id'] ?? 0),
+                'created_by_name' => $creatorName !== '' ? $creatorName : 'Unknown User',
+                'created_by_email' => trim((string)($row['created_by_email'] ?? '')),
+                'attachment_count' => max(0, (int)($row['attachment_count'] ?? 0)),
                 'date_created' => super_admin_format_datetime((string)($row['created_at'] ?? null)),
                 'date_created_raw' => (string)($row['created_at'] ?? ''),
                 'date_updated' => super_admin_format_datetime((string)($row['updated_at'] ?? null)),

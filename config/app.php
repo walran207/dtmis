@@ -266,7 +266,7 @@ if (!function_exists('app_detect_mime_type')) {
 if (!function_exists('app_attachment_storage_root')) {
     function app_attachment_storage_root(): string
     {
-        return 'C:\\inetpub\\wwwroot\\dtmis\\dtmis-attachments';
+        return 'E:\\dtmis-attachments';
     }
 }
 

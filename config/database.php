@@ -270,7 +270,7 @@ function getDatabaseConnection(): PDO
         $username = 'sa';
     }
 
-    $password = (string)(getenv('DB_PASSWORD') ?: '12345678');
+    $password = (string)(getenv('DB_PASSWORD') ?: 'superuser@12345');
 
     $serverTarget = $host;
     if ($port !== '') {
