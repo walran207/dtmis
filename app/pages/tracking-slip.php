@@ -341,7 +341,7 @@ $slips = [];
 $releaseEvents = [];
 $activityEvents = [];
 $attachments = [];
-$canViewAttachments = !empty($_SESSION['user_id']);
+$canViewAttachments = (!$publicMode && !empty($_SESSION['user_id']));
 $subjectRowValue = '-';
 $newSubjectRowValue = '';
 $showNewSubjectRow = false;
@@ -2413,54 +2413,52 @@ $layoutDefaultLogoPrintPx = 100;
                                 </div>
                             </div>
 
+                            <?php if ($canViewAttachments): ?>
                             <div class="row-popover-trigger">
                                 <div class="row-preview-hint">Hover for attachment preview</div>
                                 <div class="row-preview-popover" role="tooltip" aria-label="Row attachment previews">
                                     <div class="row-flow-popover-title">Row Attachments</div>
-                                    <?php if ($canViewAttachments): ?>
-                                        <?php if (empty($rowAttachments)): ?>
-                                        <div class="row-flow-attachment-empty">No matching attachments for this row window.</div>
-                                        <?php else: ?>
-                                        <div class="row-flow-attachment-list">
-                                            <?php foreach ($rowAttachments as $attachment): ?>
-                                            <div class="row-flow-attachment-item">
-                                                <div class="row-flow-attachment-head">
-                                                    <span class="row-flow-attachment-type"><?php echo e((string)($attachment['category_label'] ?? 'Attachment')); ?></span>
-                                                    <span class="row-flow-log-time"><?php echo e(format_dt((string)($attachment['uploaded_at'] ?? null))); ?></span>
-                                                </div>
-                                                <div class="row-flow-attachment-name"><?php echo e((string)($attachment['file_name'] ?? 'Attachment')); ?></div>
-                                                <?php if (trim((string)($attachment['uploaded_by'] ?? '')) !== ''): ?>
-                                                <div class="row-flow-attachment-meta">
-                                                    Uploaded by: <?php echo e((string)$attachment['uploaded_by']); ?>
-                                                    <?php if (trim((string)($attachment['uploaded_by_role'] ?? '')) !== ''): ?>
-                                                        (<?php echo e((string)$attachment['uploaded_by_role']); ?>)
-                                                    <?php endif; ?>
-                                                </div>
-                                                <?php endif; ?>
-                                                <?php
-                                                    $previewType = strtolower(trim((string)($attachment['preview_type'] ?? 'none')));
-                                                    $previewUrl = trim((string)($attachment['preview_url'] ?? ''));
-                                                ?>
-                                                <?php if ($previewUrl !== '' && $previewType === 'image'): ?>
-                                                <div class="row-flow-attachment-preview">
-                                                    <img src="<?php echo e($previewUrl); ?>" alt="Attachment preview: <?php echo e((string)($attachment['file_name'] ?? 'Attachment')); ?>" loading="lazy">
-                                                </div>
-                                                <?php elseif ($previewUrl !== '' && $previewType === 'pdf'): ?>
-                                                <div class="row-flow-attachment-preview">
-                                                    <iframe src="<?php echo e($previewUrl); ?>#toolbar=0&navpanes=0&scrollbar=0" title="PDF preview: <?php echo e((string)($attachment['file_name'] ?? 'Attachment')); ?>" loading="lazy"></iframe>
-                                                </div>
-                                                <?php else: ?>
-                                                <div class="row-flow-attachment-preview-empty">Preview unavailable for this file type.</div>
+                                    <?php if (empty($rowAttachments)): ?>
+                                    <div class="row-flow-attachment-empty">No matching attachments for this row window.</div>
+                                    <?php else: ?>
+                                    <div class="row-flow-attachment-list">
+                                        <?php foreach ($rowAttachments as $attachment): ?>
+                                        <div class="row-flow-attachment-item">
+                                            <div class="row-flow-attachment-head">
+                                                <span class="row-flow-attachment-type"><?php echo e((string)($attachment['category_label'] ?? 'Attachment')); ?></span>
+                                                <span class="row-flow-log-time"><?php echo e(format_dt((string)($attachment['uploaded_at'] ?? null))); ?></span>
+                                            </div>
+                                            <div class="row-flow-attachment-name"><?php echo e((string)($attachment['file_name'] ?? 'Attachment')); ?></div>
+                                            <?php if (trim((string)($attachment['uploaded_by'] ?? '')) !== ''): ?>
+                                            <div class="row-flow-attachment-meta">
+                                                Uploaded by: <?php echo e((string)$attachment['uploaded_by']); ?>
+                                                <?php if (trim((string)($attachment['uploaded_by_role'] ?? '')) !== ''): ?>
+                                                    (<?php echo e((string)$attachment['uploaded_by_role']); ?>)
                                                 <?php endif; ?>
                                             </div>
-                                            <?php endforeach; ?>
+                                            <?php endif; ?>
+                                            <?php
+                                                $previewType = strtolower(trim((string)($attachment['preview_type'] ?? 'none')));
+                                                $previewUrl = trim((string)($attachment['preview_url'] ?? ''));
+                                            ?>
+                                            <?php if ($previewUrl !== '' && $previewType === 'image'): ?>
+                                            <div class="row-flow-attachment-preview">
+                                                <img src="<?php echo e($previewUrl); ?>" alt="Attachment preview: <?php echo e((string)($attachment['file_name'] ?? 'Attachment')); ?>" loading="lazy">
+                                            </div>
+                                            <?php elseif ($previewUrl !== '' && $previewType === 'pdf'): ?>
+                                            <div class="row-flow-attachment-preview">
+                                                <iframe src="<?php echo e($previewUrl); ?>#toolbar=0&navpanes=0&scrollbar=0" title="PDF preview: <?php echo e((string)($attachment['file_name'] ?? 'Attachment')); ?>" loading="lazy"></iframe>
+                                            </div>
+                                            <?php else: ?>
+                                            <div class="row-flow-attachment-preview-empty">Preview unavailable for this file type.</div>
+                                            <?php endif; ?>
                                         </div>
-                                        <?php endif; ?>
-                                    <?php else: ?>
-                                    <div class="row-flow-attachment-empty">Login is required to view row attachments.</div>
+                                        <?php endforeach; ?>
+                                    </div>
                                     <?php endif; ?>
                                 </div>
                             </div>
+                            <?php endif; ?>
                         </div>
                         <?php endif; ?>
                     </div>
@@ -2485,7 +2483,7 @@ $layoutDefaultLogoPrintPx = 100;
                     </ul>
                 <?php endif; ?>
             <?php else: ?>
-                <p>Public view enabled: custody timeline is visible. Attachments and internal details require DENR login.</p>
+                <p>Public view enabled: attachments and previews are hidden to protect confidential files. Use an internal DENR account outside public mode to review attachment details.</p>
             <?php endif; ?>
             <p class="hint">Tracking Slip rows reflect custody receives and key workflow statuses (Signed/Completed and Released) from backend activity logs.</p>
         </div>

@@ -1,0 +1,19 @@
+name: Production Deploy Drift Check
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/30 * * * *"
+
+concurrency:
+  group: prod-deploy-drift-check
+  cancel-in-progress: true
+
+jobs:
+  drift_check:
+    runs-on: [self-hosted, Windows, prod]
+    steps:
+      - name: Check if production is behind main
+        shell: powershell
+        run: |
+          & "D:\www\dtmis\scripts\deploy\check-deploy-status.ps1"
