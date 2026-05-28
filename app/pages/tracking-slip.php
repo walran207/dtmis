@@ -335,6 +335,7 @@ $trackingId = trim((string)($_GET['tracking_id'] ?? ''));
 $publicMode = ((string)($_GET['public'] ?? '') === '1');
 $autoPrint = ((string)($_GET['autoprint'] ?? '') === '1');
 $error = '';
+$errorType = '';
 $document = null;
 $slips = [];
 $releaseEvents = [];
@@ -355,6 +356,7 @@ if ($trackingId === '') {
     $error = $publicMode
         ? 'Tracking ID is required.'
         : 'No documents found yet. Create a document first to generate a tracking slip.';
+    $errorType = $publicMode ? 'missing_tracking' : 'empty_documents';
 } else {
     try {
         $artaCategoryExpr = tracking_slip_arta_category_expr($pdo);
@@ -395,10 +397,11 @@ if ($trackingId === '') {
              WHERE d.tracking_id = :tracking_id'
         );
         $docStmt->execute(['tracking_id' => $trackingId]);
-        $document = $docStmt->fetch();
+        $document = $docStmt->fetch() ?: null;
 
-        if (!$document) {
+        if ($document === null) {
             $error = 'Tracking ID not found.';
+            $errorType = 'not_found';
         } else {
             $slipStmt = $pdo->prepare(
                 'SELECT
@@ -537,7 +540,14 @@ if ($trackingId === '') {
         }
     } catch (Throwable $exception) {
         $error = 'Unable to load tracking slip right now.';
+        $errorType = 'load_failed';
     }
+}
+
+if ($errorType === 'not_found' || $errorType === 'missing_tracking') {
+    http_response_code(404);
+} elseif ($errorType === 'load_failed') {
+    http_response_code(500);
 }
 
 if ($document) {
@@ -585,6 +595,36 @@ $qrText = $trackingId === ''
     : ($publicSlipLink !== '' ? $publicSlipLink : $trackingId);
 $packagePrintUrl = app_url('print-package.php')
     . ($trackingId !== '' ? '?tracking_id=' . rawurlencode($trackingId) . '&autoprint=1' : '');
+$hasPrintableSlip = ($document !== null && $error === '');
+$errorHeading = 'Tracking slip unavailable';
+$errorDescription = $error;
+$errorHint = '';
+
+if ($errorType === 'missing_tracking') {
+    $errorHeading = 'Tracking ID is required';
+    $errorDescription = $publicMode
+        ? 'Open this page with a valid tracking ID to view the public tracking slip.'
+        : 'Enter a tracking ID above to open a document tracking slip.';
+    $errorHint = $publicMode
+        ? 'Check the tracking link you received, then try again.'
+        : 'You can search from the dashboard and reopen the slip from the document actions.';
+} elseif ($errorType === 'empty_documents') {
+    $errorHeading = 'No tracking slips yet';
+    $errorDescription = 'There are no documents available to display right now.';
+    $errorHint = 'Create the first document in DTMIS to generate a tracking slip.';
+} elseif ($errorType === 'not_found') {
+    $errorHeading = 'Tracking ID not found';
+    $errorDescription = $trackingId !== ''
+        ? 'We could not find a document that matches tracking ID ' . $trackingId . '.'
+        : 'We could not find a document that matches the requested tracking ID.';
+    $errorHint = $publicMode
+        ? 'Please verify the tracking ID from your notice or email, then try the link again.'
+        : 'Check the tracking ID format or open the document from the dashboard list.';
+} elseif ($errorType === 'load_failed') {
+    $errorHeading = 'Tracking slip temporarily unavailable';
+    $errorDescription = 'The page could not load the tracking slip right now.';
+    $errorHint = 'Please try again in a moment. If the problem continues, check the server logs.';
+}
 
 // Build display rows by pairing each receive leg with its nearest route/release activity.
 $timelineRows = [];
@@ -1815,6 +1855,83 @@ $layoutDefaultLogoPrintPx = 100;
             padding: 10px 12px;
             font-size: 13px;
         }
+        .state-card {
+            width: min(794px, 100%);
+            margin: 0 auto;
+            padding: 22px 24px;
+            border-radius: 16px;
+            border: 1px solid rgba(148, 163, 184, 0.28);
+            background:
+                radial-gradient(circle at top right, rgba(96, 165, 250, 0.18), transparent 34%),
+                linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(15, 23, 42, 0.9));
+            box-shadow: 0 22px 55px rgba(15, 23, 42, 0.24);
+        }
+        .state-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 10px;
+            border-radius: 999px;
+            background: rgba(248, 113, 113, 0.14);
+            border: 1px solid rgba(248, 113, 113, 0.28);
+            color: #fecaca;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+        .state-card h1 {
+            margin: 14px 0 8px;
+            color: #f8fafc;
+            font-size: clamp(24px, 4vw, 34px);
+            line-height: 1.12;
+        }
+        .state-card p {
+            margin: 0;
+            max-width: 62ch;
+            color: #cbd5e1;
+            font-size: 15px;
+            line-height: 1.65;
+        }
+        .state-hint {
+            margin-top: 12px !important;
+            color: #93c5fd !important;
+            font-size: 14px !important;
+        }
+        .state-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 18px;
+        }
+        .state-actions a,
+        .state-actions button {
+            height: 40px;
+            border-radius: 10px;
+            padding: 0 14px;
+            border: 1px solid transparent;
+            font-size: 13px;
+            font-weight: 700;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+        .state-actions button {
+            background: #2f5fb4;
+            color: #fff;
+        }
+        .state-actions .state-secondary {
+            background: rgba(148, 163, 184, 0.12);
+            border-color: rgba(148, 163, 184, 0.35);
+            color: #e2e8f0;
+        }
+        .state-actions .state-ghost {
+            background: rgba(191, 219, 254, 0.1);
+            border-color: rgba(191, 219, 254, 0.28);
+            color: #bfdbfe;
+        }
 
         @media (max-width: 640px) {
             body {
@@ -1826,6 +1943,16 @@ $layoutDefaultLogoPrintPx = 100;
             }
             .layout-controls {
                 margin-left: 0;
+            }
+            .state-card {
+                padding: 18px;
+            }
+            .state-actions {
+                flex-direction: column;
+            }
+            .state-actions a,
+            .state-actions button {
+                width: 100%;
             }
             .slip-viewport {
                 overflow-x: auto;
@@ -2035,7 +2162,9 @@ $layoutDefaultLogoPrintPx = 100;
 <body>
     <div class="toolbar">
         <?php if ($publicMode): ?>
+        <?php if ($hasPrintableSlip): ?>
         <button type="button" class="print-btn" onclick="window.print()">Print Slip</button>
+        <?php endif; ?>
         <a class="login-link" href="<?php echo e(app_url('auth/login.php')); ?>">Login for Additional Details</a>
         <?php else: ?>
         <form method="get" action="">
@@ -2047,8 +2176,11 @@ $layoutDefaultLogoPrintPx = 100;
             <input type="text" name="tracking_id" value="<?php echo e($trackingId); ?>" placeholder="Enter Tracking ID (e.g., DENR-XII-2026-0001)">
             <button type="submit">Load Tracking Slip</button>
         </form>
+        <?php if ($hasPrintableSlip): ?>
         <button type="button" class="print-btn" onclick="window.print()">Print Slip</button>
         <a class="package-btn" href="<?php echo e($packagePrintUrl); ?>">Print Full Package</a>
+        <?php endif; ?>
+        <?php if ($hasPrintableSlip): ?>
         <div
             class="layout-controls"
             id="layoutControls"
@@ -2072,6 +2204,7 @@ $layoutDefaultLogoPrintPx = 100;
             </label>
             <button type="button" id="resetLayoutBtn" class="layout-reset-btn">Reset</button>
         </div>
+        <?php endif; ?>
         <?php if (!empty($releaseEvents)): ?>
         <div class="flow-details-wrap">
             <button type="button" class="flow-details-btn">Routing Flow Details</button>
@@ -2097,7 +2230,23 @@ $layoutDefaultLogoPrintPx = 100;
     </div>
 
     <?php if ($error !== ''): ?>
-    <div class="error"><?php echo e($error); ?></div>
+    <section class="state-card" aria-live="polite">
+        <div class="state-badge">Tracking Slip</div>
+        <h1><?php echo e($errorHeading); ?></h1>
+        <p><?php echo e($errorDescription); ?></p>
+        <?php if ($errorHint !== ''): ?>
+        <p class="state-hint"><?php echo e($errorHint); ?></p>
+        <?php endif; ?>
+        <div class="state-actions">
+            <?php if (!$publicMode): ?>
+            <button type="button" onclick="var input = document.querySelector('.toolbar input[name=&quot;tracking_id&quot;]'); if (input) { input.focus(); input.select(); }">Try Another Tracking ID</button>
+            <a class="state-secondary" href="<?php echo e(app_url('dashboard.php')); ?>">Return to Dashboard</a>
+            <?php else: ?>
+            <button type="button" onclick="if (window.history.length > 1) { window.history.back(); } else { window.location.href = '<?php echo e(app_public_url('tracking-slip.php')); ?>'; }">Go Back</button>
+            <a class="state-ghost" href="<?php echo e(app_url('auth/login.php')); ?>">Login to Search Internally</a>
+            <?php endif; ?>
+        </div>
+    </section>
     <?php elseif ($document): ?>
     <div class="slip-viewport" aria-label="Tracking slip viewport">
     <section class="slip-paper" aria-label="Document Action Tracking Slip">
