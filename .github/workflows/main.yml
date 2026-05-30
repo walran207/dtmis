@@ -16,6 +16,7 @@ jobs:
   deploy:
     if: ${{ github.event.inputs.confirm == 'DEPLOY' }}
     runs-on: [self-hosted, Windows, prod]
+    timeout-minutes: 10
     steps:
       - name: Run deploy script on production server
         shell: powershell
