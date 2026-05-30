@@ -229,11 +229,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <p class="portal-label">Document Tracking and Monitoring <br> Information System</p>
         </div>
 
-        <section class="apk-download-banner" aria-label="Mobile app download">
-            <p class="apk-download-label">DTMIS Mobile App</p>
-            <p class="apk-download-copy">Download the Android APK here for quick access on your phone.</p>
-            <a class="apk-download-link" href="<?= auth_e($apkDownloadUrl) ?>" download>Download DTMIS APK</a>
-        </section>
+        <div class="apk-download-inline">
+            <a
+                class="apk-download-fab"
+                href="<?= auth_e($apkDownloadUrl) ?>"
+                download
+                data-label="Download APK"
+                aria-describedby="apkDownloadHint"
+                aria-label="Download DTMIS Android APK"
+            >
+                <span class="apk-download-badge">APK</span>
+                <span class="apk-download-icon" aria-hidden="true">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 3v10"></path>
+                        <path d="m7 9 5 5 5-5"></path>
+                        <path d="M5 19h14"></path>
+                    </svg>
+                </span>
+            </a>
+            <p id="apkDownloadHint" class="apk-download-hint visually-hidden">Download the Android app</p>
+        </div>
 
         <?php if ($formError !== ''): ?>
             <p class="field-error form-error" role="alert"><?= auth_e($formError) ?></p>
